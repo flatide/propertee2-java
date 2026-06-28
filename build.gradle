@@ -1,0 +1,60 @@
+plugins {
+    id 'java'
+    id 'antlr'
+}
+
+group = 'com.flatide'
+version = '0.1.0-SNAPSHOT'
+
+// Baseline = Java 25 LTS, STABLE APIs ONLY. No --enable-preview anywhere (design §0.1).
+// StructuredTaskScope is still preview on JDK 25 (verified in the spike) so it is avoided;
+// virtual threads + ScopedValue are final and used directly.
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // ANTLR 4.9.3 is already in the local Gradle cache (offline-friendly); the generated
+    // parser is plain Java and compiles under JDK 25. The tool runs in the Gradle JVM.
+    antlr 'org.antlr:antlr4:4.9.3'
+    implementation 'org.antlr:antlr4-runtime:4.9.3'
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// Grammar stays at grammar/ProperTee.g4 (canonical, frozen — identical to v1).
+sourceSets {
+    main {
+        antlr {
+            srcDirs = ['grammar']
+        }
+    }
+}
+
+// Generate a typed VISITOR (the grammar uses labeled alternatives; the recursive
+// tree-walk interpreter in PB will subclass the generated base visitor). No listener.
+tasks.named('generateGrammarSource') {
+    arguments += ['-visitor', '-no-listener', '-package', 'com.flatide.propertee2.parser']
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    // Explicitly assert no preview flags are in play.
+    options.compilerArgs.removeAll(['--enable-preview'])
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events = ['passed', 'skipped', 'failed']
+        exceptionFormat = 'full'
+    }
+}

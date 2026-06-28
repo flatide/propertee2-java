@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `propertee2-java` is a **fully-cooperative runtime** for the [ProperTee](https://github.com/flatide/ProperTee) language. Its goal is to fundamentally resolve the eager seams left by the frozen [`propertee-java`](https://github.com/flatide/propertee-java) **v1.0.0** (Java 7/8, stepper-based) using **Java 21 virtual-thread (Project Loom) coroutines (Strategy B)**. **TeeBox** will consume this runtime once it stabilizes.
 
-> **Status: spike passed, pre-engine.** The repo holds the **assets needed to guarantee semantic equivalence with v1** (grammar, spec, fixtures, contract docs) plus a throwaway **spike** (`spike/`) that validated the cooperative model. The next task is the main implementation, starting at **PA** (design §10.1). See `docs/spike-findings.md`.
+> **Status: PA in progress (build + value model + parser landed; interpreter not yet).** The repo holds the v1-equivalence assets (grammar, spec, fixtures, contract docs), a throwaway **spike** (`spike/`) that validated the cooperative model (`docs/spike-findings.md`), and the start of the real engine: a JDK 25 Gradle build with ANTLR codegen, the `value/` model, a parser facade, and a PURE-builtin registry. Next: finish builtins, then the recursive interpreter (PB).
 
 ## Locked-in core decisions (agreed in a prior session — changing them requires justification)
 
@@ -44,34 +44,28 @@ Validated in `spike/` (run `spike/run.sh`; full writeup in `docs/spike-findings.
 
 > The spike is throwaway (no ANTLR / real builtins / value formatting) — it validates *scheduling* only. It uses `ThreadLocal<Fiber>` for self; production swaps to `ScopedValue` (§5).
 
-## Next task — main implementation (PA onward)
+## Main implementation — PA in progress
 
-- **PA.** JDK 25 Gradle skeleton (toolchain 25, no preview flags) + port grammar/builtins/value-model + import the `.tee/.expected` fixtures.
-- **PB.** Recursive interpreter (stepper removed).
-- **PC.** Coop runtime (baton, `sleep`, `yield`, `blocking`) + host-external `Coop.blocking` contract (§3.1); swap `ThreadLocal` → `ScopedValue`.
+- **PA (foundation done; builtins partial).** ✅ JDK 25 Gradle build (ANTLR visitor codegen, no preview flags), ✅ value model (`value/` — `TeeFormat` display+json, `Values`, `Result`, `TeeError`), ✅ parser facade + all-84-fixtures parse smoke test, ✅ PURE builtin registry (`builtin/Builtins`). **Remaining:** port the rest of the builtins (string-matching, array/sort, `JSON_PARSE`, `ENTRIES/MERGE`; host-gated + blocking land in PC/PD with `Coop.blocking`).
+- **PB.** Recursive interpreter (stepper removed) — subclass the generated `ProperTeeBaseVisitor`.
+- **PC.** Coop runtime (baton, `sleep`, `yield`, `blocking`) + host-external `Coop.blocking` contract (§3.1); use `ScopedValue` for per-fiber context (§5).
 - **PD.** `multi`/monitor — vthread executor + hand-rolled fork/join (STS encapsulated for later swap).
-- **PE.** Conformance (all `.expected` pass, deterministic ordering) + seam-timing tests + async-replay-removal test.
+- **PE.** Conformance — run each fixture, diff stdout vs `.expected` (hardcoded list in `conformance/Fixtures`, host injections per `docs/conformance-tests.md`), deterministic ordering + seam-timing + async-replay-removal tests.
 - **PF.** Docs/release (from 0.1.0).
 
-## Build/test (update once scaffolded)
+## Build/test
 
-**No Gradle or test runner yet.** Build/lint/test commands will be filled in here when the **JDK 25 toolchain** (no preview flags) Gradle skeleton is created in PA. Until then, conformance fixtures can only be run against the v1 runtime.
-
-Commands usable at the current (pre-implementation) stage:
+JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is registered machine-locally in `~/.gradle/gradle.properties` (`org.gradle.java.installations.paths`); on a fresh machine add a JDK 25 home there. Source layout is standard (`src/main/java`, `src/test/java`); the grammar stays at `grammar/ProperTee.g4` and the antlr plugin generates the visitor into `com.flatide.propertee2.parser`.
 
 ```bash
-# Check fixture-pair integrity (every .tee must have a .expected — currently 84 pairs)
-cd src/test/resources/tests && for f in *.tee; do [ -f "${f%.tee}.expected" ] || echo "MISSING: ${f%.tee}.expected"; done
-
-# Find fixtures for a specific scenario (e.g. multi/monitor/async)
-ls src/test/resources/tests/ | grep -E 'multi|monitor|thread|async'
-
-# Inspect a pair (input .tee ↔ expected output .expected)
-cat src/test/resources/tests/49_multi_result_collection.tee
-cat src/test/resources/tests/49_multi_result_collection.expected
+./gradlew build                 # compile + jar + all tests (JDK 25, no preview flags)
+./gradlew test                  # run the JUnit5 suite
+./gradlew test --tests 'com.flatide.propertee2.conformance.*'   # parser smoke over all 84 fixtures
+./gradlew test --tests '*TeeFormatTest'                          # one test class
+./gradlew generateGrammarSource # regenerate the ANTLR parser/visitor only
 ```
 
-> Fixtures are a **fixed baseline** copied from v1. `.expected` files are the correct answer **down to output order**, so never edit them (this is why the scheduler must be deterministic round-robin — design §6). The new engine conforms to the fixtures, not the other way around. For per-fixture semantics and host-injection caveats, see `docs/conformance-tests.md`.
+> Fixtures are a **fixed baseline** copied from v1. `.expected` files are the correct answer **down to output order**, so never edit them (this is why the scheduler must be deterministic round-robin — design §6). The new engine conforms to the fixtures, not the other way around. The conformance fixture list is hardcoded in `conformance/Fixtures` (v1 convention); per-fixture semantics and host-injection caveats are in `docs/conformance-tests.md`.
 
 ## Conventions (value semantics — identical to v1, never change)
 
