@@ -94,17 +94,25 @@ public final class Scheduler {
 
     // ---- baton transitions (called by the fiber holding the baton) -------
 
-    /** Coop.yield — fairness handoff (design §3, seam 3). */
+    /** Coop.yield — fairness handoff (design §3, seam 3). No-op when no other fiber is READY. */
     public void yield_() {
         Fiber me = SELF.get();
         lock.lock();
         try {
+            if (!anotherReady(me)) return;        // alone — keep the baton, skip a pointless handoff
             me.state = FiberState.READY;
             releaseAndPick(me);
         } finally {
             lock.unlock();
         }
         parkUntilRunning(me);
+    }
+
+    private boolean anotherReady(Fiber me) {
+        for (Fiber f : fibers) {
+            if (f != me && f.state == FiberState.READY) return true;
+        }
+        return false;
     }
 
     /** Coop.sleep — register wake time, release baton, park; the timer makes it READY (design §3, seam 1). */

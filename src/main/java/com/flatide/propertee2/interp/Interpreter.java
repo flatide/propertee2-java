@@ -28,11 +28,14 @@ public final class Interpreter {
 
     private final StringBuilder out;
     private final Coop coop;
-    private final Map<String, Object> globals = new LinkedHashMap<>();
+    private final Map<String, Object> globals = new LinkedHashMap<>();   // the program's top-level globals
     private final Map<String, Object> builtinProps;          // host-injected (-p), incl. _PROPS
     private final Map<String, UserFunction> functions = new LinkedHashMap<>();
-    private final Deque<Map<String, Object>> frames = new ArrayDeque<>(); // one per active function call
     private final Builtins builtins;
+
+    // Per-fiber execution state (frames, globals view, mode) — isolated across multi workers (§5).
+    private static final ScopedValue<ExecContext> CTX = ScopedValue.newInstance();
+    private ExecContext ec() { return CTX.get(); }
 
     public Interpreter(StringBuilder out, Map<String, Object> props, Coop coop, PlatformProvider platform) {
         this.out = out;
@@ -51,8 +54,12 @@ public final class Interpreter {
     }
 
     public void run(RootContext root) {
+        ScopedValue.where(CTX, ExecContext.normal(globals)).run(() -> execProgram(root));
+    }
+
+    private void execProgram(RootContext root) {
         try {
-            for (StatementContext s : root.statement()) exec(s);
+            for (StatementContext s : root.statement()) { exec(s); coop.yield_(); }
         } catch (Signals.Return r) {
             // top-level return: stop execution
         } catch (Signals.Break | Signals.Continue b) {
@@ -60,9 +67,9 @@ public final class Interpreter {
         }
     }
 
-    private boolean inFunction() { return !frames.isEmpty(); }
-    private Map<String, Object> localTop() { return frames.peek(); }
-    private Map<String, Object> currentScope() { return inFunction() ? localTop() : globals; }
+    private boolean inFunction() { return !ec().frames.isEmpty(); }
+    private Map<String, Object> localTop() { return ec().frames.peek(); }
+    private Map<String, Object> currentScope() { return inFunction() ? localTop() : ec().globalsView; }
 
     // ====================================================================
     // Statements
@@ -76,15 +83,20 @@ public final class Interpreter {
             case FuncDefStmtContext f  -> defineFunction(f.functionDef());
             case FlowStmtContext fl    -> execFlow(fl.flowControl());
             case ExprStmtContext e     -> eval(e.expression());
-            case ParallelExecStmtContext p -> throw err("multi blocks are not supported yet (PD)", p);
-            case SpawnExecStmtContext sp   -> throw err("thread can only be used inside multi blocks", sp);
+            case ParallelExecStmtContext p -> execMulti(p.parallelStmt());
+            case SpawnExecStmtContext sp   -> execSpawn(sp.spawnStmt());
             default -> throw err("unsupported statement", s);
         }
     }
 
+    /** Run a block, yielding at each statement boundary so multi workers interleave (design §6, §70). */
     private void execBlock(BlockContext block) {
-        for (StatementContext s : block.statement()) exec(s);
+        for (StatementContext s : block.statement()) { exec(s); coop.yield_(); }
     }
+
+    // --- multi/thread (PD-2 implements these) ---
+    private void execMulti(ParallelStmtContext m) { throw err("multi not yet implemented (PD-2)", m); }
+    private void execSpawn(SpawnStmtContext sp) { throw err("thread can only be used inside multi blocks", sp); }
 
     private void execAssign(AssignmentContext a) {
         Object value = eval(a.expression());
@@ -208,15 +220,30 @@ public final class Interpreter {
     // ====================================================================
 
     private void assign(LvalueContext lv, Object value) {
+        ExecContext c = ec();
+        if (c.mode == ExecContext.Mode.MONITOR) {
+            throw err("Cannot assign variables in monitor block (read-only)", lv);
+        }
+        if (c.mode == ExecContext.Mode.WORKER && rootLvalue(lv) instanceof GlobalVarLValueContext g) {
+            throw err("Cannot assign to global variable '::" + g.ID().getText() + "' inside multi block."
+                    + " Functions in multi blocks can only read global variables (via ::)"
+                    + " and write to local variables.", g);
+        }
         switch (lv) {
             case VarLValueContext v -> currentScope().put(v.ID().getText(), Values.deepCopy(value));
-            case GlobalVarLValueContext g -> globals.put(g.ID().getText(), Values.deepCopy(value));
+            case GlobalVarLValueContext g -> c.globalsView.put(g.ID().getText(), Values.deepCopy(value));
             case PropLValueContext p -> {
                 Object container = resolveContainer(p.lvalue());
                 setMember(container, p.access(), value, p);
             }
             default -> throw err("unsupported assignment target", lv);
         }
+    }
+
+    /** Leftmost lvalue of an assignment chain (e.g. the {@code ::obj} root of {@code ::obj.a.b}). */
+    private LvalueContext rootLvalue(LvalueContext lv) {
+        while (lv instanceof PropLValueContext p) lv = p.lvalue();
+        return lv;
     }
 
     /** The ACTUAL (non-copied) container an lvalue refers to, so nested mutation persists. */
@@ -230,26 +257,28 @@ public final class Interpreter {
     }
 
     private Object varActual(String name, ParserRuleContext ctx) {
-        if (inFunction()) {
+        ExecContext c = ec();
+        if (!c.frames.isEmpty()) {
             Map<String, Object> frame = frameContaining(name);
             if (frame != null) return frame.get(name);
             throw err("Variable '" + name + "' is not defined in local scope. Use ::" + name
                     + " to access the global variable.", ctx);
         }
-        if (globals.containsKey(name)) return globals.get(name);
+        if (c.globalsView.containsKey(name)) return c.globalsView.get(name);
         if (builtinProps.containsKey(name)) return promoteProp(name);
         throw err("Variable '" + name + "' is not defined", ctx);
     }
 
     private Object globalActual(String name, ParserRuleContext ctx) {
-        if (globals.containsKey(name)) return globals.get(name);
+        ExecContext c = ec();
+        if (c.globalsView.containsKey(name)) return c.globalsView.get(name);
         if (builtinProps.containsKey(name)) return promoteProp(name);
         throw err("Variable '" + name + "' is not defined", ctx);
     }
 
     /** Innermost-first search of active call frames (dynamic local scope, LANGUAGE.md §Lookup Order). */
     private Map<String, Object> frameContaining(String name) {
-        for (Map<String, Object> frame : frames) {   // ArrayDeque iterates head(innermost) -> tail(outermost)
+        for (Map<String, Object> frame : ec().frames) {   // ArrayDeque iterates head(innermost) -> tail(outermost)
             if (frame.containsKey(name)) return frame;
         }
         return null;
@@ -258,11 +287,11 @@ public final class Interpreter {
     /**
      * Built-in properties are READ-ONLY (LANGUAGE.md §Built-in Properties). The first write through
      * a property copies it into a global that then takes precedence in the lookup chain — the host
-     * snapshot is never mutated in place.
+     * snapshot is never mutated in place. (Only reached in NORMAL mode; worker ::-writes error first.)
      */
     private Object promoteProp(String name) {
         Object copy = Values.deepCopy(builtinProps.get(name));
-        globals.put(name, copy);
+        ec().globalsView.put(name, copy);
         return copy;
     }
 
@@ -417,19 +446,28 @@ public final class Interpreter {
     // ---- variables ---------------------------------------------------------
 
     private Object lookupVar(String name, ParserRuleContext ctx) {
-        if (inFunction()) {
+        ExecContext c = ec();
+        if (c.mode == ExecContext.Mode.MONITOR) {
+            // monitor scope: injected result var, then globals (snapshot), then built-in properties
+            if (c.injected != null && c.injected.containsKey(name)) return c.injected.get(name);
+            if (c.globalsView.containsKey(name)) return c.globalsView.get(name);
+            if (builtinProps.containsKey(name)) return builtinProps.get(name);
+            throw err("Variable '" + name + "' is not defined", ctx);
+        }
+        if (!c.frames.isEmpty()) {
             Map<String, Object> frame = frameContaining(name);   // innermost-first across nested calls
             if (frame != null) return frame.get(name);
             throw err("Variable '" + name + "' is not defined in local scope. Use ::" + name
                     + " to access the global variable.", ctx);
         }
-        if (globals.containsKey(name)) return globals.get(name);
+        if (c.globalsView.containsKey(name)) return c.globalsView.get(name);
         if (builtinProps.containsKey(name)) return builtinProps.get(name);
         throw err("Variable '" + name + "' is not defined", ctx);
     }
 
     private Object lookupGlobal(String name, ParserRuleContext ctx) {
-        if (globals.containsKey(name)) return globals.get(name);
+        ExecContext c = ec();
+        if (c.globalsView.containsKey(name)) return c.globalsView.get(name);   // snapshot in WORKER/MONITOR
         if (builtinProps.containsKey(name)) return builtinProps.get(name);
         throw err("Variable '" + name + "' is not defined", ctx);
     }
@@ -437,14 +475,17 @@ public final class Interpreter {
     // ---- function calls ----------------------------------------------------
 
     private Object callFunction(FunctionCallContext fc) {
-        String name = fc.funcName.getText();
         List<Object> args = new ArrayList<>();
         for (ExpressionContext arg : fc.expression()) args.add(eval(arg));
+        return invokeNamed(fc.funcName.getText(), args, fc);
+    }
 
+    /** Dispatch a call by name with already-evaluated args (shared by direct calls and multi workers). */
+    private Object invokeNamed(String name, List<Object> args, ParserRuleContext ctx) {
         UserFunction fn = functions.get(name);
-        if (fn != null) return callUser(fn, args, fc);
+        if (fn != null) return callUser(fn, args, ctx);
         if (name.equals("PRINT")) return doPrint(args);
-        if (name.equals("SLEEP")) return doSleep(args, fc);
+        if (name.equals("SLEEP")) return doSleep(args, ctx);
         if (builtins.has(name)) {
             Builtins.Kind kind = builtins.kindOf(name);
             try {
@@ -455,10 +496,10 @@ public final class Interpreter {
                 }
                 return builtins.invokeRaw(name, args);
             } catch (TeeError e) {
-                throw e.at(fc.getStart().getLine(), fc.getStart().getCharPositionInLine());
+                throw e.at(ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
             }
         }
-        throw err("Unknown function '" + name + "'", fc);
+        throw err("Unknown function '" + name + "'", ctx);
     }
 
     private Object callUser(UserFunction fn, List<Object> args, ParserRuleContext ctx) {
@@ -470,21 +511,21 @@ public final class Interpreter {
         for (int i = 0; i < fn.params().size(); i++) {
             frame.put(fn.params().get(i), i < args.size() ? Values.deepCopy(args.get(i)) : Values.emptyObject());
         }
-        frames.push(frame);
+        ec().frames.push(frame);
         try {
             execBlock(fn.body());
             return Values.emptyObject();          // no explicit return -> {}
         } catch (Signals.Return r) {
             return r.value;
         } finally {
-            frames.pop();
+            ec().frames.pop();
         }
     }
 
     /** SLEEP(ms) — cooperative pause (design §3, seam 1). Releases the baton so other fibers advance. */
-    private Object doSleep(List<Object> args, FunctionCallContext fc) {
+    private Object doSleep(List<Object> args, ParserRuleContext ctx) {
         if (args.isEmpty() || !Values.isNumber(args.get(0))) {
-            throw err("SLEEP() requires a numeric millisecond argument", fc);
+            throw err("SLEEP() requires a numeric millisecond argument", ctx);
         }
         coop.sleep((long) Values.toDouble(args.get(0)));
         return Values.emptyObject();
