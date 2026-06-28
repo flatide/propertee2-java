@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `propertee2-java` is a **fully-cooperative runtime** for the [ProperTee](https://github.com/flatide/ProperTee) language. Its goal is to fundamentally resolve the eager seams left by the frozen [`propertee-java`](https://github.com/flatide/propertee-java) **v1.0.0** (Java 7/8, stepper-based) using **Java 21 virtual-thread (Project Loom) coroutines (Strategy B)**. **TeeBox** will consume this runtime once it stabilizes.
 
-> **Status: PA in progress (build + value model + parser landed; interpreter not yet).** The repo holds the v1-equivalence assets (grammar, spec, fixtures, contract docs), a throwaway **spike** (`spike/`) that validated the cooperative model (`docs/spike-findings.md`), and the start of the real engine: a JDK 25 Gradle build with ANTLR codegen, the `value/` model, a parser facade, and a PURE-builtin registry. Next: finish builtins, then the recursive interpreter (PB).
+> **Status: PA done; interpreter (PB) next.** The repo holds the v1-equivalence assets (grammar, spec, fixtures, contract docs), a throwaway **spike** (`spike/`) that validated the cooperative model (`docs/spike-findings.md`), and the PA foundation of the real engine: a JDK 25 Gradle build with ANTLR codegen, the `value/` model, a parser facade, and the full PURE-builtin catalog. Next: the recursive tree-walk interpreter (PB).
 
 ## Locked-in core decisions (agreed in a prior session — changing them requires justification)
 
@@ -44,9 +44,9 @@ Validated in `spike/` (run `spike/run.sh`; full writeup in `docs/spike-findings.
 
 > The spike is throwaway (no ANTLR / real builtins / value formatting) — it validates *scheduling* only. It uses `ThreadLocal<Fiber>` for self; production swaps to `ScopedValue` (§5).
 
-## Main implementation — PA in progress
+## Main implementation — PA done, PB next
 
-- **PA (foundation done; builtins partial).** ✅ JDK 25 Gradle build (ANTLR visitor codegen, no preview flags), ✅ value model (`value/` — `TeeFormat` display+json, `Values`, `Result`, `TeeError`), ✅ parser facade + all-84-fixtures parse smoke test, ✅ PURE builtin registry (`builtin/Builtins`). **Remaining:** port the rest of the builtins (string-matching, array/sort, `JSON_PARSE`, `ENTRIES/MERGE`; host-gated + blocking land in PC/PD with `Coop.blocking`).
+- **PA done.** ✅ JDK 25 Gradle build (ANTLR visitor codegen, no preview flags), ✅ value model (`value/` — `TeeFormat` display+json, `Values`, `Result`, `TeeError`, `JsonParser`), ✅ parser facade + all-84-fixtures parse smoke test, ✅ full PURE builtin catalog (`builtin/Builtins` — math/type/string/string-matching/array+sort/object/JSON/timing) with return-type & error-message fidelity. HOST_GATED (`ENV`, file I/O) and BLOCKING (`SHELL`, `HTTP*`) builtins are deliberately deferred to PC/PD where they get the `Coop.blocking` contract.
 - **PB.** Recursive interpreter (stepper removed) — subclass the generated `ProperTeeBaseVisitor`.
 - **PC.** Coop runtime (baton, `sleep`, `yield`, `blocking`) + host-external `Coop.blocking` contract (§3.1); use `ScopedValue` for per-fiber context (§5).
 - **PD.** `multi`/monitor — vthread executor + hand-rolled fork/join (STS encapsulated for later swap).

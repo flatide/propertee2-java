@@ -1,13 +1,22 @@
 package com.flatide.propertee2.builtin;
 
+import com.flatide.propertee2.value.JsonParser;
+import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeFormat;
 import com.flatide.propertee2.value.Values;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * The built-in function registry and dispatch (value-model-and-builtins.md §9;
@@ -20,10 +29,14 @@ import java.util.Map;
  *   <li>{@link Kind#BLOCKING} — {@code SHELL}, {@code HTTP*}.</li>
  * </ul>
  *
- * <p>PA ports the PURE core (below) so the value model is exercised end-to-end. HOST_GATED
- * and BLOCKING builtins are registered in PC/PD where they are wrapped in {@code Coop.blocking}
- * (the "release baton → block → re-acquire" contract, design §3.1); calling one before then
- * fails loudly rather than silently blocking the scheduler.
+ * <p>PA ports the entire PURE catalog (math / type / string / string-matching / array+sort /
+ * object / JSON / timing). HOST_GATED and BLOCKING builtins are registered in PC/PD where they
+ * are wrapped in {@code Coop.blocking} (the "release baton → block → re-acquire" contract,
+ * design §3.1); calling one before then fails loudly rather than silently halting the scheduler.
+ *
+ * <p>Return-type fidelity matters for output (Integer vs Double): {@code FLOOR}/{@code CEIL}/
+ * {@code ROUND} return Integer; {@code SUM} stays Integer when all inputs are integers. Error
+ * message strings are byte-exact where fixtures assert them (e.g. SORT errors — 67_sort_errors).
  */
 public final class Builtins {
 
@@ -54,13 +67,16 @@ public final class Builtins {
         return e.fn().invoke(args);
     }
 
-    /** Registry pre-loaded with the PURE built-ins ported in PA. */
+    /** Registry pre-loaded with the full PURE catalog ported in PA. */
     public static Builtins standard() {
         Builtins b = new Builtins();
         registerMath(b);
         registerTypeAndString(b);
+        registerStringMatching(b);
+        registerArray(b);
         registerObject(b);
         registerJson(b);
+        registerTiming(b);
         return b;
     }
 
@@ -119,19 +135,140 @@ public final class Builtins {
         b.register("UPPERCASE", Kind.PURE, args -> string("UPPERCASE", arg("UPPERCASE", args, 0)).toUpperCase());
         b.register("LOWERCASE", Kind.PURE, args -> string("LOWERCASE", arg("LOWERCASE", args, 0)).toLowerCase());
         b.register("TRIM",      Kind.PURE, args -> string("TRIM", arg("TRIM", args, 0)).trim());
+
+        // SUBSTRING(s, start, [length]) — start is 1-based; 3rd arg is LENGTH (13_strings).
+        b.register("SUBSTRING", Kind.PURE, args -> {
+            String s = string("SUBSTRING", arg("SUBSTRING", args, 0));
+            int from = clamp((int) intArg("SUBSTRING", args, 1) - 1, 0, s.length());
+            int to = args.size() > 2 ? clamp(from + (int) intArg("SUBSTRING", args, 2), from, s.length()) : s.length();
+            return s.substring(from, to);
+        });
+        // SPLIT preserves trailing empty strings; delimiter is literal.
+        b.register("SPLIT", Kind.PURE, args -> {
+            String s = string("SPLIT", arg("SPLIT", args, 0));
+            String delim = string("SPLIT", arg("SPLIT", args, 1));
+            List<Object> out = new ArrayList<>();
+            for (String part : s.split(Pattern.quote(delim), -1)) out.add(part);
+            return out;
+        });
+        b.register("JOIN", Kind.PURE, args -> {
+            List<Object> arr = array("JOIN", arg("JOIN", args, 0));
+            String sep = args.size() > 1 ? string("JOIN", arg("JOIN", args, 1)) : "";
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < arr.size(); i++) {
+                if (i > 0) sb.append(sep);
+                sb.append(TeeFormat.display(arr.get(i)));
+            }
+            return sb.toString();
+        });
+        b.register("CHARS", Kind.PURE, args -> {
+            String s = string("CHARS", arg("CHARS", args, 0));
+            List<Object> out = new ArrayList<>(s.length());
+            for (int i = 0; i < s.length(); i++) out.add(String.valueOf(s.charAt(i)));
+            return out;
+        });
     }
 
-    private static Object toNumber(String s) {
-        String t = s.trim();
-        try {
-            return Integer.valueOf(t);
-        } catch (NumberFormatException ignored) {
-            try {
-                return Double.valueOf(t);
-            } catch (NumberFormatException e) {
-                throw new TeeError("Cannot convert '" + s + "' to number");
+    private static void registerStringMatching(Builtins b) {
+        b.register("CONTAINS",    Kind.PURE, args -> { Pair p = str2("CONTAINS", args); return p.left.contains(p.right); });
+        b.register("STARTS_WITH", Kind.PURE, args -> { Pair p = str2("STARTS_WITH", args); return p.left.startsWith(p.right); });
+        b.register("ENDS_WITH",   Kind.PURE, args -> { Pair p = str2("ENDS_WITH", args); return p.left.endsWith(p.right); });
+        b.register("MATCHES", Kind.PURE, args -> {
+            Pair p = str2("MATCHES", args);
+            return compile("MATCHES", p.right).matcher(p.left).find();
+        });
+        // REGEX_FIND -> [fullMatch, group1, ...] 1-based; no match -> {}; unmatched group -> {} (81_string_matching).
+        b.register("REGEX_FIND", Kind.PURE, args -> {
+            Pair p = str2("REGEX_FIND", args);
+            Matcher m = compile("REGEX_FIND", p.right).matcher(p.left);
+            if (!m.find()) return Values.emptyObject();
+            List<Object> out = new ArrayList<>(m.groupCount() + 1);
+            for (int g = 0; g <= m.groupCount(); g++) {
+                String grp = m.group(g);
+                out.add(grp == null ? Values.emptyObject() : grp);
+            }
+            return out;
+        });
+        b.register("REPLACE", Kind.PURE, args -> {
+            String s = string("REPLACE", arg("REPLACE", args, 0));
+            String target = string("REPLACE", arg("REPLACE", args, 1));
+            String repl = string("REPLACE", arg("REPLACE", args, 2));
+            return s.replace(target, repl); // literal, replace-all
+        });
+    }
+
+    // ---- Array -------------------------------------------------------------
+
+    private static void registerArray(Builtins b) {
+        b.register("PUSH", Kind.PURE, args -> {
+            List<Object> out = copyArray("PUSH", arg("PUSH", args, 0));
+            for (int i = 1; i < args.size(); i++) out.add(Values.deepCopy(args.get(i)));
+            return out;
+        });
+        b.register("POP", Kind.PURE, args -> {
+            List<Object> out = copyArray("POP", arg("POP", args, 0));
+            if (!out.isEmpty()) out.remove(out.size() - 1);
+            return out;
+        });
+        b.register("CONCAT", Kind.PURE, args -> {
+            List<Object> out = new ArrayList<>();
+            for (Object a : args) for (Object e : array("CONCAT", a)) out.add(Values.deepCopy(e));
+            return out;
+        });
+        // SLICE(arr, start, [end]) — start is 1-based; end is the 0-based exclusive bound (11_arrays).
+        b.register("SLICE", Kind.PURE, args -> {
+            List<Object> arr = array("SLICE", arg("SLICE", args, 0));
+            int from = clamp((int) intArg("SLICE", args, 1) - 1, 0, arr.size());
+            int to = args.size() > 2 ? clamp((int) intArg("SLICE", args, 2), from, arr.size()) : arr.size();
+            List<Object> out = new ArrayList<>(to - from);
+            for (int i = from; i < to; i++) out.add(Values.deepCopy(arr.get(i)));
+            return out;
+        });
+        b.register("SORT",      Kind.PURE, args -> sortScalar("SORT", arg("SORT", args, 0), false));
+        b.register("SORT_DESC", Kind.PURE, args -> sortScalar("SORT_DESC", arg("SORT_DESC", args, 0), true));
+        b.register("SORT_BY",      Kind.PURE, args -> sortBy(arg("SORT_BY", args, 0), string("SORT_BY", arg("SORT_BY", args, 1)), false));
+        b.register("SORT_BY_DESC", Kind.PURE, args -> sortBy(arg("SORT_BY_DESC", args, 0), string("SORT_BY_DESC", arg("SORT_BY_DESC", args, 1)), true));
+        b.register("REVERSE", Kind.PURE, args -> {
+            List<Object> out = copyArray("REVERSE", arg("REVERSE", args, 0)); // no type restriction
+            java.util.Collections.reverse(out);
+            return out;
+        });
+    }
+
+    private static List<Object> sortScalar(String fn, Object v, boolean desc) {
+        if (!(v instanceof List)) throw new TeeError(fn + "() requires an array argument");
+        List<Object> out = copyArray(fn, v);
+        if (out.isEmpty()) return out;
+        boolean allNum = out.stream().allMatch(Values::isNumber);
+        boolean allStr = out.stream().allMatch(e -> e instanceof String);
+        if (!allNum && !allStr) {
+            throw new TeeError("SORT() requires all elements to be the same type (number or string)");
+        }
+        out.sort((x, y) -> allNum ? Double.compare(Values.toDouble(x), Values.toDouble(y))
+                                  : ((String) x).compareTo((String) y));
+        if (desc) java.util.Collections.reverse(out);
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> sortBy(Object v, String key, boolean desc) {
+        if (!(v instanceof List)) throw new TeeError("SORT_BY() requires an array argument");
+        List<Object> out = copyArray("SORT_BY", v);
+        for (int i = 0; i < out.size(); i++) {
+            Object e = out.get(i);
+            if (!(e instanceof Map) || !((Map<String, Object>) e).containsKey(key)) {
+                throw new TeeError("Property '" + key + "' does not exist in array element at index " + (i + 1));
             }
         }
+        out.sort((a, c) -> {
+            Object ka = ((Map<String, Object>) a).get(key);
+            Object kc = ((Map<String, Object>) c).get(key);
+            int cmp = (Values.isNumber(ka) && Values.isNumber(kc))
+                    ? Double.compare(Values.toDouble(ka), Values.toDouble(kc))
+                    : String.valueOf(ka).compareTo(String.valueOf(kc));
+            return desc ? -cmp : cmp;
+        });
+        return out;
     }
 
     // ---- Object ------------------------------------------------------------
@@ -144,18 +281,69 @@ public final class Builtins {
             for (Object v : m.values()) out.add(Values.deepCopy(v));
             return out;
         });
-        b.register("HAS_KEY", Kind.PURE, args -> {
-            Map<String, Object> m = object("HAS_KEY", arg("HAS_KEY", args, 0));
-            String key = string("HAS_KEY", arg("HAS_KEY", args, 1));
-            return m.containsKey(key);
+        b.register("HAS_KEY", Kind.PURE, args -> object("HAS_KEY", arg("HAS_KEY", args, 0))
+                .containsKey(string("HAS_KEY", arg("HAS_KEY", args, 1))));
+        // ENTRIES -> [ {"key":k, "value":v}, ... ] in insertion order (82_map_extensions).
+        b.register("ENTRIES", Kind.PURE, args -> {
+            Map<String, Object> m = object("ENTRIES", arg("ENTRIES", args, 0));
+            List<Object> out = new ArrayList<>(m.size());
+            for (Map.Entry<String, Object> e : m.entrySet()) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("key", e.getKey());
+                entry.put("value", Values.deepCopy(e.getValue()));
+                out.add(entry);
+            }
+            return out;
         });
+        b.register("MERGE", Kind.PURE, args -> {
+            Map<String, Object> out = new LinkedHashMap<>();
+            copyInto(out, object("MERGE", arg("MERGE", args, 0)));
+            copyInto(out, object("MERGE", arg("MERGE", args, 1))); // second overrides first
+            return out;
+        });
+        b.register("REMOVE_KEY", Kind.PURE, args -> {
+            Map<String, Object> src = object("REMOVE_KEY", arg("REMOVE_KEY", args, 0));
+            String key = string("REMOVE_KEY", arg("REMOVE_KEY", args, 1));
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Map.Entry<String, Object> e : src.entrySet()) {
+                if (!e.getKey().equals(key)) out.put(e.getKey(), Values.deepCopy(e.getValue()));
+            }
+            return out;
+        });
+    }
+
+    private static void copyInto(Map<String, Object> dst, Map<String, Object> src) {
+        for (Map.Entry<String, Object> e : src.entrySet()) dst.put(e.getKey(), Values.deepCopy(e.getValue()));
     }
 
     // ---- JSON --------------------------------------------------------------
 
     private static void registerJson(Builtins b) {
         b.register("JSON_FORMAT", Kind.PURE, args -> TeeFormat.json(arg("JSON_FORMAT", args, 0)));
-        // JSON_PARSE returns a Result and has intricate edge semantics (null -> {}); ported with its fixture in PE.
+        b.register("JSON_PARSE", Kind.PURE, args -> {
+            String s = string("JSON_PARSE", arg("JSON_PARSE", args, 0));
+            try {
+                return Result.ok(JsonParser.parse(s));
+            } catch (TeeError e) {
+                return Result.error(e.getMessage());
+            }
+        });
+    }
+
+    // ---- Timing (non-blocking; nondeterministic — baton-safe, so PURE) -----
+
+    private static void registerTiming(Builtins b) {
+        b.register("RANDOM", Kind.PURE, args -> {
+            if (args.isEmpty()) return Math.random();                 // [0.0, 1.0)
+            int max = (int) intArg("RANDOM", args, 0);
+            if (args.size() == 1) return (int) (Math.random() * max); // 0 .. max-1
+            int lo = max;
+            int hi = (int) intArg("RANDOM", args, 1);
+            return lo + (int) (Math.random() * (hi - lo + 1));        // lo .. hi inclusive
+        });
+        b.register("MILTIME", Kind.PURE, args -> (double) System.currentTimeMillis()); // epoch millis exceed int range
+        b.register("DATE", Kind.PURE, args -> LocalDate.now().toString());              // yyyy-MM-dd
+        b.register("TIME", Kind.PURE, args -> LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
     }
 
     // ---- arg helpers -------------------------------------------------------
@@ -170,6 +358,10 @@ public final class Builtins {
         return v;
     }
 
+    private static double intArg(String fn, List<Object> args, int i) {
+        return Values.toDouble(number(fn, arg(fn, args, i)));
+    }
+
     private static String string(String fn, Object v) {
         if (!(v instanceof String s)) throw new TeeError(fn + "() requires a string argument");
         return s;
@@ -179,5 +371,47 @@ public final class Builtins {
     private static Map<String, Object> object(String fn, Object v) {
         if (!(v instanceof Map)) throw new TeeError(fn + "() requires an object argument");
         return (Map<String, Object>) v;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> array(String fn, Object v) {
+        if (!(v instanceof List)) throw new TeeError(fn + "() requires an array argument");
+        return (List<Object>) v;
+    }
+
+    private static List<Object> copyArray(String fn, Object v) {
+        List<Object> src = array(fn, v);
+        List<Object> out = new ArrayList<>(src.size());
+        for (Object e : src) out.add(Values.deepCopy(e));
+        return out;
+    }
+
+    private static int clamp(int x, int lo, int hi) { return Math.max(lo, Math.min(hi, x)); }
+
+    private static Pattern compile(String fn, String pattern) {
+        try {
+            return Pattern.compile(pattern);
+        } catch (PatternSyntaxException e) {
+            throw new TeeError(fn + "() invalid regex pattern: " + pattern);
+        }
+    }
+
+    private record Pair(String left, String right) {}
+
+    private static Pair str2(String fn, List<Object> args) {
+        return new Pair(string(fn, arg(fn, args, 0)), string(fn, arg(fn, args, 1)));
+    }
+
+    private static Object toNumber(String s) {
+        String t = s.trim();
+        try {
+            return Integer.valueOf(t);
+        } catch (NumberFormatException ignored) {
+            try {
+                return Double.valueOf(t);
+            } catch (NumberFormatException e) {
+                throw new TeeError("Cannot convert '" + s + "' to number");
+            }
+        }
     }
 }
