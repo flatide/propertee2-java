@@ -1,7 +1,10 @@
 package com.flatide.propertee2.interp;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -43,6 +46,44 @@ class InterpreterTest {
     @Test void globalShadowsBuiltinProperty() {
         String out = engine.run("PRINT(width)\nwidth = 5\nPRINT(width)\n", Map.of("width", 100));
         assertEquals("100\n5\n", out);
+    }
+
+    /** A worker that leaks a non-error control-flow signal must yield an error result, never stay "running". */
+    @Test void workerLeakingControlFlowYieldsErrorNotRunning() {
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            String out = engine.run("""
+                    function w() do
+                        break
+                        return 1
+                    end
+                    multi r do
+                        thread t: w()
+                    end
+                    PRINT(r.t.status)
+                    PRINT(r.t.ok)
+                    """);
+            assertTrue(out.contains("error"), out);   // not stuck "running"
+            assertTrue(out.contains("false"), out);
+        });
+    }
+
+    /** A monitor body that leaks a control-flow signal must not park the parent forever. */
+    @Test void monitorLeakingControlFlowDoesNotHang() {
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            String out = engine.run("""
+                    function slow() do
+                        SLEEP(30)
+                        return
+                    end
+                    multi r do
+                        thread t: slow()
+                    monitor 10
+                        break
+                    end
+                    PRINT("done")
+                    """);
+            assertTrue(out.contains("done"), out);
+        });
     }
 
     /** Writing through a property must not mutate the read-only host snapshot across runs. */

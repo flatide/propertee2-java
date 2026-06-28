@@ -113,9 +113,9 @@ public final class Interpreter {
         String key = k.access() != null ? objectKey(k.access()) : "";     // no key or "" -> unnamed (#N)
         if (key.isEmpty()) {
             // auto-key conflicts report at the function-call position (61_duplicate_auto_key)
-            builder.addUnnamed(funcName, args, fc.getStart().getLine(), fc.getStart().getCharPositionInLine());
+            builder.addUnnamed(funcName, args, fc, fc.getStart().getLine(), fc.getStart().getCharPositionInLine());
         } else {
-            builder.addNamed(key, funcName, args, sp.getStart().getLine(), sp.getStart().getCharPositionInLine());
+            builder.addNamed(key, funcName, args, fc, sp.getStart().getLine(), sp.getStart().getCharPositionInLine());
         }
     }
 
@@ -160,9 +160,10 @@ public final class Interpreter {
         for (MultiBuilder.Pending p : pending) {
             s.spawn(p.key(), () -> ScopedValue.where(CTX, ExecContext.worker(snapshot)).run(() -> {
                 try {
-                    collection.put(p.key(), Result.ok(invokeNamed(p.funcName(), p.args(), m)));
-                } catch (TeeError e) {
-                    String pos = e.positioned();
+                    collection.put(p.key(), Result.ok(invokeNamed(p.funcName(), p.args(), p.call())));
+                } catch (RuntimeException e) {
+                    // TeeError, or a stray control-flow signal / other failure: never leave the entry "running"
+                    String pos = failureText(e);
                     out.append("[THREAD ERROR] ").append(pos).append('\n');
                     collection.put(p.key(), Result.error(pos));
                 } finally {
@@ -177,18 +178,21 @@ public final class Interpreter {
             long interval = Long.parseLong(mc.INTEGER().getText());
             String resultVarName = m.resultVar != null ? m.resultVar.getText() : null;
             s.spawn("monitor", () -> {
-                Map<String, Object> injected = new LinkedHashMap<>();
-                if (resultVarName != null) injected.put(resultVarName, collection);
-                Runnable tick = () -> ScopedValue.where(CTX, ExecContext.monitor(snapshot, injected)).run(() -> {
-                    try {
-                        execBlock(mc.block());
-                    } catch (TeeError e) {
-                        out.append("[MONITOR ERROR] ").append(e.positioned()).append('\n');
-                        throw e;
-                    }
-                });
-                runMonitor(interval, remaining, tick);
-                signalParent.run();
+                try {
+                    Map<String, Object> injected = new LinkedHashMap<>();
+                    if (resultVarName != null) injected.put(resultVarName, collection);
+                    Runnable tick = () -> ScopedValue.where(CTX, ExecContext.monitor(snapshot, injected)).run(() -> {
+                        try {
+                            execBlock(mc.block());
+                        } catch (TeeError e) {
+                            out.append("[MONITOR ERROR] ").append(e.positioned()).append('\n');
+                            throw e;
+                        }
+                    });
+                    runMonitor(interval, remaining, tick);
+                } finally {
+                    signalParent.run();   // always release the parent, even if a monitor tick threw
+                }
             });
         }
 
@@ -208,16 +212,23 @@ public final class Interpreter {
             if (!aborted) {
                 try {
                     tick.run();
-                } catch (TeeError e) {
-                    aborted = true;   // already printed inside tick; stop mid-ticking
+                } catch (RuntimeException e) {   // TeeError (already printed) or stray control-flow/runtime
+                    aborted = true;              // stop mid-ticking
                 }
             }
         }
         try {
-            tick.run();               // final tick, once, after all workers are done
-        } catch (TeeError ignored) {
-            // already printed inside tick
+            tick.run();                          // final tick, once, after all workers are done
+        } catch (RuntimeException ignored) {
+            // already printed inside tick (for TeeError); otherwise just end the monitor cleanly
         }
+    }
+
+    /** Render a worker/monitor failure as a result/error string (positionless for non-interpreter failures). */
+    private static String failureText(RuntimeException e) {
+        if (e instanceof TeeError te) return te.positioned();
+        String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        return "Runtime Error: " + msg;
     }
 
     private void execAssign(AssignmentContext a) {
