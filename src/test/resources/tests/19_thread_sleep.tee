@@ -1,0 +1,22 @@
+// Test: SLEEP in threads - sleeping thread doesn't block others
+function sleeper() do
+    PRINT("sleeper: before sleep")
+    SLEEP(100)
+    PRINT("sleeper: after sleep")
+    return "slept"
+end
+
+function runner() do
+    PRINT("runner: step 1")
+    PRINT("runner: step 2")
+    PRINT("runner: step 3")
+    return "ran"
+end
+
+multi result do
+    thread r1: sleeper()
+    thread r2: runner()
+end
+
+PRINT("r1=" + result.r1.value)
+PRINT("r2=" + result.r2.value)

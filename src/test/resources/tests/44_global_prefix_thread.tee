@@ -1,0 +1,13 @@
+// Test: :: read in function inside multi block (reads from global snapshot)
+x = 100
+y = "hello"
+
+function readGlobals() do
+    return TO_STRING(::x) + " " + ::y
+end
+
+multi res do
+    thread r: readGlobals()
+end
+
+PRINT(res.r.value)

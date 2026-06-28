@@ -1,0 +1,14 @@
+// Test: Thread error captured as Result {ok: false, value: "..."}
+x = 10
+
+function crasher() do
+    ::x = 999
+    return 0
+end
+
+multi result do
+    thread res: crasher()
+end
+
+PRINT("ok:", result.res.ok)
+PRINT("error:", result.res.value)

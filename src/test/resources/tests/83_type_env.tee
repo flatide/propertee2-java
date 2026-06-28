@@ -1,0 +1,27 @@
+// Test TYPE_OF and ENV functions
+
+// TYPE_OF
+PRINT(TYPE_OF(42))
+PRINT(TYPE_OF(3.14))
+PRINT(TYPE_OF("hello"))
+PRINT(TYPE_OF(true))
+PRINT(TYPE_OF(false))
+PRINT(TYPE_OF([1, 2, 3]))
+PRINT(TYPE_OF({"a": 1}))
+PRINT(TYPE_OF({}))
+
+// ENV - PATH should exist on all systems
+path = ENV("PATH")
+PRINT(TYPE_OF(path))
+
+// ENV - non-existent returns {}
+missing = ENV("PROPERTEE_TEST_NONEXISTENT_VAR_12345")
+PRINT(missing == {})
+
+// ENV - with default
+val = ENV("PROPERTEE_TEST_NONEXISTENT_VAR_12345", "fallback")
+PRINT(val)
+
+// ENV - with numeric default
+num = ENV("PROPERTEE_TEST_NONEXISTENT_VAR_12345", 8080)
+PRINT(num)

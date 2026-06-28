@@ -1,0 +1,14 @@
+// Test: :: write in multi block is an error (thread purity)
+x = 10
+
+function badWriter() do
+    ::x = 999
+    return ::x
+end
+
+multi result do
+    thread res: badWriter()
+end
+
+PRINT("ok:", result.res.ok)
+PRINT("error:", result.res.value)

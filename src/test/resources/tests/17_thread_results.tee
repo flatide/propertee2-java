@@ -1,0 +1,35 @@
+// Test: Threads returning different types
+function retNum() do
+    return 42
+end
+
+function retStr() do
+    return "hello"
+end
+
+function retArr() do
+    return [1, 2, 3]
+end
+
+function retObj() do
+    return { "key": "value", "num": 99 }
+end
+
+function retEmpty() do
+    return
+end
+
+multi result do
+    thread n: retNum()
+    thread s: retStr()
+    thread a: retArr()
+    thread o: retObj()
+    thread nl: retEmpty()
+end
+
+PRINT(result.n.value)
+PRINT(result.s.value)
+PRINT(result.a.value)
+PRINT(result.o.value.key)
+PRINT(result.o.value.num)
+PRINT(result.nl.value)

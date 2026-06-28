@@ -1,0 +1,50 @@
+// Test JSON_PARSE and JSON_FORMAT
+
+// Parse object (now possible with \" escape)
+res = JSON_PARSE("{\"name\":\"Alice\",\"age\":30}")
+PRINT(res.ok)
+PRINT(res.value.name)
+PRINT(res.value.age)
+
+// Parse array
+res = JSON_PARSE("[1,2,3]")
+PRINT(res.ok)
+PRINT(res.value)
+
+// Parse primitives
+res = JSON_PARSE("\"hello\"")
+PRINT(res.value)
+
+res = JSON_PARSE("42")
+PRINT(res.value)
+
+res = JSON_PARSE("true")
+PRINT(res.value)
+
+// Parse null → {}
+res = JSON_PARSE("null")
+PRINT(res.value == {})
+
+// Parse nested
+res = JSON_PARSE("{\"data\":{\"items\":[1,2]},\"ok\":true}")
+PRINT(res.value.data.items)
+PRINT(res.value.ok)
+
+// Parse error
+res = JSON_PARSE("{invalid}")
+PRINT(res.ok)
+
+// FORMAT
+PRINT(JSON_FORMAT({"name": "Alice", "age": 30}))
+PRINT(JSON_FORMAT([1, 2, 3]))
+PRINT(JSON_FORMAT("hello"))
+PRINT(JSON_FORMAT(42))
+PRINT(JSON_FORMAT(true))
+PRINT(JSON_FORMAT({}))
+
+// Round-trip
+original = {"users": [{"name": "Bob"}, {"name": "Eve"}], "count": 2}
+json = JSON_FORMAT(original)
+parsed = JSON_PARSE(json)
+PRINT(parsed.value.users.1.name)
+PRINT(parsed.value.count)

@@ -1,0 +1,9 @@
+// Test: Duplicate -> key in multi block is a runtime error
+function dummy() do
+    return 1
+end
+
+multi result do
+    thread dup: dummy()
+    thread dup: dummy()
+end

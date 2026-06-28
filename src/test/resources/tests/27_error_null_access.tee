@@ -1,0 +1,3 @@
+// Test: Property access on empty object should error
+x = {}
+PRINT(x.name)

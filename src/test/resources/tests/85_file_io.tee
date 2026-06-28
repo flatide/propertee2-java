@@ -1,0 +1,90 @@
+// Test file I/O functions
+// Uses ::testDir injected as builtin property
+
+// MKDIR
+res = MKDIR(::testDir + "/sub1/sub2")
+PRINT(res.ok)
+
+// FILE_EXISTS
+PRINT(FILE_EXISTS(::testDir + "/sub1/sub2"))
+PRINT(FILE_EXISTS(::testDir + "/nonexistent"))
+
+// WRITE_FILE with \n (escape now works)
+res = WRITE_FILE(::testDir + "/test.txt", "line1\nline2\nline3\n")
+PRINT(res.ok)
+
+// READ_LINES - all
+res = READ_LINES(::testDir + "/test.txt")
+PRINT(res.ok)
+PRINT(LEN(res.value))
+PRINT(res.value.1)
+PRINT(res.value.2)
+
+// READ_LINES - with offset and count (1-based)
+res = READ_LINES(::testDir + "/test.txt", 2, 1)
+PRINT(res.value.1)
+
+// READ_LINES - fractional start rejected
+res = READ_LINES(::testDir + "/test.txt", 1.9, 2)
+PRINT(res.ok)
+
+// READ_LINES - fractional count rejected
+res = READ_LINES(::testDir + "/test.txt", 1, 2.1)
+PRINT(res.ok)
+
+// READ_LINES - zero count rejected
+res = READ_LINES(::testDir + "/test.txt", 1, 0)
+PRINT(res.ok)
+
+// READ_LINES - negative count rejected
+res = READ_LINES(::testDir + "/test.txt", 1, -1)
+PRINT(res.ok)
+
+// WRITE_LINES
+WRITE_LINES(::testDir + "/lines.txt", ["alpha", "beta", "gamma"])
+res = READ_LINES(::testDir + "/lines.txt")
+PRINT(LEN(res.value))
+PRINT(res.value.1)
+PRINT(res.value.3)
+
+// APPEND_FILE
+APPEND_FILE(::testDir + "/test.txt", "line4\n")
+res = READ_LINES(::testDir + "/test.txt")
+PRINT(LEN(res.value))
+
+// FILE_INFO
+res = FILE_INFO(::testDir + "/test.txt")
+PRINT(res.ok)
+PRINT(res.value.type)
+PRINT(res.value.size > 0)
+
+res = FILE_INFO(::testDir + "/sub1")
+PRINT(res.value.type)
+
+// FILE_INFO - not found
+res = FILE_INFO(::testDir + "/nope.txt")
+PRINT(res.ok)
+
+// LIST_DIR
+WRITE_FILE(::testDir + "/sub1/a.txt", "a")
+WRITE_FILE(::testDir + "/sub1/b.txt", "b")
+res = LIST_DIR(::testDir + "/sub1")
+PRINT(res.ok)
+loop entry in res.value do
+    PRINT(entry.name, entry.type)
+end
+
+// DELETE_FILE
+WRITE_FILE(::testDir + "/to_delete.txt", "temp")
+PRINT(FILE_EXISTS(::testDir + "/to_delete.txt"))
+res = DELETE_FILE(::testDir + "/to_delete.txt")
+PRINT(res.ok)
+PRINT(FILE_EXISTS(::testDir + "/to_delete.txt"))
+
+// DELETE_FILE - directory rejected
+res = DELETE_FILE(::testDir + "/sub1")
+PRINT(res.ok)
+
+// DELETE_FILE - not found
+res = DELETE_FILE(::testDir + "/nope.txt")
+PRINT(res.ok)

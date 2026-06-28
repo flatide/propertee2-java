@@ -1,0 +1,13 @@
+// Test: Function calling a built-in function in multi block
+function worker(n) do
+    doubled = n * 2
+    str = TO_STRING(doubled)
+    PRINT("computed: " + str)
+    return doubled
+end
+
+multi result do
+    thread r: worker(5)
+end
+
+PRINT(result.r.value)

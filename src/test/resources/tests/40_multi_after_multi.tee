@@ -1,0 +1,22 @@
+// Test: Sequential multi blocks
+function addOne(n) do
+    return n + 1
+end
+
+multi r1 do
+    thread a: addOne(10)
+end
+
+PRINT(r1.a.value)
+
+multi r2 do
+    thread b: addOne(::r1.a.value)
+end
+
+PRINT(r2.b.value)
+
+multi r3 do
+    thread c: addOne(::r2.b.value)
+end
+
+PRINT(r3.c.value)

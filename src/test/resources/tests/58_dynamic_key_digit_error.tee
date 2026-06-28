@@ -1,0 +1,10 @@
+// Test: Dynamic thread key with # prefix works (no naming restrictions)
+function dummy() do
+    return 1
+end
+
+key = "#custom"
+multi result do
+    thread $::key: dummy()
+end
+PRINT(result."#custom".value)

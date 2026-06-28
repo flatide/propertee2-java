@@ -1,0 +1,26 @@
+// Test 80: SHELL in multi/thread consistently reports missing host runner
+expected = "SHELL() requires a host-provided TaskRunner in this environment"
+
+function run(name) do
+    return SHELL("echo " + name)
+end
+
+multi result do
+    thread a: run("first")
+    thread b: run("second")
+end
+
+aOk = result.a.ok == true and result.a.value.ok == false
+bOk = result.b.ok == true and result.b.value.ok == false
+
+if aOk and bOk then
+    aVal = result.a.value.value
+    bVal = result.b.value.value
+    if aVal == expected and bVal == expected then
+        PRINT("PASS distinct unsupported")
+    else
+        PRINT("FAIL distinct outputs:", aVal, bVal)
+    end
+else
+    PRINT("FAIL multi shell")
+end

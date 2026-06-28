@@ -1,0 +1,41 @@
+// Test 78: SHELL context/options parsing still works without a host TaskRunner
+expected = "SHELL() requires a host-provided TaskRunner in this environment"
+
+// 1. SHELL_CTX with timeout (3rd arg)
+ctx = SHELL_CTX("/", {}, 5000)
+if ctx.ok == true then
+    r = SHELL(ctx, "echo ctx_timeout")
+    if r.ok == false and r.value == expected then
+        PRINT("PASS ctx timeout unsupported")
+    else
+        PRINT("FAIL ctx timeout")
+    end
+else
+    PRINT("FAIL ctx timeout setup")
+end
+
+// 2. SHELL with options map (command, {timeout: ms})
+r = SHELL("echo options_timeout", {"timeout": 5000})
+if r.ok == false and r.value == expected then
+    PRINT("PASS options unsupported")
+else
+    PRINT("FAIL options")
+end
+
+// 3. SHELL in multi/thread (replaces START_TASK + WAIT_TASK pattern)
+function worker(name) do
+    return SHELL("echo " + name)
+end
+
+multi result do
+    thread alpha: worker("alpha")
+    thread beta: worker("beta")
+end
+
+if result.alpha.ok == true and result.beta.ok == true and
+   result.alpha.value.ok == false and result.beta.value.ok == false and
+   result.alpha.value.value == expected and result.beta.value.value == expected then
+    PRINT("PASS multi unsupported")
+else
+    PRINT("FAIL multi")
+end

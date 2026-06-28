@@ -1,0 +1,7 @@
+PASS one-off unsupported
+PASS pipe unsupported
+PASS unsupported exit
+PASS cwd unsupported
+PASS env unsupported
+PASS invalid cwd
+PASS multi unsupported

@@ -1,0 +1,25 @@
+// Test: Multi result collection — named access, LEN(), iteration
+function double(n) do
+    return n * 2
+end
+
+function triple(n) do
+    return n * 3
+end
+
+multi result do
+    thread d: double(5)
+    thread t: triple(5)
+end
+
+// Named access
+PRINT("d:", result.d.value)
+PRINT("t:", result.t.value)
+
+// LEN on result collection
+PRINT("len:", LEN(result))
+
+// Iterate over results
+loop key, val in result do
+    PRINT(key + "=" + TO_STRING(val.value))
+end

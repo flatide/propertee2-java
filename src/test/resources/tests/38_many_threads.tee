@@ -1,0 +1,21 @@
+// Test: Multiple threads executing concurrently
+function work(id) do
+    result = id * id
+    return result
+end
+
+multi result do
+    thread r1: work(1)
+    thread r2: work(2)
+    thread r3: work(3)
+    thread r4: work(4)
+    thread r5: work(5)
+end
+
+PRINT(result.r1.value)
+PRINT(result.r2.value)
+PRINT(result.r3.value)
+PRINT(result.r4.value)
+PRINT(result.r5.value)
+total = result.r1.value + result.r2.value + result.r3.value + result.r4.value + result.r5.value
+PRINT(total)

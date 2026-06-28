@@ -1,0 +1,12 @@
+// Test: Multi with threads that don't capture results
+function sideEffect(msg) do
+    PRINT(msg)
+    return
+end
+
+multi do
+    thread : sideEffect("one")
+    thread : sideEffect("two")
+end
+
+PRINT("done")

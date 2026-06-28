@@ -1,0 +1,17 @@
+// Test: Thread purity - assignments in thread create local vars, not global writes.
+// Inside a function in multi, x = 999 creates a local variable.
+// The global 'x' remains unchanged after the multi block.
+x = 10
+
+function localWriter() do
+    x = 999
+    PRINT("thread x=" + TO_STRING(x))
+    return x
+end
+
+multi result do
+    thread r: localWriter()
+end
+
+PRINT("global x=" + TO_STRING(x))
+PRINT("result=" + TO_STRING(result.r.value))

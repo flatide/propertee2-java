@@ -1,0 +1,7 @@
+function STEP() do
+    PRINT("STEP")
+    return 2
+end
+
+a = [1..5, STEP()]
+PRINT(a)

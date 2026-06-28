@@ -1,0 +1,26 @@
+// Test: .INTEGER on objects uses string key (not positional)
+obj = {}
+obj.1 = "first"
+obj.2 = "second"
+obj.3 = "third"
+
+// Read back by integer key
+PRINT(obj.1)
+PRINT(obj.2)
+PRINT(obj.3)
+
+// Same as string key access
+PRINT(obj."1")
+PRINT(obj."2")
+
+// HAS_KEY with string version of integer
+PRINT(HAS_KEY(obj, "1"))
+PRINT(HAS_KEY(obj, "4"))
+
+// Mixed string and integer keys
+mixed = { "name": "test" }
+mixed.1 = "one"
+PRINT(mixed.name)
+PRINT(mixed.1)
+PRINT(mixed."1")
+PRINT(LEN(mixed))
