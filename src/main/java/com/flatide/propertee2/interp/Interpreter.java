@@ -226,19 +226,39 @@ public final class Interpreter {
 
     private Object varActual(String name, ParserRuleContext ctx) {
         if (inFunction()) {
-            if (localTop().containsKey(name)) return localTop().get(name);
+            Map<String, Object> frame = frameContaining(name);
+            if (frame != null) return frame.get(name);
             throw err("Variable '" + name + "' is not defined in local scope. Use ::" + name
                     + " to access the global variable.", ctx);
         }
         if (globals.containsKey(name)) return globals.get(name);
-        if (builtinProps.containsKey(name)) return builtinProps.get(name);
+        if (builtinProps.containsKey(name)) return promoteProp(name);
         throw err("Variable '" + name + "' is not defined", ctx);
     }
 
     private Object globalActual(String name, ParserRuleContext ctx) {
         if (globals.containsKey(name)) return globals.get(name);
-        if (builtinProps.containsKey(name)) return builtinProps.get(name);
+        if (builtinProps.containsKey(name)) return promoteProp(name);
         throw err("Variable '" + name + "' is not defined", ctx);
+    }
+
+    /** Innermost-first search of active call frames (dynamic local scope, LANGUAGE.md §Lookup Order). */
+    private Map<String, Object> frameContaining(String name) {
+        for (Map<String, Object> frame : frames) {   // ArrayDeque iterates head(innermost) -> tail(outermost)
+            if (frame.containsKey(name)) return frame;
+        }
+        return null;
+    }
+
+    /**
+     * Built-in properties are READ-ONLY (LANGUAGE.md §Built-in Properties). The first write through
+     * a property copies it into a global that then takes precedence in the lookup chain — the host
+     * snapshot is never mutated in place.
+     */
+    private Object promoteProp(String name) {
+        Object copy = Values.deepCopy(builtinProps.get(name));
+        globals.put(name, copy);
+        return copy;
     }
 
     private void setMember(Object container, AccessContext a, Object value, ParserRuleContext ctx) {
@@ -393,7 +413,8 @@ public final class Interpreter {
 
     private Object lookupVar(String name, ParserRuleContext ctx) {
         if (inFunction()) {
-            if (localTop().containsKey(name)) return localTop().get(name);
+            Map<String, Object> frame = frameContaining(name);   // innermost-first across nested calls
+            if (frame != null) return frame.get(name);
             throw err("Variable '" + name + "' is not defined in local scope. Use ::" + name
                     + " to access the global variable.", ctx);
         }

@@ -46,27 +46,32 @@ class ConformanceTest {
         return Fixtures.ALL.stream().filter(n -> !PENDING.contains(n)).toList();
     }
 
+    /**
+     * The only fixture saved without a final newline (all 83 others end in one); a file artifact,
+     * not a behavior difference, and the .expected files are not to be edited. Every OTHER fixture
+     * is compared byte-for-byte, including its trailing newline.
+     */
+    private static final String NO_TRAILING_NEWLINE_ARTIFACT = "86_props_object";
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("sequentialFixtures")
     void matchesExpected(String name) {
         String expected = Fixtures.expected(name);
         String actual = new Engine().run(Fixtures.source(name), PROPS.getOrDefault(name, Map.of()));
-        assertEquals(normalize(expected), normalize(actual),
-                () -> "stdout mismatch for " + name + ".tee");
+        if (name.equals(NO_TRAILING_NEWLINE_ARTIFACT)) {
+            expected = stripOneTrailingNewline(expected);
+            actual = stripOneTrailingNewline(actual);
+        }
+        assertEquals(expected, actual, () -> "stdout mismatch for " + name + ".tee");
+    }
+
+    private static String stripOneTrailingNewline(String s) {
+        return s.endsWith("\n") ? s.substring(0, s.length() - 1) : s;
     }
 
     @Test
     void pbCoversFortySixSequentialFixtures() {
         assertEquals(46, sequentialFixtures().size());
         assertEquals(84, Fixtures.ALL.size());
-    }
-
-    /**
-     * Tolerate a single trailing newline. 86_props_object.expected is the only fixture saved
-     * without a final newline (all 83 others end in one); this is a file artifact, not a
-     * behavior difference, and the .expected files are not to be edited.
-     */
-    private static String normalize(String s) {
-        return s.endsWith("\n") ? s.substring(0, s.length() - 1) : s;
     }
 }
