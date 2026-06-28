@@ -8,6 +8,7 @@ import com.flatide.propertee2.value.TeeFormat;
 import com.flatide.propertee2.value.Values;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -368,6 +369,12 @@ public final class Builtins {
             return c.call();
         } catch (IOException e) {
             return Result.error(e.getMessage());
+        } catch (UncheckedIOException e) {
+            // Files.lines()/Files.list() defer I/O — a read failure during lazy consumption
+            // (e.g. malformed UTF-8, a directory vanishing mid-iteration) surfaces here, not as a
+            // checked IOException. Surface it as the v1 Result.error rather than a raw runtime error.
+            IOException cause = e.getCause();
+            return Result.error(cause != null ? cause.getMessage() : e.getMessage());
         }
     }
 
