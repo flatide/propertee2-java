@@ -1,59 +1,86 @@
 # CLAUDE.md
 
-이 파일은 Claude Code(claude.ai/code)가 이 저장소에서 작업할 때의 가이드다.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 이게 뭔가
+## What this is
 
-`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. 동결된 [`propertee-java`](https://github.com/flatide/propertee-java) **v1.0.0**(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 21 virtual thread(Project Loom) 코루틴(Strategy B)** 으로 근본 해결하는 것이 목표. **TeeBox**가 안정화 후 이 런타임을 사용한다.
+`propertee2-java` is a **fully-cooperative runtime** for the [ProperTee](https://github.com/flatide/ProperTee) language. Its goal is to fundamentally resolve the eager seams left by the frozen [`propertee-java`](https://github.com/flatide/propertee-java) **v1.0.0** (Java 7/8, stepper-based) using **Java 21 virtual-thread (Project Loom) coroutines (Strategy B)**. **TeeBox** will consume this runtime once it stabilizes.
 
-> **상태: 엔진 구현 전(스캐폴딩 단계).** 지금 repo에는 v1과의 **의미 동치 보장용 자산**(문법·명세·fixture·계약 문서)만 들어 있다. 다음 작업은 설계 §10.1의 **spike**다.
+> **Status: spike passed, pre-engine.** The repo holds the **assets needed to guarantee semantic equivalence with v1** (grammar, spec, fixtures, contract docs) plus a throwaway **spike** (`spike/`) that validated the cooperative model. The next task is the main implementation, starting at **PA** (design §10.1). See `docs/spike-findings.md`.
 
-## 확정된 핵심 결정 (이전 세션에서 합의됨 — 바꾸려면 근거 필요)
+## Locked-in core decisions (agreed in a prior session — changing them requires justification)
 
-1. **두 라인 분기.** v1.0.0(Java 7/8)은 레거시 expression-evaluator 서버용으로 **동결**(보안/버그픽스만). 신규 기능·완전 협력화는 전부 이 repo(modern 런타임). 두 코드는 **동기화하지 않음**(단방향 동결).
-2. **베이스라인 = Java 25 LTS, stable API만.** virtual threads(정식) + `ScopedValue`(JEP 506, 25 정식) 사용. **`StructuredTaskScope`는 25에서도 preview(JEP 505, 5th)이므로 회피** — `multi`는 `newVirtualThreadPerTaskExecutor` + 직접 fork/join으로 hand-roll(STS 정식화 시 국소 교체되도록 캡슐화). → **preview 의존 0.** (착수 전 실제 JDK 25에서 STS preview 여부 컴파일 실측할 것.)
-3. **실행 모델 = 단일 바톤 vthread 코루틴.** 논리 스레드 1개 = vthread 1개, 바톤(semaphore/park-unpark)으로 **한 번에 하나만** 실행 → 기존 purity·무락·결정론 보존. 콜스택 자체가 continuation.
-4. **⚠️ 불변식 — "바톤 보유 중 blocking 금지".** 바톤을 쥔 채 blocking하면 cooperative scheduler 전체가 정지한다(pinning보다 큰 위험). **모든 잠재적 blocking(SLEEP/host I/O/외부함수/spawn join)은 `Coop.*` primitive로 "바톤 반납→blocking→재획득" 계약**을 지켜야 함. host external 등록 API를 이 계약으로 강제.
-5. **인터프리터는 재귀 tree-walk로 복원.** v1의 stepper/`SchedulerCommand`/`AsyncPendingException` replay 머신은 **삭제**. 단 **스케줄러는 삭제가 아니라 역할 변경**(바톤·상태머신·wake timer·monitor tick·result collection은 유지).
-6. **값 의미는 v1과 1바이트도 다르면 안 됨.** 바뀌는 건 **스케줄링뿐.** `Coop.blocking`으로 async statement-replay를 제거해 "선행 부작용 2회 실행"(정확성 이슈)도 해소.
-7. **결정론적 round-robin 순서 고정** 필요 — 안 그러면 복사해온 `.expected`(출력 순서 민감)가 흔들린다.
+1. **Two diverging lines.** v1.0.0 (Java 7/8) is **frozen** for the legacy expression-evaluator server (security/bugfixes only). All new features and full cooperativization happen in this repo (the modern runtime). The two codebases are **not synchronized** (one-way freeze).
+2. **Baseline = Java 25 LTS, stable APIs only.** Uses virtual threads (final) + `ScopedValue` (JEP 506, final in 25). **`StructuredTaskScope` is still preview in 25 (JEP 505, 5th preview), so avoid it** — `multi` is hand-rolled with `newVirtualThreadPerTaskExecutor` + direct fork/join (encapsulated so it can be swapped locally once STS is finalized). → **zero preview dependencies.** (Before starting, empirically verify on a real JDK 25 whether STS is still preview by compiling.)
+3. **Execution model = single-baton vthread coroutine.** One logical thread = one vthread, with a baton (semaphore / park-unpark) ensuring **only one runs at a time** → preserves the existing purity, lock-free property, and determinism. The call stack itself is the continuation.
+4. **⚠️ Invariant — "no blocking while holding the baton."** Blocking while holding the baton halts the entire cooperative scheduler (a bigger risk than pinning). **Every potential blocking point (SLEEP / host I/O / external functions / spawn join) must honor the `Coop.*` primitive contract of "release baton → block → re-acquire."** Enforce this contract through the host-external registration API.
+5. **Restore the interpreter as a recursive tree-walk.** Delete v1's stepper / `SchedulerCommand` / `AsyncPendingException` replay machine. But the **scheduler is repurposed, not deleted** (baton, state machine, wake timer, monitor tick, result collection are retained).
+6. **Value semantics must not differ from v1 by a single byte.** The only thing that changes is **scheduling**. Using `Coop.blocking` to eliminate async statement-replay also fixes the "leading side-effects executed twice" correctness issue.
+7. **Deterministic round-robin ordering must be pinned** — otherwise the copied-over `.expected` files (output-order sensitive) will flap.
 
-## 저장소 구조 (현재)
+## Repository structure (current)
 
 ```
-grammar/ProperTee.g4                      # 문법(v1과 동일, 변경 없음). ANTLR4.
+grammar/ProperTee.g4                      # Grammar (identical to v1, unchanged). ANTLR4.
 docs/
-  java25-vthread-runtime-design-ko.md     # ★설계도 정본 — 모델/Coop 계약/preview 결정/단계 PA-PF/spike §10.1
-  value-model-and-builtins.md             # ★새 엔진이 재현해야 할 값-수준 의미 계약
-  conformance-tests.md                    # ★v1 의미 동치 테스트 목록 + 호스트 주입/인터리빙 주의
-  LANGUAGE.md                             # 언어 명세 정본(v1 복사)
-src/test/resources/tests/                 # .tee / .expected conformance fixtures (84쌍, v1 복사)
+  java25-vthread-runtime-design-ko.md     # ★Canonical design doc — model / Coop contract / preview decision / phases PA-PF / spike §10.1
+  value-model-and-builtins.md             # ★Value-level semantic contract the new engine must reproduce
+  conformance-tests.md                    # ★List of v1 semantic-equivalence tests + host-injection / interleaving notes
+  LANGUAGE.md                             # Canonical language spec (copied from v1)
+src/test/resources/tests/                 # .tee / .expected conformance fixtures (84 pairs, copied from v1)
 ```
 
-작업 시작 전 위 ★ 3개 문서를 먼저 읽을 것.
+Read the three ★ docs above before starting any work.
 
-## 다음 작업 — spike (설계 §10.1, 큰 투자 전 검증)
+## Spike — DONE (design §10.1, all 5 steps passed)
 
-0. JDK 25에서 `StructuredTaskScope` preview 여부 실측(여전히 preview면 hand-roll 유지).
-1. **Coop/scheduler 최소 프로토타입** — 바톤, `READY/SLEEPING/BLOCKED/WAITING`, wake timer, 결정론적 round-robin 핸드오프.
-2. **재귀 인터프리터 중단 PoC** — `SLEEP`, `x = f()`, `a + f()`, `return f()` 가 콜스택 어디서든 협력 중단되는지(타이밍 오버랩으로 입증).
-3. **`Coop.blocking`으로 async replay 제거 확인** — async 직전 선행 부작용 1회만 실행.
-4. **`multi` result/monitor conformance 확인** — 결과 포맷·라이브 monitor 읽기·purity가 v1과 동치.
+Validated in `spike/` (run `spike/run.sh`; full writeup in `docs/spike-findings.md`). On JDK 25.0.3, no preview flags; also builds/passes on JDK 21.
 
-spike 통과 후 본 구현(PA: JDK25 Gradle 골격 + 문법/builtins/값모델 포팅 + fixture 반입 → PB 재귀 인터프리터 → PC Coop 런타임 → PD multi/monitor → PE conformance → PF 릴리스).
+0. **STS still preview on JDK 25** (empirically: `javac` fails without `--enable-preview`) → hand-roll `multi`, zero preview deps. ✅
+1. **Coop/scheduler** — baton, state machine, wake timer, deterministic round-robin (`ABCABCABC` stable over 30 runs). ✅
+2. **Recursive-interpreter suspension** — `x = f()`, `a + f()`, `return f()` (sleep buried 2 frames deep) all overlap ~1x, not serial ~4x. ✅
+3. **`Coop.blocking` removes async replay** — leading side-effect runs exactly once (v1 would run it twice). ✅
+4. **`multi` result/monitor/purity** — `{status,ok,value}`, live monitor reads, global-write blocked. ✅
 
-## 빌드 (스캐폴딩되면 갱신)
+> The spike is throwaway (no ANTLR / real builtins / value formatting) — it validates *scheduling* only. It uses `ThreadLocal<Fiber>` for self; production swaps to `ScopedValue` (§5).
 
-아직 Gradle 미구성. PA에서 **JDK 25 toolchain**(preview 플래그 없음) Gradle 골격을 만든다. 그때 이 절을 빌드/테스트 커맨드로 갱신할 것.
+## Next task — main implementation (PA onward)
 
-## 관례 (값 의미 — v1 동일, 절대 변경 금지)
+- **PA.** JDK 25 Gradle skeleton (toolchain 25, no preview flags) + port grammar/builtins/value-model + import the `.tee/.expected` fixtures.
+- **PB.** Recursive interpreter (stepper removed).
+- **PC.** Coop runtime (baton, `sleep`, `yield`, `blocking`) + host-external `Coop.blocking` contract (§3.1); swap `ThreadLocal` → `ScopedValue`.
+- **PD.** `multi`/monitor — vthread executor + hand-rolled fork/join (STS encapsulated for later swap).
+- **PE.** Conformance (all `.expected` pass, deterministic ordering) + seam-timing tests + async-replay-removal test.
+- **PF.** Docs/release (from 0.1.0).
 
-- **no null** — 없음은 `{}`(빈 object). 누락 인자·무반환 함수 → `{}`.
-- 숫자: 정수 `Integer`, 소수 `Double`, **나눗셈은 항상 Double**, 포맷 시 `.0` 제거.
-- strict 타입: `and`/`or`는 boolean, 산술은 number. 단 `+`는 한쪽이 string이면 `TO_STRING` coerce(연결).
-- **1-based** 인덱싱(`.1`이 첫 요소). object 정수 키 `obj.1` → 문자열 키 `"1"`.
-- escape `\" \\ \n \t \r` 모든 문자열 컨텍스트 처리, 미인식 escape 보존.
-- object 리터럴 키는 따옴표 문자열 또는 정수만.
-- 대입·루프 바인딩 시 `deepCopy`(COW). multi 워커는 globals read-only(`::`, 스냅샷), write 금지.
-- Result: `{status, ok, value}` (running/done/error). 에러 **메시지 문자열까지** v1과 동일.
-- 전체 명세·빌트인은 `docs/LANGUAGE.md`, 값 계약은 `docs/value-model-and-builtins.md`가 정본.
+## Build/test (update once scaffolded)
+
+**No Gradle or test runner yet.** Build/lint/test commands will be filled in here when the **JDK 25 toolchain** (no preview flags) Gradle skeleton is created in PA. Until then, conformance fixtures can only be run against the v1 runtime.
+
+Commands usable at the current (pre-implementation) stage:
+
+```bash
+# Check fixture-pair integrity (every .tee must have a .expected — currently 84 pairs)
+cd src/test/resources/tests && for f in *.tee; do [ -f "${f%.tee}.expected" ] || echo "MISSING: ${f%.tee}.expected"; done
+
+# Find fixtures for a specific scenario (e.g. multi/monitor/async)
+ls src/test/resources/tests/ | grep -E 'multi|monitor|thread|async'
+
+# Inspect a pair (input .tee ↔ expected output .expected)
+cat src/test/resources/tests/49_multi_result_collection.tee
+cat src/test/resources/tests/49_multi_result_collection.expected
+```
+
+> Fixtures are a **fixed baseline** copied from v1. `.expected` files are the correct answer **down to output order**, so never edit them (this is why the scheduler must be deterministic round-robin — design §6). The new engine conforms to the fixtures, not the other way around. For per-fixture semantics and host-injection caveats, see `docs/conformance-tests.md`.
+
+## Conventions (value semantics — identical to v1, never change)
+
+- **No null** — absence is `{}` (empty object). Missing arguments and no-return functions → `{}`.
+- Numbers: integers are `Integer`, decimals are `Double`, **division is always Double**, and `.0` is stripped on formatting.
+- Strict typing: `and`/`or` require boolean, arithmetic requires number. Exception: `+` coerces via `TO_STRING` (concatenation) if either side is a string.
+- **1-based** indexing (`.1` is the first element). Integer object keys `obj.1` → string key `"1"`.
+- Escapes `\" \\ \n \t \r` are handled in all string contexts; unrecognized escapes are preserved.
+- Object-literal keys may only be quoted strings or integers.
+- `deepCopy` (COW) on assignment and loop binding. `multi` workers see globals read-only (`::`, snapshot); writes are forbidden.
+- Result: `{status, ok, value}` (running/done/error). Identical to v1 **down to the error message string**.
+- The full spec and builtins are canonical in `docs/LANGUAGE.md`; the value contract is canonical in `docs/value-model-and-builtins.md`.

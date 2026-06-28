@@ -4,6 +4,10 @@ out/
 bin/
 *.class
 
+# Spike scratch build dirs (spike/run.sh recreates these)
+spike/out*/
+spike/probe.err
+
 # Gradle
 .gradle/
 gradle-app.setting
