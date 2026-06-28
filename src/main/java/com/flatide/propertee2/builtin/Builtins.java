@@ -503,7 +503,7 @@ public final class Builtins {
 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> object(String fn, Object v) {
-        if (!(v instanceof Map)) throw new TeeError(fn + "() requires an object argument");
+        if (!(v instanceof Map)) throw new TeeError(fn + "() argument must be an object");
         return (Map<String, Object>) v;
     }
 

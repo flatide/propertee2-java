@@ -2,20 +2,22 @@ package com.flatide.propertee2.interp;
 
 import com.flatide.propertee2.builtin.Builtins;
 import com.flatide.propertee2.coop.Coop;
+import com.flatide.propertee2.coop.Fiber;
+import com.flatide.propertee2.coop.Scheduler;
 import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.parser.ProperTeeParser.*;
+import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeFormat;
 import com.flatide.propertee2.value.Values;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The recursive tree-walk interpreter (design §2 — NO stepper / replay machine).
@@ -94,9 +96,129 @@ public final class Interpreter {
         for (StatementContext s : block.statement()) { exec(s); coop.yield_(); }
     }
 
-    // --- multi/thread (PD-2 implements these) ---
-    private void execMulti(ParallelStmtContext m) { throw err("multi not yet implemented (PD-2)", m); }
-    private void execSpawn(SpawnStmtContext sp) { throw err("thread can only be used inside multi blocks", sp); }
+    // ====================================================================
+    // multi / thread / monitor  (design §4; LANGUAGE.md §Multi Blocks)
+    // ====================================================================
+
+    /** A {@code thread key: f(args)} statement — valid only while collecting a multi setup phase. */
+    private void execSpawn(SpawnStmtContext sp) {
+        MultiBuilder builder = ec().setupBuilders.peek();
+        if (builder == null) throw err("thread can only be used inside multi blocks", sp);
+        SpawnKeyStmtContext k = (SpawnKeyStmtContext) sp;
+        FunctionCallContext fc = k.functionCall();
+        String funcName = fc.funcName.getText();
+        List<Object> args = new ArrayList<>();
+        for (ExpressionContext arg : fc.expression()) args.add(Values.deepCopy(eval(arg))); // captured at spawn time
+
+        String key = k.access() != null ? objectKey(k.access()) : "";     // no key or "" -> unnamed (#N)
+        if (key.isEmpty()) {
+            // auto-key conflicts report at the function-call position (61_duplicate_auto_key)
+            builder.addUnnamed(funcName, args, fc.getStart().getLine(), fc.getStart().getCharPositionInLine());
+        } else {
+            builder.addNamed(key, funcName, args, sp.getStart().getLine(), sp.getStart().getCharPositionInLine());
+        }
+    }
+
+    private void execMulti(ParallelStmtContext m) {
+        ExecContext c = ec();
+
+        // 1. setup phase: isolated scope, collect thread statements
+        MultiBuilder builder = new MultiBuilder();
+        c.frames.push(new LinkedHashMap<>());
+        c.setupBuilders.push(builder);
+        try {
+            execBlock(m.block());
+        } finally {
+            c.setupBuilders.pop();
+            c.frames.pop();
+        }
+
+        // 2. read-only global snapshot all threads share (design §4, thread purity)
+        @SuppressWarnings("unchecked")
+        Map<String, Object> snapshot = (Map<String, Object>) Values.deepCopy(c.globalsView);
+
+        // 3. pre-build the result collection with "running" entries, in spawn order
+        Map<String, Object> collection = new LinkedHashMap<>();
+        for (MultiBuilder.Pending p : builder.pending) collection.put(p.key(), Result.running());
+
+        // 4. spawn workers (+ optional monitor), wait for all, in-place result updates
+        runThreads(builder.pending, collection, snapshot, m);
+
+        // 5. assign the collection to resultVar (current scope) — global at top level, local in a function
+        if (m.resultVar != null) currentScope().put(m.resultVar.getText(), collection);
+    }
+
+    private void runThreads(List<MultiBuilder.Pending> pending, Map<String, Object> collection,
+                            Map<String, Object> snapshot, ParallelStmtContext m) {
+        Scheduler s = coop.scheduler();
+        Fiber parent = s.self();
+        boolean hasMonitor = m.monitorClause() != null;
+        AtomicInteger remaining = new AtomicInteger(pending.size());                               // workers only
+        AtomicInteger parentPending = new AtomicInteger(pending.size() + (hasMonitor ? 1 : 0));    // gate parent resume
+        Runnable signalParent = () -> { if (parentPending.decrementAndGet() == 0) s.wake(parent); };
+
+        for (MultiBuilder.Pending p : pending) {
+            s.spawn(p.key(), () -> ScopedValue.where(CTX, ExecContext.worker(snapshot)).run(() -> {
+                try {
+                    collection.put(p.key(), Result.ok(invokeNamed(p.funcName(), p.args(), m)));
+                } catch (TeeError e) {
+                    String pos = e.positioned();
+                    out.append("[THREAD ERROR] ").append(pos).append('\n');
+                    collection.put(p.key(), Result.error(pos));
+                } finally {
+                    remaining.decrementAndGet();
+                    signalParent.run();
+                }
+            }));
+        }
+
+        if (hasMonitor) {
+            MonitorClauseContext mc = m.monitorClause();
+            long interval = Long.parseLong(mc.INTEGER().getText());
+            String resultVarName = m.resultVar != null ? m.resultVar.getText() : null;
+            s.spawn("monitor", () -> {
+                Map<String, Object> injected = new LinkedHashMap<>();
+                if (resultVarName != null) injected.put(resultVarName, collection);
+                Runnable tick = () -> ScopedValue.where(CTX, ExecContext.monitor(snapshot, injected)).run(() -> {
+                    try {
+                        execBlock(mc.block());
+                    } catch (TeeError e) {
+                        out.append("[MONITOR ERROR] ").append(e.positioned()).append('\n');
+                        throw e;
+                    }
+                });
+                runMonitor(interval, remaining, tick);
+                signalParent.run();
+            });
+        }
+
+        s.awaitChildren(() -> parentPending.get() == 0);
+    }
+
+    /**
+     * Monitor loop (matches v1's observed tick counts — 20/32/56): a mid-tick fires only if the
+     * workers aren't done after each sleep; on a tick error, mid-ticking stops but one final tick
+     * still runs after all workers finish (so a failing monitor prints exactly twice — 32).
+     */
+    private void runMonitor(long interval, AtomicInteger remaining, Runnable tick) {
+        boolean aborted = false;
+        while (remaining.get() > 0) {
+            coop.sleep(interval);
+            if (remaining.get() == 0) break;
+            if (!aborted) {
+                try {
+                    tick.run();
+                } catch (TeeError e) {
+                    aborted = true;   // already printed inside tick; stop mid-ticking
+                }
+            }
+        }
+        try {
+            tick.run();               // final tick, once, after all workers are done
+        } catch (TeeError ignored) {
+            // already printed inside tick
+        }
+    }
 
     private void execAssign(AssignmentContext a) {
         Object value = eval(a.expression());
@@ -487,17 +609,13 @@ public final class Interpreter {
         if (name.equals("PRINT")) return doPrint(args);
         if (name.equals("SLEEP")) return doSleep(args, ctx);
         if (builtins.has(name)) {
+            // Built-in errors stay positionless ("Runtime Error: msg" — 67_sort_errors); do not add a
+            // source position. Host-gated / blocking builtins release the baton (design §3.1).
             Builtins.Kind kind = builtins.kindOf(name);
-            try {
-                // Host-gated / blocking builtins must release the baton (design §3.1, "no blocking
-                // while holding the baton"); pure builtins run in place.
-                if (kind == Builtins.Kind.HOST_GATED || kind == Builtins.Kind.BLOCKING) {
-                    return coop.blocking(() -> builtins.invokeRaw(name, args));
-                }
-                return builtins.invokeRaw(name, args);
-            } catch (TeeError e) {
-                throw e.at(ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+            if (kind == Builtins.Kind.HOST_GATED || kind == Builtins.Kind.BLOCKING) {
+                return coop.blocking(() -> builtins.invokeRaw(name, args));
             }
+            return builtins.invokeRaw(name, args);
         }
         throw err("Unknown function '" + name + "'", ctx);
     }

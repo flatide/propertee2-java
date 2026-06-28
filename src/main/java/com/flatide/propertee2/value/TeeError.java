@@ -32,9 +32,13 @@ public final class TeeError extends RuntimeException {
         return hasPosition() ? this : new TeeError(getMessage(), line, col);
     }
 
-    /** v1 form: {@code Runtime Error at line L:C: <message>} (without the outer "Runtime error: " prefix). */
+    /**
+     * v1 form (without the outer "Runtime error: " prefix): {@code Runtime Error at line L:C: <msg>}
+     * for interpreter errors carrying a source position, or {@code Runtime Error: <msg>} for
+     * positionless errors (e.g. those thrown by built-in functions — 67_sort_errors).
+     */
     public String positioned() {
-        if (!hasPosition()) return getMessage();
+        if (!hasPosition()) return "Runtime Error: " + getMessage();
         return "Runtime Error at line " + line + ":" + col + ": " + getMessage();
     }
 }
