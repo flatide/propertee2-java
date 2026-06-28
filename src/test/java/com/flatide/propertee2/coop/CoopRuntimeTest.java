@@ -1,0 +1,86 @@
+package com.flatide.propertee2.coop;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Production Coop runtime — the spike's validated properties as regression tests
+ * (see docs/spike-findings.md). Baton serialization makes the shared StringBuilder
+ * safe: handoffs establish happens-before, so only one fiber touches it at a time.
+ */
+class CoopRuntimeTest {
+
+    /** Spawn child fibers, run them cooperatively, and wait for all to finish (a PD-style mini-multi). */
+    private static void runParallel(Coop coop, List<Runnable> tasks) {
+        coop.run("root", () -> {
+            Scheduler s = coop.scheduler();
+            Fiber parent = s.self();
+            AtomicInteger remaining = new AtomicInteger(tasks.size());
+            for (Runnable t : tasks) {
+                s.spawn("w", () -> {
+                    try {
+                        t.run();
+                    } finally {
+                        if (remaining.decrementAndGet() == 0) s.wake(parent);
+                    }
+                });
+            }
+            s.awaitChildren(() -> remaining.get() == 0);
+        });
+    }
+
+    @Test void rootRunsToCompletion() {
+        StringBuilder out = new StringBuilder();
+        new Coop().run("root", () -> out.append("ran"));
+        assertEquals("ran", out.toString());
+    }
+
+    @RepeatedTest(20) void deterministicRoundRobin() {
+        Coop coop = new Coop();
+        StringBuilder order = new StringBuilder();
+        List<Runnable> tasks = new ArrayList<>();
+        for (String key : List.of("A", "B", "C")) {
+            tasks.add(() -> {
+                for (int i = 0; i < 3; i++) {
+                    order.append(key);
+                    coop.yield_();
+                }
+            });
+        }
+        runParallel(coop, tasks);
+        assertEquals("ABCABCABC", order.toString());   // id-ordered round-robin, stable across repeats
+    }
+
+    @Test void independentSleepsOverlap() {
+        Coop coop = new Coop();
+        List<Runnable> tasks = new ArrayList<>();
+        for (int i = 0; i < 4; i++) tasks.add(() -> coop.sleep(100));
+        long t0 = System.nanoTime();
+        runParallel(coop, tasks);
+        long ms = (System.nanoTime() - t0) / 1_000_000L;
+        assertTrue(ms < 250, "4 sleeps of 100ms should overlap (~100ms), got " + ms + "ms");
+    }
+
+    @Test void blockingReturnsValueOnRoot() {
+        Coop coop = new Coop();
+        int[] result = new int[1];
+        coop.run("root", () -> result[0] = coop.blocking(() -> 42));
+        assertEquals(42, result[0]);
+    }
+
+    @Test void blockingReacquiresBatonOnException() {
+        Coop coop = new Coop();
+        // If blocking() skipped re-acquire on exception, the fiber would complete off-baton and
+        // this run would deadlock. Reaching the assertion proves the baton was reacquired.
+        RuntimeException thrown = assertThrows(RuntimeException.class, () ->
+                coop.run("root", () -> coop.blocking(() -> { throw new IllegalStateException("io failed"); })));
+        assertTrue(thrown.getMessage().contains("io failed"));
+    }
+}

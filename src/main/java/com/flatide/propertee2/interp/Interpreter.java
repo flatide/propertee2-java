@@ -1,6 +1,8 @@
 package com.flatide.propertee2.interp;
 
 import com.flatide.propertee2.builtin.Builtins;
+import com.flatide.propertee2.coop.Coop;
+import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.parser.ProperTeeParser.*;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeFormat;
@@ -25,14 +27,17 @@ import java.util.Map;
 public final class Interpreter {
 
     private final StringBuilder out;
+    private final Coop coop;
     private final Map<String, Object> globals = new LinkedHashMap<>();
     private final Map<String, Object> builtinProps;          // host-injected (-p), incl. _PROPS
     private final Map<String, UserFunction> functions = new LinkedHashMap<>();
     private final Deque<Map<String, Object>> frames = new ArrayDeque<>(); // one per active function call
-    private final Builtins builtins = Builtins.standard();
+    private final Builtins builtins;
 
-    public Interpreter(StringBuilder out, Map<String, Object> props) {
+    public Interpreter(StringBuilder out, Map<String, Object> props, Coop coop, PlatformProvider platform) {
         this.out = out;
+        this.coop = coop;
+        this.builtins = Builtins.standard(platform);
         this.builtinProps = new LinkedHashMap<>();
         if (props != null) {
             for (Map.Entry<String, Object> e : props.entrySet()) builtinProps.put(e.getKey(), Values.deepCopy(e.getValue()));
@@ -439,9 +444,16 @@ public final class Interpreter {
         UserFunction fn = functions.get(name);
         if (fn != null) return callUser(fn, args, fc);
         if (name.equals("PRINT")) return doPrint(args);
+        if (name.equals("SLEEP")) return doSleep(args, fc);
         if (builtins.has(name)) {
+            Builtins.Kind kind = builtins.kindOf(name);
             try {
-                return builtins.call(name, args);
+                // Host-gated / blocking builtins must release the baton (design §3.1, "no blocking
+                // while holding the baton"); pure builtins run in place.
+                if (kind == Builtins.Kind.HOST_GATED || kind == Builtins.Kind.BLOCKING) {
+                    return coop.blocking(() -> builtins.invokeRaw(name, args));
+                }
+                return builtins.invokeRaw(name, args);
             } catch (TeeError e) {
                 throw e.at(fc.getStart().getLine(), fc.getStart().getCharPositionInLine());
             }
@@ -467,6 +479,15 @@ public final class Interpreter {
         } finally {
             frames.pop();
         }
+    }
+
+    /** SLEEP(ms) — cooperative pause (design §3, seam 1). Releases the baton so other fibers advance. */
+    private Object doSleep(List<Object> args, FunctionCallContext fc) {
+        if (args.isEmpty() || !Values.isNumber(args.get(0))) {
+            throw err("SLEEP() requires a numeric millisecond argument", fc);
+        }
+        coop.sleep((long) Values.toDouble(args.get(0)));
+        return Values.emptyObject();
     }
 
     private Object doPrint(List<Object> args) {

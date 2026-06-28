@@ -1,5 +1,6 @@
 package com.flatide.propertee2.builtin;
 
+import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.value.JsonParser;
 import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
@@ -57,17 +58,24 @@ public final class Builtins {
         return e == null ? null : e.kind();
     }
 
-    /** Dispatch a builtin by name. HOST_GATED/BLOCKING are not invocable until PC wires Coop.blocking. */
+    /** Dispatch a PURE builtin. HOST_GATED/BLOCKING throw here; the interpreter routes those via Coop.blocking. */
     public Object call(String name, List<Object> args) {
         Entry e = registry.get(name);
         if (e == null) throw new TeeError("Unknown function '" + name + "'");
         if (e.kind() == Kind.HOST_GATED || e.kind() == Kind.BLOCKING) {
-            throw new TeeError("'" + name + "' requires the Coop runtime (not wired until PC)");
+            throw new TeeError("'" + name + "' must be invoked through the Coop runtime");
         }
         return e.fn().invoke(args);
     }
 
-    /** Registry pre-loaded with the full PURE catalog ported in PA. */
+    /** Invoke a builtin regardless of kind. The caller (interpreter) is responsible for Coop.blocking gating. */
+    public Object invokeRaw(String name, List<Object> args) {
+        Entry e = registry.get(name);
+        if (e == null) throw new TeeError("Unknown function '" + name + "'");
+        return e.fn().invoke(args);
+    }
+
+    /** Registry pre-loaded with the full PURE catalog (no host integration). */
     public static Builtins standard() {
         Builtins b = new Builtins();
         registerMath(b);
@@ -77,6 +85,13 @@ public final class Builtins {
         registerObject(b);
         registerJson(b);
         registerTiming(b);
+        return b;
+    }
+
+    /** Pure catalog + host-gated/blocking builtins backed by a {@link PlatformProvider} (design §3.1). */
+    public static Builtins standard(PlatformProvider platform) {
+        Builtins b = standard();
+        registerEnv(b, platform);
         return b;
     }
 
@@ -327,6 +342,18 @@ public final class Builtins {
             } catch (TeeError e) {
                 return Result.error(e.getMessage());
             }
+        });
+    }
+
+    // ---- Environment (host-gated via Coop.blocking) ------------------------
+
+    private static void registerEnv(Builtins b, PlatformProvider platform) {
+        // ENV(name) -> value, or {} if unset. ENV(name, default) -> value, or `default` if unset (83_type_env).
+        b.register("ENV", Kind.HOST_GATED, args -> {
+            String name = string("ENV", arg("ENV", args, 0));
+            String value = platform.env(name);
+            if (value != null) return value;
+            return args.size() > 1 ? args.get(1) : Values.emptyObject();
         });
     }
 

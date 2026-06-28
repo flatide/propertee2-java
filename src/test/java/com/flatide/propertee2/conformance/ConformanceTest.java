@@ -33,9 +33,10 @@ class ConformanceTest {
             "57_dynamic_thread_keys", "58_dynamic_key_digit_error", "59_dynamic_key_type_error",
             "60_dynamic_key_duplicate", "61_duplicate_auto_key", "65_keys", "67_sort_errors",
             "69_thread_isolation",
-            // host integration (PC): external functions, shell, tasks, ENV, file I/O, keyword/function hiding
+            // host integration (PC/PD): external functions, shell, tasks, file I/O, keyword/function hiding
+            // (ENV / 83_type_env is wired in PC and no longer pending)
             "41_result_pattern", "71_async_external", "72_shell", "73_keyword_ignore", "74_function_ignore",
-            "78_task_basic", "80_task_unique_ids", "83_type_env", "85_file_io");
+            "78_task_basic", "80_task_unique_ids", "85_file_io");
 
     /** Host-injected built-in properties (the {@code -p} flag) for fixtures that need them. */
     static final Map<String, Map<String, Object>> PROPS = Map.of(
@@ -70,8 +71,8 @@ class ConformanceTest {
     }
 
     @Test
-    void pbCoversFortySixSequentialFixtures() {
-        assertEquals(46, sequentialFixtures().size());
+    void nonPendingFixtureCount() {
+        assertEquals(47, sequentialFixtures().size());   // 46 sequential (PB) + ENV/83_type_env (PC)
         assertEquals(84, Fixtures.ALL.size());
     }
 }
