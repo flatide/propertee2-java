@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `propertee2-java` is a **fully-cooperative runtime** for the [ProperTee](https://github.com/flatide/ProperTee) language. Its goal is to fundamentally resolve the eager seams left by the frozen [`propertee-java`](https://github.com/flatide/propertee-java) **v1.0.0** (Java 7/8, stepper-based) using **Java 21 virtual-thread (Project Loom) coroutines (Strategy B)**. **TeeBox** will consume this runtime once it stabilizes.
 
-> **Status: PA done; interpreter (PB) next.** The repo holds the v1-equivalence assets (grammar, spec, fixtures, contract docs), a throwaway **spike** (`spike/`) that validated the cooperative model (`docs/spike-findings.md`), and the PA foundation of the real engine: a JDK 25 Gradle build with ANTLR codegen, the `value/` model, a parser facade, and the full PURE-builtin catalog. Next: the recursive tree-walk interpreter (PB).
+> **Status: PB done (sequential); Coop runtime (PC) next.** The repo holds the v1-equivalence assets (grammar, spec, fixtures, contract docs), a throwaway **spike** (`spike/`) that validated the cooperative model (`docs/spike-findings.md`), and the real engine through PB: JDK 25 Gradle build + ANTLR codegen, the `value/` model, the full PURE-builtin catalog, and a recursive tree-walk interpreter (`interp/`) that passes the 46 sequential conformance fixtures. Next: the Coop cooperative runtime (PC) — baton/sleep/yield/blocking + host-external contract — then multi/monitor (PD) to clear the `PENDING` fixtures.
 
 ## Locked-in core decisions (agreed in a prior session — changing them requires justification)
 
@@ -47,7 +47,7 @@ Validated in `spike/` (run `spike/run.sh`; full writeup in `docs/spike-findings.
 ## Main implementation — PA done, PB next
 
 - **PA done.** ✅ JDK 25 Gradle build (ANTLR visitor codegen, no preview flags), ✅ value model (`value/` — `TeeFormat` display+json, `Values`, `Result`, `TeeError`, `JsonParser`), ✅ parser facade + all-84-fixtures parse smoke test, ✅ full PURE builtin catalog (`builtin/Builtins` — math/type/string/string-matching/array+sort/object/JSON/timing) with return-type & error-message fidelity. HOST_GATED (`ENV`, file I/O) and BLOCKING (`SHELL`, `HTTP*`) builtins are deliberately deferred to PC/PD where they get the `Coop.blocking` contract.
-- **PB.** Recursive interpreter (stepper removed) — subclass the generated `ProperTeeBaseVisitor`.
+- **PB done (sequential language).** ✅ Recursive tree-walk in `interp/` (`Engine`, `Interpreter`, `Ranges`, `Signals`, `UserFunction`) — instanceof-dispatch over the parse tree (no stepper/replay). Covers scopes (global/local/`::`), arithmetic+coercion, strict comparison/logic, 1-based access & dynamic keys, literals, ranges (BigDecimal float precision), control flow, functions, PRINT, pure builtins, escape processing, deepCopy/COW, and v1-exact errors (line:col). `ConformanceTest` runs the **46 sequential fixtures** byte-for-byte (the 38 multi/thread/SLEEP/monitor + host fixtures are the `PENDING` set, deferred to PC/PD).
 - **PC.** Coop runtime (baton, `sleep`, `yield`, `blocking`) + host-external `Coop.blocking` contract (§3.1); use `ScopedValue` for per-fiber context (§5).
 - **PD.** `multi`/monitor — vthread executor + hand-rolled fork/join (STS encapsulated for later swap).
 - **PE.** Conformance — run each fixture, diff stdout vs `.expected` (hardcoded list in `conformance/Fixtures`, host injections per `docs/conformance-tests.md`), deterministic ordering + seam-timing + async-replay-removal tests.
