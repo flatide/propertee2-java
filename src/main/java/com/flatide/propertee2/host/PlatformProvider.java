@@ -24,7 +24,12 @@ public interface PlatformProvider {
 
     void appendFile(String path, String content) throws IOException;
 
-    List<String> readLines(String path) throws IOException;    // UTF-8; trailing newline yields no empty line
+    /**
+     * Read a WINDOW of lines: skip {@code start - 1} (1-based start), then return up to {@code count}.
+     * Streams so a large file is not loaded whole (LANGUAGE.md §File I/O large-file iteration).
+     * Use {@code count = Long.MAX_VALUE} for "to end of file". UTF-8; a trailing newline yields no empty line.
+     */
+    List<String> readLines(String path, long start, long count) throws IOException;
 
     FileStat fileInfo(String path) throws IOException;         // throws if not found
 

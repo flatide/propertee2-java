@@ -9,12 +9,15 @@ import java.util.function.Supplier;
  * enforced. In PC the interpreter runs as the single root fiber; PD adds {@code multi} child fibers.
  */
 public final class Coop {
-    private final Scheduler scheduler = new Scheduler();
+    // A Scheduler is one-shot (it latches `shutdown` and accumulates fiber state), so each run gets
+    // a fresh one. This keeps Coop reusable: a second run() — including one that sleeps — works cleanly.
+    private volatile Scheduler scheduler = new Scheduler();
 
     public Scheduler scheduler() { return scheduler; }
 
     /** Run the program body as the root fiber to completion; rethrows whatever the body threw. */
     public void run(String rootName, Runnable body) {
+        scheduler = new Scheduler();
         AtomicReference<Throwable> error = new AtomicReference<>();
         scheduler.runToCompletion(rootName, () -> {
             try {

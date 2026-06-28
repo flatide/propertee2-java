@@ -9,6 +9,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /** Default host integration backed by the real JVM environment and filesystem (NIO). */
@@ -42,8 +43,11 @@ public final class DefaultPlatformProvider implements PlatformProvider {
     }
 
     @Override
-    public List<String> readLines(String path) throws IOException {
-        return Files.readAllLines(Path.of(path), StandardCharsets.UTF_8);
+    public List<String> readLines(String path, long start, long count) throws IOException {
+        // Files.lines streams lazily; skip/limit keep memory at O(count), not O(file size).
+        try (Stream<String> lines = Files.lines(Path.of(path), StandardCharsets.UTF_8)) {
+            return lines.skip(start - 1).limit(count).collect(Collectors.toList());
+        }
     }
 
     @Override

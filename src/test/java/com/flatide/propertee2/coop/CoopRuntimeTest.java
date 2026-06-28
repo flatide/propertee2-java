@@ -75,6 +75,18 @@ class CoopRuntimeTest {
         assertEquals(42, result[0]);
     }
 
+    @Test void coopIsReusableAcrossRunsThatSleep() {
+        Coop coop = new Coop();
+        int[] x = new int[1];
+        // Before the fresh-scheduler-per-run fix, the second run's sleep had no live timer to wake it
+        // (the first run latched shutdown) and this would hang — hence the preemptive timeout.
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> {
+            coop.run("r1", () -> { coop.sleep(10); x[0] += 1; });
+            coop.run("r2", () -> { coop.sleep(10); x[0] += 10; });
+        });
+        assertEquals(11, x[0]);
+    }
+
     @Test void blockingReacquiresBatonOnException() {
         Coop coop = new Coop();
         // If blocking() skipped re-acquire on exception, the fiber would complete off-baton and

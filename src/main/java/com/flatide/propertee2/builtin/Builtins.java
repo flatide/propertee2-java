@@ -403,28 +403,21 @@ public final class Builtins {
 
         b.register("READ_LINES", Kind.HOST_GATED, args -> {
             String path = string("READ_LINES", arg("READ_LINES", args, 0));
-            int start = 1;
+            long start = 1;
             if (args.size() > 1) {
                 Object s = args.get(1);
                 if (!isWhole(s) || Values.toDouble(s) < 1) return Result.error("READ_LINES start must be a positive integer");
-                start = (int) Values.toDouble(s);
+                start = (long) Values.toDouble(s);
             }
-            Integer count = null;
+            long count = Long.MAX_VALUE;   // default: to end of file
             if (args.size() > 2) {
                 Object c = args.get(2);
                 if (!isWhole(c) || Values.toDouble(c) < 1) return Result.error("READ_LINES count must be a positive integer");
-                count = (int) Values.toDouble(c);
+                count = (long) Values.toDouble(c);
             }
-            final int from = start;
-            final Integer limit = count;
-            return ioResult(() -> {
-                List<String> all = platform.readLines(path);
-                List<Object> out = new ArrayList<>();
-                for (int i = from - 1; i >= 0 && i < all.size() && (limit == null || out.size() < limit); i++) {
-                    out.add(all.get(i));
-                }
-                return Result.ok(out);
-            });
+            final long from = start, limit = count;
+            // The provider streams + skips + limits — a large file is not loaded whole (LANGUAGE.md §File I/O).
+            return ioResult(() -> Result.ok(new ArrayList<Object>(platform.readLines(path, from, limit))));
         });
 
         b.register("FILE_INFO", Kind.HOST_GATED, args -> ioResult(() -> {
