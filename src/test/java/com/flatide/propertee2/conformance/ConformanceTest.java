@@ -3,9 +3,14 @@ package com.flatide.propertee2.conformance;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.flatide.propertee2.interp.Engine;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -33,10 +38,10 @@ class ConformanceTest {
             "57_dynamic_thread_keys", "58_dynamic_key_digit_error", "59_dynamic_key_type_error",
             "60_dynamic_key_duplicate", "61_duplicate_auto_key", "65_keys", "67_sort_errors",
             "69_thread_isolation",
-            // host integration (PC/PD): external functions, shell, tasks, file I/O, keyword/function hiding
-            // (ENV / 83_type_env is wired in PC and no longer pending)
+            // host integration (PC/PD): external functions, shell, tasks, keyword/function hiding
+            // (ENV / 83_type_env and file I/O / 85_file_io are wired in PC and no longer pending)
             "41_result_pattern", "71_async_external", "72_shell", "73_keyword_ignore", "74_function_ignore",
-            "78_task_basic", "80_task_unique_ids", "85_file_io");
+            "78_task_basic", "80_task_unique_ids");
 
     /** Host-injected built-in properties (the {@code -p} flag) for fixtures that need them. */
     static final Map<String, Map<String, Object>> PROPS = Map.of(
@@ -56,14 +61,28 @@ class ConformanceTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("sequentialFixtures")
-    void matchesExpected(String name) {
+    void matchesExpected(String name) throws IOException {
         String expected = Fixtures.expected(name);
-        String actual = new Engine().run(Fixtures.source(name), PROPS.getOrDefault(name, Map.of()));
+        String actual = name.equals("85_file_io")
+                ? runWithTempDir(name)
+                : new Engine().run(Fixtures.source(name), PROPS.getOrDefault(name, Map.of()));
         if (name.equals(NO_TRAILING_NEWLINE_ARTIFACT)) {
             expected = stripOneTrailingNewline(expected);
             actual = stripOneTrailingNewline(actual);
         }
         assertEquals(expected, actual, () -> "stdout mismatch for " + name + ".tee");
+    }
+
+    /** Run a fixture that does file I/O against a fresh temp dir injected as the {@code testDir} property. */
+    private static String runWithTempDir(String name) throws IOException {
+        Path dir = Files.createTempDirectory("propertee2-" + name + "-");
+        try {
+            return new Engine().run(Fixtures.source(name), Map.of("testDir", dir.toString()));
+        } finally {
+            try (Stream<Path> walk = Files.walk(dir)) {
+                walk.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+            }
+        }
     }
 
     private static String stripOneTrailingNewline(String s) {
@@ -72,7 +91,7 @@ class ConformanceTest {
 
     @Test
     void nonPendingFixtureCount() {
-        assertEquals(47, sequentialFixtures().size());   // 46 sequential (PB) + ENV/83_type_env (PC)
+        assertEquals(48, sequentialFixtures().size());   // 46 sequential (PB) + ENV + file I/O (PC)
         assertEquals(84, Fixtures.ALL.size());
     }
 }

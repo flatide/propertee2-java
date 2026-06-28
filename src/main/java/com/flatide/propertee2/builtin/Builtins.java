@@ -7,6 +7,7 @@ import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeFormat;
 import com.flatide.propertee2.value.Values;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -92,6 +93,7 @@ public final class Builtins {
     public static Builtins standard(PlatformProvider platform) {
         Builtins b = standard();
         registerEnv(b, platform);
+        registerFileIO(b, platform);
         return b;
     }
 
@@ -355,6 +357,111 @@ public final class Builtins {
             if (value != null) return value;
             return args.size() > 1 ? args.get(1) : Values.emptyObject();
         });
+    }
+
+    // ---- File I/O (host-gated via Coop.blocking) — returns Result; verified vs 85_file_io ----
+
+    @FunctionalInterface private interface IoCall { Object call() throws IOException; }
+
+    private static Object ioResult(IoCall c) {
+        try {
+            return c.call();
+        } catch (IOException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    private static void registerFileIO(Builtins b, PlatformProvider platform) {
+        b.register("FILE_EXISTS", Kind.HOST_GATED, args ->
+                platform.fileExists(string("FILE_EXISTS", arg("FILE_EXISTS", args, 0))));   // boolean, not Result
+
+        b.register("MKDIR", Kind.HOST_GATED, args -> ioResult(() -> {
+            platform.mkdir(string("MKDIR", arg("MKDIR", args, 0)));
+            return Result.ok(Values.emptyObject());
+        }));
+
+        b.register("WRITE_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
+            platform.writeFile(string("WRITE_FILE", arg("WRITE_FILE", args, 0)),
+                    string("WRITE_FILE", arg("WRITE_FILE", args, 1)));
+            return Result.ok(Values.emptyObject());
+        }));
+
+        b.register("APPEND_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
+            platform.appendFile(string("APPEND_FILE", arg("APPEND_FILE", args, 0)),
+                    string("APPEND_FILE", arg("APPEND_FILE", args, 1)));
+            return Result.ok(Values.emptyObject());
+        }));
+
+        b.register("WRITE_LINES", Kind.HOST_GATED, args -> ioResult(() -> {
+            String path = string("WRITE_LINES", arg("WRITE_LINES", args, 0));
+            List<Object> lines = array("WRITE_LINES", arg("WRITE_LINES", args, 1));
+            StringBuilder sb = new StringBuilder();
+            for (Object line : lines) sb.append(string("WRITE_LINES", line)).append('\n'); // each followed by newline
+            platform.writeFile(path, sb.toString());
+            return Result.ok(Values.emptyObject());
+        }));
+
+        b.register("READ_LINES", Kind.HOST_GATED, args -> {
+            String path = string("READ_LINES", arg("READ_LINES", args, 0));
+            int start = 1;
+            if (args.size() > 1) {
+                Object s = args.get(1);
+                if (!isWhole(s) || Values.toDouble(s) < 1) return Result.error("READ_LINES start must be a positive integer");
+                start = (int) Values.toDouble(s);
+            }
+            Integer count = null;
+            if (args.size() > 2) {
+                Object c = args.get(2);
+                if (!isWhole(c) || Values.toDouble(c) < 1) return Result.error("READ_LINES count must be a positive integer");
+                count = (int) Values.toDouble(c);
+            }
+            final int from = start;
+            final Integer limit = count;
+            return ioResult(() -> {
+                List<String> all = platform.readLines(path);
+                List<Object> out = new ArrayList<>();
+                for (int i = from - 1; i >= 0 && i < all.size() && (limit == null || out.size() < limit); i++) {
+                    out.add(all.get(i));
+                }
+                return Result.ok(out);
+            });
+        });
+
+        b.register("FILE_INFO", Kind.HOST_GATED, args -> ioResult(() -> {
+            PlatformProvider.FileStat s = platform.fileInfo(string("FILE_INFO", arg("FILE_INFO", args, 0)));
+            Map<String, Object> info = new LinkedHashMap<>();
+            info.put("type", s.type());
+            info.put("size", numberFromLong(s.size()));
+            info.put("modified", (double) s.modified());
+            return Result.ok(info);
+        }));
+
+        b.register("LIST_DIR", Kind.HOST_GATED, args -> ioResult(() -> {
+            List<PlatformProvider.DirEntry> entries = platform.listDir(string("LIST_DIR", arg("LIST_DIR", args, 0)));
+            List<Object> out = new ArrayList<>();
+            for (PlatformProvider.DirEntry e : entries) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("name", e.name());
+                m.put("type", e.type());
+                m.put("size", numberFromLong(e.size()));
+                out.add(m);
+            }
+            return Result.ok(out);
+        }));
+
+        b.register("DELETE_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
+            platform.deleteFile(string("DELETE_FILE", arg("DELETE_FILE", args, 0)));
+            return Result.ok(Values.emptyObject());
+        }));
+    }
+
+    private static boolean isWhole(Object v) {
+        return Values.isNumber(v) && Values.toDouble(v) == Math.floor(Values.toDouble(v))
+                && !Double.isInfinite(Values.toDouble(v));
+    }
+
+    private static Object numberFromLong(long v) {
+        return (v >= Integer.MIN_VALUE && v <= Integer.MAX_VALUE) ? (Object) (int) v : (Object) (double) v;
     }
 
     // ---- Timing (non-blocking; nondeterministic — baton-safe, so PURE) -----
