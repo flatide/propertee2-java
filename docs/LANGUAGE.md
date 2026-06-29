@@ -943,28 +943,15 @@ For external function results, `ok` is sufficient — check `res.ok == true`. Th
 In this runtime an external call **releases the baton** (it runs through `Coop.blocking`), so blocking I/O — database queries, HTTP requests, file reads — does not freeze other ProperTee threads. Register with `registerExternal()` (the default, baton-safe); `registerExternalAsync()` is a kept-for-familiarity alias, and `registerPure()` opts a guaranteed non-blocking function back onto the baton for speed. Arguments and the return value are deep-copied, so a host function may mutate either without affecting script state.
 
 ```java
-// Java host — async function with 5-second timeout
-interpreter.builtins.registerExternalAsync("DB_QUERY", new BuiltinFunction() {
-    public Object call(List<Object> args) {
-        String sql = (String) args.get(0);
-        // This runs on a background thread — blocking is OK
-        return Result.ok(database.execute(sql));
-    }
-}, 5000);
+// Java host — register on the Engine. Return a value (wrapped into Result.ok) or throw
+// (wrapped into Result.error). registerExternal runs through Coop.blocking, so blocking is fine.
+engine.registerExternal("DB_QUERY", args -> database.execute((String) args.get(0)));
 ```
 
-```javascript
-// JavaScript host — async function (no timeout)
-visitor.registerExternalAsync("HTTP_GET", (url) => {
-    const response = await fetch(url);
-    return Result.ok(response.json());
-});
-```
-
-From the script side, async functions look identical to sync external functions:
+From the script side, an external call looks identical to a builtin:
 
 ```
-// Script doesn't know (or care) whether GET_BALANCE is sync or async
+// the script doesn't know (or care) whether GET_BALANCE is pure or blocking
 res = GET_BALANCE("alice")
 if res.ok == true then
     PRINT("Balance:", res.value)
@@ -972,45 +959,20 @@ end
 ```
 
 **Behavior:**
-- The calling thread **blocks** until the async operation completes (or times out)
-- Other threads in a `multi` block **continue executing** — only the calling thread is paused
-- Outside a `multi` block, the script simply waits (no other threads to run)
-- Results use the same Result pattern: `{ok: true, value: ...}` on success, `{ok: false, value: "error message"}` on failure
-- Thrown exceptions inside async functions are automatically wrapped as `Result.error(message)`
+- A blocking external **releases the baton**: the calling fiber suspends, other `multi` workers and `monitor` ticks keep advancing, and the call resumes in place (the Java call stack is the continuation — no statement replay, so leading side effects run once). Outside a `multi` block there are simply no other fibers to run.
+- Results use the Result pattern: `{ok: true, value: ...}` on success, `{ok: false, value: "error message"}` on failure. A thrown exception is wrapped as `Result.error(message)`.
+- Arguments and the return value are deep-copied, so a host function mutating either cannot change script state.
 
-**Timeout:** The optional timeout parameter (milliseconds) limits how long the thread will wait. If the operation exceeds the timeout, the function returns `{status: "error", ok: false, value: "timeout"}`:
-
-```
-// Host registers with 100ms timeout
-// registerExternalAsync("FAST_LOOKUP", func, 100)
-
-res = FAST_LOOKUP("key")
-if res.ok == true then
-    PRINT(res.value)
-else
-    PRINT("Timed out or error:", res.value)   // "timeout"
-end
-```
-
-**Restrictions:**
-- Async functions cannot be called inside `monitor` blocks (runtime error)
-- Multiple async calls in the same statement are not supported — use separate statements
-- The async function receives deep-copied arguments (thread-safe)
+> The frozen Java 7/8 v1 forbade async calls inside `monitor` bodies and more than one async call per statement (a consequence of its statement-replay scheme). This runtime has neither restriction. There is no built-in timeout overload in 0.1.0 — a host wraps its own timeout and returns `Result.error` / throws.
 
 ### Host Environment Restrictions
 
 Host applications can restrict which language keywords and built-in functions are available:
 
 ```
-// Java host
-Set<String> hidden = new HashSet<String>();
-hidden.add("multi");
-hidden.add("loop");
-interpreter.setHiddenKeywords(hidden);
-
-Set<String> ignored = new HashSet<String>();
-ignored.add("SHELL");
-interpreter.setIgnoredFunctions(ignored);
+// Java host (propertee2-java)
+engine.setHiddenKeywords(java.util.Set.of("multi", "loop"));
+engine.setIgnoredFunctions(java.util.Set.of("SHELL"));
 
 // JavaScript host
 visitor.setHiddenKeywords(["multi", "loop"]);
@@ -1118,9 +1080,8 @@ Common error conditions:
 
 ### v1.0.0
 
-- **Cooperative statement-nesting (Strategy C).** `SLEEP` / `multi` spawning / async now suspend cooperatively when they appear in **statement position** inside `if`/`else` bodies, all three `loop` bodies, bare user-function-call statements (`foo()`), `multi` worker bodies, and any nesting of these — other workers and `monitor` ticks keep advancing during the wait. Loops also yield between iterations, so workers interleave per-iteration (matching the propertee-js runtime). Previously a nested `SLEEP` used a blocking `Thread.sleep` fallback that froze the scheduler.
-- **Remaining eager seams documented.** A `SLEEP` reached only through an *expression* (assignment RHS, operators, conditions, iterables, arguments), the `multi` setup phase, and `monitor` bodies still run eagerly; async stays cooperative everywhere but resumes via statement replay. These do not affect result correctness (except the async-replay side-effect caveat) — they cost concurrency. Closing them fully is the goal of the separate Java 21+ (virtual-thread) runtime.
-- **This is the final feature release of the frozen Java 7/8 line.** Subsequent work moves to the Java 21+ runtime; v1.0.0 receives critical fixes only.
+- **Cooperative scheduling.** In this Java 25 virtual-thread runtime, `SLEEP` / `multi` spawning / external functions suspend cooperatively **everywhere** — both in statement position and **mid-expression** (assignment RHS, operators, conditions, iterables, arguments) — because the Java call stack is the continuation (see §SLEEP). There is **no eager-expression fallback and no async statement replay** (leading side effects run once), and async calls are allowed inside `monitor` bodies and more than once per statement. (The frozen Java 7/8 v1.0.0 line had only partial, statement-position cooperation, with eager seams in those expression cases, `multi` setup, and `monitor` bodies; this runtime closes them.)
+- **The Java 7/8 v1.0.0 line is frozen** — critical fixes only. New work lives in this Java 25 runtime.
 
 ### v0.9.0
 
