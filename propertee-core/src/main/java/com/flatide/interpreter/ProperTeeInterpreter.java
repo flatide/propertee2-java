@@ -64,7 +64,7 @@ public class ProperTeeInterpreter {
                 : new UnsupportedTaskRunner();
 
         Coop coop = new Coop();
-        Interpreter interp = new Interpreter(sink, properties, coop, platform, taskRunner);
+        Interpreter interp = new Interpreter(sink, properties, coop, platform, taskRunner, builtins.runId);
         interp.setLoopLimit(maxIterations);
         for (Map.Entry<String, BuiltinFunctions.BuiltinFunction> e : builtins.custom.entrySet()) {
             final BuiltinFunctions.BuiltinFunction fn = e.getValue();
@@ -72,12 +72,31 @@ public class ProperTeeInterpreter {
         }
         interp.globals().putAll(this.variables);                 // inject host globals (e.g. _SYS) before the run
 
-        coop.run("main", () -> interp.run(stepper.tree));         // a TeeError here propagates to the host
+        // Register the program's root logical thread with the host listener so it can observe the run
+        // (the run-detail "threads"); fire created before the run so a poller sees it during execution.
+        com.flatide.scheduler.ThreadContext main = new com.flatide.scheduler.ThreadContext();
+        main.id = 0;
+        main.name = "main";
+        main.state = com.flatide.scheduler.ThreadState.RUNNING;
+        if (listener != null) listener.onThreadCreated(main);
+
+        try {
+            coop.run("main", () -> interp.run(stepper.tree));     // a TeeError here propagates to the host
+        } catch (Throwable t) {
+            main.state = com.flatide.scheduler.ThreadState.ERROR;
+            main.error = t;
+            if (listener != null) listener.onThreadError(main);
+            throw t;
+        }
 
         stepper.hasExplicitReturn = interp.hasExplicitReturn();
         stepper.result = interp.returnValue();
         this.variables.clear();
         this.variables.putAll(interp.globals());                 // expose final globals so the host reads `result`
+
+        main.state = com.flatide.scheduler.ThreadState.COMPLETED;
+        main.result = stepper.result;
+        if (listener != null) listener.onThreadCompleted(main);
         return stepper.result;
     }
 

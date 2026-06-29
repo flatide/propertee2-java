@@ -24,8 +24,9 @@ final class Shell {
     private static final int OUTPUT_CAP_BYTES = 10 * 1024 * 1024;
 
     private final TaskRunner taskRunner;
+    private final String runId;   // tags each TaskRequest so a host can group tasks by run (null when unset)
 
-    Shell(TaskRunner taskRunner) { this.taskRunner = taskRunner; }
+    Shell(TaskRunner taskRunner, String runId) { this.taskRunner = taskRunner; this.runId = runId; }
 
     Object run(List<Object> args) {
         try {
@@ -50,6 +51,7 @@ final class Shell {
     @SuppressWarnings("unchecked")
     private TaskRequest buildRequest(List<Object> args) {
         TaskRequest request = new TaskRequest();
+        request.runId = runId;             // associate the task with the host's run (v1 createBaseTaskRequest)
         request.mergeErrorToStdout = true;
 
         if (args.size() == 1) {

@@ -16,5 +16,6 @@ public class ThreadContext {
     public Throwable error = null;
     public Integer parentId = null;
     public String resultKeyName = null;
+    public Long sleepUntil = null;
     public Future<Object> asyncFuture = null;
 }

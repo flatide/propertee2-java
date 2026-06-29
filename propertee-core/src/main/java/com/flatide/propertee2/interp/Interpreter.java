@@ -52,16 +52,22 @@ public final class Interpreter {
 
     /** Façade-friendly constructor: no host externals / hidden keywords (custom builtins go via addRawBuiltin). */
     public Interpreter(Sink out, Map<String, Object> props, Coop coop, PlatformProvider platform,
-                       com.flatide.task.TaskRunner taskRunner) {
-        this(out, props, coop, platform, new LinkedHashMap<>(), Set.of(), Set.of(), taskRunner);
+                       com.flatide.task.TaskRunner taskRunner, String runId) {
+        this(out, props, coop, platform, new LinkedHashMap<>(), Set.of(), Set.of(), taskRunner, runId);
     }
 
     public Interpreter(Sink out, Map<String, Object> props, Coop coop, PlatformProvider platform,
                        Map<String, ExternalFunction> externals, Set<String> hiddenKeywords,
                        Set<String> ignoredFunctions, com.flatide.task.TaskRunner taskRunner) {
+        this(out, props, coop, platform, externals, hiddenKeywords, ignoredFunctions, taskRunner, null);
+    }
+
+    public Interpreter(Sink out, Map<String, Object> props, Coop coop, PlatformProvider platform,
+                       Map<String, ExternalFunction> externals, Set<String> hiddenKeywords,
+                       Set<String> ignoredFunctions, com.flatide.task.TaskRunner taskRunner, String runId) {
         this.out = out;
         this.coop = coop;
-        this.builtins = Builtins.standard(platform, taskRunner);
+        this.builtins = Builtins.standard(platform, taskRunner, runId);
         this.externals = externals;
         this.hiddenKeywords = hiddenKeywords;
         this.ignoredFunctions = ignoredFunctions;
