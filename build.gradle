@@ -43,6 +43,13 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// The `antlr` plugin leaks the ANTLR TOOL (antlr4 + ST4 + icu4j + antlr3-runtime + treelayout +
+// javax.json) onto the runtime classpath; only antlr4-runtime is needed to run. Keep the generator
+// out of runtimeClasspath so `installDist` ships just the runtime.
+configurations.named('runtimeClasspath') {
+    exclude group: 'org.antlr', module: 'antlr4'
+}
+
 // Grammar stays at grammar/ProperTee.g4 (canonical, frozen — identical to v1).
 sourceSets {
     main {

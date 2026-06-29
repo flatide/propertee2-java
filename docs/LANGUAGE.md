@@ -679,15 +679,9 @@ end
 
 Only meaningful inside functions running within a `multi` block.
 
-> **Java runtime limitation (current).** Cooperative, non-blocking `SLEEP` (and spawning / async) works whenever it appears as a **statement** inside an `if`/`else` body, a `loop` body, a bare function-call statement (`worker()`), a `multi` worker body, or any nesting of these — other `multi` workers and `monitor` ticks keep advancing during the wait. Loops also yield between iterations, so workers interleave per-iteration (matching the propertee-js runtime).
+> **Fully cooperative (this runtime).** `SLEEP` — and host I/O / external functions — is cooperative **wherever it appears**: as a statement, inside an `if`/`loop`/function body, **and mid-expression** (`x = worker()`, `a + worker()`, an `if`/`loop` condition, a loop iterable, a function argument). The Java call stack is the continuation, so the fiber suspends in place and other `multi` workers and `monitor` ticks keep advancing during the wait; loops also yield between iterations. There is **no eager fallback and no statement replay** — side effects before a blocking/async call in the same statement run **exactly once**.
 >
-> A few cases still run eagerly. They do **not** change results (timing and values stay correct) — they cost concurrency: while the eager region runs, other `multi` workers and `monitor` ticks pause.
->
-> - **`SLEEP` reached through an expression** (not a statement): an assignment right-hand side (`x = worker()`), an operator (`a + worker()`), an `if`/`loop` condition, a loop iterable, or a function argument. Calling a function this way runs its **whole body eagerly**, so a `SLEEP` inside falls back to a **blocking** `Thread.sleep`.
-> - **The setup part of a `multi` block** runs eagerly. A `SLEEP` there (including a setup `loop` that spawns) blocks — so a `multi` nested inside a worker, whose setup sleeps, pauses the outer workers.
-> - **`monitor` bodies** run synchronously: a `SLEEP` there blocks, and an async function call there is a **runtime error**.
->
-> Separately, async functions (`SHELL`, `HTTP`, host async externals) stay cooperative even in expressions — but they resume by re-running the statement, so side effects placed *before* an async call in the same statement run twice (keep such side effects on their own line). Single-threaded scripts are unaffected by the blocking cases above. A future release may make these fully cooperative.
+> (The frozen Java 7/8 `propertee-java` v1 had eager seams here — expression-position `SLEEP` fell back to a blocking `Thread.sleep`, and async statement-replay ran leading side effects twice. This Java 25 virtual-thread runtime resolves them; see `docs/java25-vthread-runtime-design-ko.md`.)
 
 ## Built-in Functions
 
@@ -944,9 +938,9 @@ Result objects have three fields:
 
 For external function results, `ok` is sufficient — check `res.ok == true`. The `status` field exists primarily for multi block thread results, where it distinguishes between `"running"` (not yet finished) and `"error"` (finished with failure) — both have `ok: false`.
 
-### Async External Functions
+### Blocking / Async External Functions
 
-Host applications can register **async external functions** for blocking I/O (database queries, HTTP requests, file reads) that don't freeze other ProperTee threads. Use `registerExternalAsync()` instead of `registerExternal()`:
+In this runtime an external call **releases the baton** (it runs through `Coop.blocking`), so blocking I/O — database queries, HTTP requests, file reads — does not freeze other ProperTee threads. Register with `registerExternal()` (the default, baton-safe); `registerExternalAsync()` is a kept-for-familiarity alias, and `registerPure()` opts a guaranteed non-blocking function back onto the baton for speed. Arguments and the return value are deep-copied, so a host function may mutate either without affecting script state.
 
 ```java
 // Java host — async function with 5-second timeout

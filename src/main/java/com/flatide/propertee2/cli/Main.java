@@ -1,5 +1,6 @@
 package com.flatide.propertee2.cli;
 
+import com.flatide.propertee2.Parsing;
 import com.flatide.propertee2.interp.Engine;
 import com.flatide.propertee2.value.JsonParser;
 import com.flatide.propertee2.value.TeeError;
@@ -58,7 +59,13 @@ public final class Main {
             return;
         }
 
-        System.out.print(new Engine().run(source, props));   // output already carries its own newlines
+        try {
+            System.out.print(new Engine().run(source, props));   // output already carries its own newlines
+        } catch (Parsing.SyntaxException e) {
+            // malformed input: a concise stderr line + nonzero exit (a script *runtime* error is in stdout)
+            System.err.println("propertee2: " + file + ": " + e.getMessage());
+            System.exit(1);
+        }
     }
 
     @SuppressWarnings("unchecked")
