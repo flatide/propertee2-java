@@ -86,6 +86,23 @@ class InterpreterTest {
         });
     }
 
+    /** A host external function receives a deep copy of its args — mutating them cannot change script state. */
+    @Test void externalCannotMutateScriptArgs() {
+        Engine e = new Engine().registerExternal("APPEND_HOST", args -> {
+            @SuppressWarnings("unchecked")
+            java.util.List<Object> list = (java.util.List<Object>) args.get(0);
+            list.add(999);                 // host tries to mutate the script's array
+            return list.size();            // returns 4 (its own copy grew)
+        });
+        String out = e.run("""
+                arr = [1, 2, 3]
+                n = APPEND_HOST(arr)
+                PRINT(arr)
+                PRINT(n.value)
+                """);
+        assertEquals("[ 1, 2, 3 ]\n4\n", out);   // arr unchanged; host saw an isolated copy
+    }
+
     /** Writing through a property must not mutate the read-only host snapshot across runs. */
     @Test void propertyWriteDoesNotMutateHostSnapshot() {
         Map<String, Object> props = new HashMap<>();

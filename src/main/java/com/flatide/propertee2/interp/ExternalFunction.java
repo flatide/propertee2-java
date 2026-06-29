@@ -5,8 +5,13 @@ import java.util.function.Function;
 
 /**
  * A host-registered external function (LANGUAGE.md §External Functions). The body returns a raw
- * value (wrapped into {@code Result.ok}) or throws (wrapped into {@code Result.error}). When
- * {@code async}, the runtime runs it through {@code Coop.blocking} (design §3.1) so blocking host
- * I/O does not freeze other ProperTee threads.
+ * value (wrapped into {@code Result.ok}) or throws (wrapped into {@code Result.error}). Args are
+ * deep-copied before the call and the return value after it, so a host mutating either cannot
+ * change script state (LANGUAGE.md §async externals are deep-copied / thread-safe).
+ *
+ * <p>{@code blocking} = true routes the call through {@code Coop.blocking} (design §3.1 — a host
+ * function may block, so it must release the baton). {@code registerExternal} /
+ * {@code registerExternalAsync} are both blocking (the unified §3.1 contract); only
+ * {@code registerPure} opts out, and only when the host guarantees the function never blocks.
  */
-record ExternalFunction(Function<List<Object>, Object> body, boolean async) {}
+record ExternalFunction(Function<List<Object>, Object> body, boolean blocking) {}

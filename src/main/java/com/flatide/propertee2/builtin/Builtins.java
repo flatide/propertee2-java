@@ -475,14 +475,27 @@ public final class Builtins {
         // Result.error (never throws), regardless of the call shape (cmd / ctx,cmd / cmd,options).
         b.register("SHELL", Kind.BLOCKING, args -> Result.error(NO_TASK_RUNNER));
 
-        // SHELL_CTX(cwd, [env], [timeout]) — builds a context after validating the cwd exists.
+        // SHELL_CTX(cwd, [env], [timeout]) — builds a context after validating the cwd IS a directory
+        // and the optional env (object) / timeout (number) types.
         b.register("SHELL_CTX", Kind.HOST_GATED, args -> {
             String cwd = string("SHELL_CTX", arg("SHELL_CTX", args, 0));
-            if (!platform.fileExists(cwd)) return Result.error("SHELL_CTX: directory does not exist: " + cwd);
+            try {
+                if (!platform.fileInfo(cwd).type().equals("dir")) {
+                    return Result.error("SHELL_CTX: not a directory: " + cwd);
+                }
+            } catch (IOException e) {
+                return Result.error("SHELL_CTX: directory does not exist: " + cwd);
+            }
             Map<String, Object> ctx = new LinkedHashMap<>();
             ctx.put("cwd", cwd);
-            if (args.size() > 1) ctx.put("env", Values.deepCopy(args.get(1)));
-            if (args.size() > 2) ctx.put("timeout", args.get(2));
+            if (args.size() > 1) {
+                if (!(args.get(1) instanceof Map)) return Result.error("SHELL_CTX: env must be an object");
+                ctx.put("env", Values.deepCopy(args.get(1)));
+            }
+            if (args.size() > 2) {
+                if (!Values.isNumber(args.get(2))) return Result.error("SHELL_CTX: timeout must be a number");
+                ctx.put("timeout", args.get(2));
+            }
             return Result.ok(ctx);
         });
     }

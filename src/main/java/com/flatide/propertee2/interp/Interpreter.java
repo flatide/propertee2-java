@@ -642,8 +642,8 @@ public final class Interpreter {
         if (name.equals("SLEEP")) return doSleep(args, ctx);
         ExternalFunction ext = externals.get(name);
         if (ext != null) {
-            // value -> Result.ok, exception -> Result.error; async runs off the baton (design §3.1)
-            return ext.async() ? coop.blocking(() -> callExternal(ext, args)) : callExternal(ext, args);
+            // value -> Result.ok, exception -> Result.error; blocking externals release the baton (§3.1)
+            return ext.blocking() ? coop.blocking(() -> callExternal(ext, args)) : callExternal(ext, args);
         }
         if (builtins.has(name)) {
             // Built-in errors stay positionless ("Runtime Error: msg" — 67_sort_errors); do not add a
@@ -657,10 +657,16 @@ public final class Interpreter {
         throw err("Unknown function '" + name + "'", ctx);
     }
 
-    /** Run a host external function, wrapping its return/exception in the v1 Result pattern. */
+    /**
+     * Run a host external function, wrapping its return/exception in the v1 Result pattern. Args and
+     * the return value are deep-copied so a host mutating either (possibly off-baton, on another
+     * carrier) cannot change script state (LANGUAGE.md §async externals).
+     */
     private static Object callExternal(ExternalFunction ext, List<Object> args) {
+        List<Object> isolated = new ArrayList<>(args.size());
+        for (Object a : args) isolated.add(Values.deepCopy(a));
         try {
-            return Result.ok(ext.body().apply(args));
+            return Result.ok(Values.deepCopy(ext.body().apply(isolated)));
         } catch (TeeError e) {
             return Result.error(e.getMessage());
         } catch (RuntimeException e) {

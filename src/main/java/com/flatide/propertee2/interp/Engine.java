@@ -29,15 +29,26 @@ public final class Engine {
     private Set<String> hiddenKeywords = Set.of();
     private Set<String> ignoredFunctions = Set.of();
 
-    /** Register a synchronous external function (return value -> Result.ok, exception -> Result.error). */
+    /**
+     * Register an external function (return value -> Result.ok, exception -> Result.error). Runs
+     * through Coop.blocking — a host function may block, and the design unifies external registration
+     * onto the single Coop.blocking contract (§3.1). Use {@link #registerPure} for a guaranteed
+     * non-blocking function that may run on the baton.
+     */
     public Engine registerExternal(String name, Function<List<Object>, Object> body) {
-        externals.put(name, new ExternalFunction(body, false));
+        externals.put(name, new ExternalFunction(body, true));
         return this;
     }
 
-    /** Register an async external function — run through Coop.blocking so it doesn't freeze other threads. */
+    /** Alias of {@link #registerExternal} kept for v1 API familiarity (both honor the §3.1 contract). */
     public Engine registerExternalAsync(String name, Function<List<Object>, Object> body) {
         externals.put(name, new ExternalFunction(body, true));
+        return this;
+    }
+
+    /** Register a host function the host guarantees is non-blocking — runs in place, keeping the baton. */
+    public Engine registerPure(String name, Function<List<Object>, Object> body) {
+        externals.put(name, new ExternalFunction(body, false));
         return this;
     }
 
