@@ -5,7 +5,7 @@ import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.coop.Fiber;
 import com.flatide.propertee2.coop.Scheduler;
 import com.flatide.propertee2.host.PlatformProvider;
-import com.flatide.propertee2.parser.ProperTeeParser.*;
+import com.flatide.parser.ProperTeeParser.*;
 import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeFormat;

@@ -1,6 +1,6 @@
 package com.flatide.propertee2.interp;
 
-import com.flatide.propertee2.parser.ProperTeeParser.BlockContext;
+import com.flatide.parser.ProperTeeParser.BlockContext;
 
 import java.util.List;
 

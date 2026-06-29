@@ -22,7 +22,7 @@ sourceSets {
 
 // Generate a typed VISITOR into com.flatide.propertee2.parser (the interpreter subclasses it).
 tasks.named('generateGrammarSource') {
-    arguments += ['-visitor', '-no-listener', '-package', 'com.flatide.propertee2.parser']
+    arguments += ['-visitor', '-no-listener', '-package', 'com.flatide.parser']
 }
 
 // The `antlr` plugin leaks the ANTLR TOOL onto the runtime classpath; only antlr4-runtime is needed.

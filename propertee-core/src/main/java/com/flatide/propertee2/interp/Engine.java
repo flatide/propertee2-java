@@ -4,7 +4,7 @@ import com.flatide.propertee2.Parsing;
 import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.host.DefaultPlatformProvider;
 import com.flatide.propertee2.host.PlatformProvider;
-import com.flatide.propertee2.parser.ProperTeeParser;
+import com.flatide.parser.ProperTeeParser;
 import com.flatide.propertee2.value.TeeError;
 
 import java.util.LinkedHashMap;

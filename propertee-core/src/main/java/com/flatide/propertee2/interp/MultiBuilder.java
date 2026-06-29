@@ -1,6 +1,6 @@
 package com.flatide.propertee2.interp;
 
-import com.flatide.propertee2.parser.ProperTeeParser.FunctionCallContext;
+import com.flatide.parser.ProperTeeParser.FunctionCallContext;
 import com.flatide.propertee2.value.TeeError;
 
 import java.util.ArrayList;
