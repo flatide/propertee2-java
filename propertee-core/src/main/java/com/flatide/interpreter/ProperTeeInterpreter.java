@@ -49,8 +49,8 @@ public class ProperTeeInterpreter {
 
     /**
      * Run the program on the cooperative engine. Called by {@link com.flatide.scheduler.Scheduler#run}.
-     * A runtime error propagates (as in v1) for the host to catch. The listener is reserved for
-     * logical-thread lifecycle events (not yet emitted).
+     * A runtime error propagates (as in v1) for the host to catch. The listener receives logical-thread
+     * lifecycle events: the program's main thread plus each {@code multi} worker (created/completed/error).
      */
     public Object execute(RootStepper stepper, SchedulerListener listener) {
         BuiltinFunctions.PrintFunction stdout = builtins.stdout;
