@@ -28,6 +28,13 @@ public final class Engine {
     private final Map<String, ExternalFunction> externals = new LinkedHashMap<>();
     private Set<String> hiddenKeywords = Set.of();
     private Set<String> ignoredFunctions = Set.of();
+    private com.flatide.task.TaskRunner taskRunner = new com.flatide.task.UnsupportedTaskRunner();
+
+    /** Host process executor for SHELL (the v1 com.flatide.task contract). Default: none (SHELL errors). */
+    public Engine setTaskRunner(com.flatide.task.TaskRunner taskRunner) {
+        this.taskRunner = taskRunner != null ? taskRunner : new com.flatide.task.UnsupportedTaskRunner();
+        return this;
+    }
 
     /**
      * Register an external function (return value -> Result.ok, exception -> Result.error). Runs
@@ -81,7 +88,7 @@ public final class Engine {
             ProperTeeParser.RootContext root = Parsing.parse(source);
             Coop coop = new Coop();
             Interpreter interp = new Interpreter(out, props, coop, platform,
-                    externals, hiddenKeywords, ignoredFunctions);
+                    externals, hiddenKeywords, ignoredFunctions, taskRunner);
             coop.run("main", () -> interp.run(root));   // the program is the root logical thread
         } catch (TeeError e) {
             out.append("Runtime error: ").append(e.positioned()).append('\n');

@@ -46,10 +46,10 @@ public final class Interpreter {
 
     public Interpreter(StringBuilder out, Map<String, Object> props, Coop coop, PlatformProvider platform,
                        Map<String, ExternalFunction> externals, Set<String> hiddenKeywords,
-                       Set<String> ignoredFunctions) {
+                       Set<String> ignoredFunctions, com.flatide.task.TaskRunner taskRunner) {
         this.out = out;
         this.coop = coop;
-        this.builtins = Builtins.standard(platform);
+        this.builtins = Builtins.standard(platform, taskRunner);
         this.externals = externals;
         this.hiddenKeywords = hiddenKeywords;
         this.ignoredFunctions = ignoredFunctions;

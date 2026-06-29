@@ -90,12 +90,17 @@ public final class Builtins {
         return b;
     }
 
-    /** Pure catalog + host-gated/blocking builtins backed by a {@link PlatformProvider} (design §3.1). */
+    /** Pure catalog + host-gated/blocking builtins; SHELL has no process execution (UnsupportedTaskRunner). */
     public static Builtins standard(PlatformProvider platform) {
+        return standard(platform, new com.flatide.task.UnsupportedTaskRunner());
+    }
+
+    /** Pure catalog + host-gated/blocking builtins backed by a {@link PlatformProvider} and host TaskRunner (§3.1). */
+    public static Builtins standard(PlatformProvider platform, com.flatide.task.TaskRunner taskRunner) {
         Builtins b = standard();
         registerEnv(b, platform);
         registerFileIO(b, platform);
-        registerShell(b, platform);
+        registerShell(b, platform, taskRunner);
         return b;
     }
 
@@ -465,15 +470,13 @@ public final class Builtins {
         return (v >= Integer.MIN_VALUE && v <= Integer.MAX_VALUE) ? (Object) (int) v : (Object) (double) v;
     }
 
-    // ---- Shell (core-only: no host TaskRunner — 72/78/80) ------------------
+    // ---- Shell (executes via a host TaskRunner; default UnsupportedTaskRunner — 72/78/80) ----
 
-    private static final String NO_TASK_RUNNER =
-            "SHELL() requires a host-provided TaskRunner in this environment";
-
-    private static void registerShell(Builtins b, PlatformProvider platform) {
-        // Without a host-provided TaskRunner, SHELL cannot execute a process; it reports that as a
-        // Result.error (never throws), regardless of the call shape (cmd / ctx,cmd / cmd,options).
-        b.register("SHELL", Kind.BLOCKING, args -> Result.error(NO_TASK_RUNNER));
+    private static void registerShell(Builtins b, PlatformProvider platform, com.flatide.task.TaskRunner taskRunner) {
+        // SHELL runs a process through the host TaskRunner (the v1 com.flatide.task contract). With the
+        // default UnsupportedTaskRunner this surfaces as Result.error("...requires a host-provided TaskRunner...").
+        Shell shell = new Shell(taskRunner);
+        b.register("SHELL", Kind.BLOCKING, shell::run);
 
         // SHELL_CTX(cwd, [env], [timeout]) — builds a context after validating the cwd IS a directory
         // and the optional env (object) / timeout (number) types.
