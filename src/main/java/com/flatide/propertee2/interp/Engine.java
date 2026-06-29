@@ -7,15 +7,51 @@ import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.parser.ProperTeeParser;
 import com.flatide.propertee2.value.TeeError;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Top-level entry point: parse a ProperTee script and run it as the ROOT fiber of a {@link Coop}
  * cooperative runtime (design §1 — the main program is one logical thread = one vthread). Returns
  * stdout; a {@link TeeError} surfaces as the v1 line
  * {@code Runtime error: Runtime Error at line L:C: <msg>}, appended after whatever was printed.
+ *
+ * <p>Optional host integration (chainable, configured before {@code run}): external functions
+ * ({@link #registerExternal}/{@link #registerExternalAsync}) and hidden keywords / ignored
+ * functions ({@link #setHiddenKeywords}/{@link #setIgnoredFunctions}).
  */
 public final class Engine {
+
+    private final Map<String, ExternalFunction> externals = new LinkedHashMap<>();
+    private Set<String> hiddenKeywords = Set.of();
+    private Set<String> ignoredFunctions = Set.of();
+
+    /** Register a synchronous external function (return value -> Result.ok, exception -> Result.error). */
+    public Engine registerExternal(String name, Function<List<Object>, Object> body) {
+        externals.put(name, new ExternalFunction(body, false));
+        return this;
+    }
+
+    /** Register an async external function — run through Coop.blocking so it doesn't freeze other threads. */
+    public Engine registerExternalAsync(String name, Function<List<Object>, Object> body) {
+        externals.put(name, new ExternalFunction(body, true));
+        return this;
+    }
+
+    /** Keywords made unavailable in this environment (using one is a runtime error). */
+    public Engine setHiddenKeywords(Set<String> keywords) {
+        this.hiddenKeywords = Set.copyOf(keywords);
+        return this;
+    }
+
+    /** Function names made unavailable in this environment (calling one is a runtime error). */
+    public Engine setIgnoredFunctions(Set<String> functions) {
+        this.ignoredFunctions = Set.copyOf(functions);
+        return this;
+    }
 
     /** Run with no host-injected properties and the default platform. */
     public String run(String source) {
@@ -33,7 +69,8 @@ public final class Engine {
         try {
             ProperTeeParser.RootContext root = Parsing.parse(source);
             Coop coop = new Coop();
-            Interpreter interp = new Interpreter(out, props, coop, platform);
+            Interpreter interp = new Interpreter(out, props, coop, platform,
+                    externals, hiddenKeywords, ignoredFunctions);
             coop.run("main", () -> interp.run(root));   // the program is the root logical thread
         } catch (TeeError e) {
             out.append("Runtime error: ").append(e.positioned()).append('\n');

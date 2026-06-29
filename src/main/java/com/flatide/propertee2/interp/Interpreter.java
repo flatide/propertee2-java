@@ -12,11 +12,13 @@ import com.flatide.propertee2.value.TeeFormat;
 import com.flatide.propertee2.value.Values;
 
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.Token;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -34,15 +36,23 @@ public final class Interpreter {
     private final Map<String, Object> builtinProps;          // host-injected (-p), incl. _PROPS
     private final Map<String, UserFunction> functions = new LinkedHashMap<>();
     private final Builtins builtins;
+    private final Map<String, ExternalFunction> externals;   // host-registered external functions
+    private final Set<String> hiddenKeywords;                // keywords made unavailable in this environment
+    private final Set<String> ignoredFunctions;              // function names made unavailable
 
     // Per-fiber execution state (frames, globals view, mode) — isolated across multi workers (§5).
     private static final ScopedValue<ExecContext> CTX = ScopedValue.newInstance();
     private ExecContext ec() { return CTX.get(); }
 
-    public Interpreter(StringBuilder out, Map<String, Object> props, Coop coop, PlatformProvider platform) {
+    public Interpreter(StringBuilder out, Map<String, Object> props, Coop coop, PlatformProvider platform,
+                       Map<String, ExternalFunction> externals, Set<String> hiddenKeywords,
+                       Set<String> ignoredFunctions) {
         this.out = out;
         this.coop = coop;
         this.builtins = Builtins.standard(platform);
+        this.externals = externals;
+        this.hiddenKeywords = hiddenKeywords;
+        this.ignoredFunctions = ignoredFunctions;
         this.builtinProps = new LinkedHashMap<>();
         if (props != null) {
             for (Map.Entry<String, Object> e : props.entrySet()) builtinProps.put(e.getKey(), Values.deepCopy(e.getValue()));
@@ -102,6 +112,7 @@ public final class Interpreter {
 
     /** A {@code thread key: f(args)} statement — valid only while collecting a multi setup phase. */
     private void execSpawn(SpawnStmtContext sp) {
+        requireKeyword("thread", sp.getStart());
         MultiBuilder builder = ec().setupBuilders.peek();
         if (builder == null) throw err("thread can only be used inside multi blocks", sp);
         SpawnKeyStmtContext k = (SpawnKeyStmtContext) sp;
@@ -120,6 +131,7 @@ public final class Interpreter {
     }
 
     private void execMulti(ParallelStmtContext m) {
+        requireKeyword("multi", m.getStart());
         ExecContext c = ec();
 
         // 1. setup phase: isolated scope, collect thread statements
@@ -237,6 +249,7 @@ public final class Interpreter {
     }
 
     private void execIf(IfStatementContext i) {
+        requireKeyword("if", i.getStart());
         if (Values.isTruthy(eval(i.condition))) {
             execBlock(i.thenBody);
         } else if (i.elseBody != null) {
@@ -246,15 +259,19 @@ public final class Interpreter {
 
     private void execFlow(FlowControlContext f) {
         switch (f) {
-            case BreakStmtContext b    -> throw Signals.Break.INSTANCE;
-            case ContinueStmtContext c -> throw Signals.Continue.INSTANCE;
-            case ReturnStmtContext r   -> throw new Signals.Return(r.expression() != null ? eval(r.expression()) : Values.emptyObject());
-            case DebugStmtContext d    -> { /* no-op outside the debugger (70_debug_statement) */ }
+            case BreakStmtContext b    -> { requireKeyword("break", f.getStart()); throw Signals.Break.INSTANCE; }
+            case ContinueStmtContext c -> { requireKeyword("continue", f.getStart()); throw Signals.Continue.INSTANCE; }
+            case ReturnStmtContext r   -> {
+                requireKeyword("return", f.getStart());
+                throw new Signals.Return(r.expression() != null ? eval(r.expression()) : Values.emptyObject());
+            }
+            case DebugStmtContext d    -> requireKeyword("debug", f.getStart()); // else no-op (70_debug_statement)
             default -> throw err("unsupported flow statement", f);
         }
     }
 
     private void defineFunction(FunctionDefContext f) {
+        requireKeyword("function", f.getStart());
         List<String> params = new ArrayList<>();
         if (f.parameterList() != null) {
             for (var id : f.parameterList().ID()) params.add(id.getText());
@@ -267,6 +284,7 @@ public final class Interpreter {
     private static final int LOOP_LIMIT = 1000;
 
     private void execLoop(IterationStmtContext loop) {
+        requireKeyword("loop", loop.getStart());
         switch (loop) {
             case ConditionLoopContext c -> conditionLoop(c);
             case ValueLoopContext v     -> valueLoop(v);
@@ -615,10 +633,18 @@ public final class Interpreter {
 
     /** Dispatch a call by name with already-evaluated args (shared by direct calls and multi workers). */
     private Object invokeNamed(String name, List<Object> args, ParserRuleContext ctx) {
+        if (ignoredFunctions.contains(name)) {
+            throw err("'" + name + "' is not available in this environment", ctx);
+        }
         UserFunction fn = functions.get(name);
         if (fn != null) return callUser(fn, args, ctx);
         if (name.equals("PRINT")) return doPrint(args);
         if (name.equals("SLEEP")) return doSleep(args, ctx);
+        ExternalFunction ext = externals.get(name);
+        if (ext != null) {
+            // value -> Result.ok, exception -> Result.error; async runs off the baton (design §3.1)
+            return ext.async() ? coop.blocking(() -> callExternal(ext, args)) : callExternal(ext, args);
+        }
         if (builtins.has(name)) {
             // Built-in errors stay positionless ("Runtime Error: msg" — 67_sort_errors); do not add a
             // source position. Host-gated / blocking builtins release the baton (design §3.1).
@@ -629,6 +655,17 @@ public final class Interpreter {
             return builtins.invokeRaw(name, args);
         }
         throw err("Unknown function '" + name + "'", ctx);
+    }
+
+    /** Run a host external function, wrapping its return/exception in the v1 Result pattern. */
+    private static Object callExternal(ExternalFunction ext, List<Object> args) {
+        try {
+            return Result.ok(ext.body().apply(args));
+        } catch (TeeError e) {
+            return Result.error(e.getMessage());
+        } catch (RuntimeException e) {
+            return Result.error(e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+        }
     }
 
     private Object callUser(UserFunction fn, List<Object> args, ParserRuleContext ctx) {
@@ -751,6 +788,14 @@ public final class Interpreter {
 
     private static TeeError err(String message, ParserRuleContext ctx) {
         return new TeeError(message, ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+    }
+
+    /** Enforce host keyword hiding (73_keyword_ignore): a hidden keyword is a runtime error at its token. */
+    private void requireKeyword(String keyword, Token token) {
+        if (hiddenKeywords.contains(keyword)) {
+            throw new TeeError("'" + keyword + "' is not available in this environment",
+                    token.getLine(), token.getCharPositionInLine());
+        }
     }
 
     /** Process string-literal escapes (LANGUAGE.md §Strings): the token text includes the quotes. */

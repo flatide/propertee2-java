@@ -95,6 +95,7 @@ public final class Builtins {
         Builtins b = standard();
         registerEnv(b, platform);
         registerFileIO(b, platform);
+        registerShell(b, platform);
         return b;
     }
 
@@ -462,6 +463,28 @@ public final class Builtins {
 
     private static Object numberFromLong(long v) {
         return (v >= Integer.MIN_VALUE && v <= Integer.MAX_VALUE) ? (Object) (int) v : (Object) (double) v;
+    }
+
+    // ---- Shell (core-only: no host TaskRunner — 72/78/80) ------------------
+
+    private static final String NO_TASK_RUNNER =
+            "SHELL() requires a host-provided TaskRunner in this environment";
+
+    private static void registerShell(Builtins b, PlatformProvider platform) {
+        // Without a host-provided TaskRunner, SHELL cannot execute a process; it reports that as a
+        // Result.error (never throws), regardless of the call shape (cmd / ctx,cmd / cmd,options).
+        b.register("SHELL", Kind.BLOCKING, args -> Result.error(NO_TASK_RUNNER));
+
+        // SHELL_CTX(cwd, [env], [timeout]) — builds a context after validating the cwd exists.
+        b.register("SHELL_CTX", Kind.HOST_GATED, args -> {
+            String cwd = string("SHELL_CTX", arg("SHELL_CTX", args, 0));
+            if (!platform.fileExists(cwd)) return Result.error("SHELL_CTX: directory does not exist: " + cwd);
+            Map<String, Object> ctx = new LinkedHashMap<>();
+            ctx.put("cwd", cwd);
+            if (args.size() > 1) ctx.put("env", Values.deepCopy(args.get(1)));
+            if (args.size() > 2) ctx.put("timeout", args.get(2));
+            return Result.ok(ctx);
+        });
     }
 
     // ---- Timing (non-blocking; nondeterministic — baton-safe, so PURE) -----
