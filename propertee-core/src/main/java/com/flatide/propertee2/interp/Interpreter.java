@@ -30,7 +30,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class Interpreter {
 
-    private final StringBuilder out;
+    /** One line of program output (no trailing newline). Lets a host stream PRINT live (façade) or buffer it. */
+    public interface Sink { void line(String text); }
+
+    private final Sink out;
     private final Coop coop;
     private final Map<String, Object> globals = new LinkedHashMap<>();   // the program's top-level globals
     private final Map<String, Object> builtinProps;          // host-injected (-p), incl. _PROPS
@@ -39,12 +42,21 @@ public final class Interpreter {
     private final Map<String, ExternalFunction> externals;   // host-registered external functions
     private final Set<String> hiddenKeywords;                // keywords made unavailable in this environment
     private final Set<String> ignoredFunctions;              // function names made unavailable
+    private int maxIterations = 1000;                        // max loop iterations (configurable via façade)
+    private boolean hasExplicitReturn = false;               // did the program hit a top-level `return`?
+    private Object returnValue = Values.emptyObject();        // the top-level return value (if any)
 
     // Per-fiber execution state (frames, globals view, mode) — isolated across multi workers (§5).
     private static final ScopedValue<ExecContext> CTX = ScopedValue.newInstance();
     private ExecContext ec() { return CTX.get(); }
 
-    public Interpreter(StringBuilder out, Map<String, Object> props, Coop coop, PlatformProvider platform,
+    /** Façade-friendly constructor: no host externals / hidden keywords (custom builtins go via addRawBuiltin). */
+    public Interpreter(Sink out, Map<String, Object> props, Coop coop, PlatformProvider platform,
+                       com.flatide.task.TaskRunner taskRunner) {
+        this(out, props, coop, platform, new LinkedHashMap<>(), Set.of(), Set.of(), taskRunner);
+    }
+
+    public Interpreter(Sink out, Map<String, Object> props, Coop coop, PlatformProvider platform,
                        Map<String, ExternalFunction> externals, Set<String> hiddenKeywords,
                        Set<String> ignoredFunctions, com.flatide.task.TaskRunner taskRunner) {
         this.out = out;
@@ -73,10 +85,30 @@ public final class Interpreter {
         try {
             for (StatementContext s : root.statement()) { exec(s); coop.yield_(); }
         } catch (Signals.Return r) {
-            // top-level return: stop execution
+            hasExplicitReturn = true;          // top-level return: stop, remember the value (value-model §8)
+            returnValue = r.value;
         } catch (Signals.Break | Signals.Continue b) {
             // break/continue outside a loop: ignore
         }
+    }
+
+    // ---- Façade hooks (used by the v1-compat com.flatide.interpreter layer) -----------------------
+
+    /** The program's top-level globals — a host may inject before {@link #run} and read after (e.g. `result`). */
+    public Map<String, Object> globals() { return globals; }
+
+    /** True if the program ended with an explicit top-level {@code return}. */
+    public boolean hasExplicitReturn() { return hasExplicitReturn; }
+
+    /** The top-level return value (or empty object if none). */
+    public Object returnValue() { return returnValue; }
+
+    /** Configure the maximum loop iterations (v1 maxIterations). */
+    public void setLoopLimit(int limit) { if (limit > 0) this.maxIterations = limit; }
+
+    /** Register a host builtin whose return value is used as-is (no Result wrapper), e.g. STREAM_FILE. */
+    public void addRawBuiltin(String name, java.util.function.Function<List<Object>, Object> fn) {
+        builtins.register(name, Builtins.Kind.PURE, fn::apply);
     }
 
     private boolean inFunction() { return !ec().frames.isEmpty(); }
@@ -176,7 +208,7 @@ public final class Interpreter {
                 } catch (RuntimeException e) {
                     // TeeError, or a stray control-flow signal / other failure: never leave the entry "running"
                     String pos = failureText(e);
-                    out.append("[THREAD ERROR] ").append(pos).append('\n');
+                    out.line("[THREAD ERROR] " + pos);
                     collection.put(p.key(), Result.error(pos));
                 } finally {
                     remaining.decrementAndGet();
@@ -197,7 +229,7 @@ public final class Interpreter {
                         try {
                             execBlock(mc.block());
                         } catch (TeeError e) {
-                            out.append("[MONITOR ERROR] ").append(e.positioned()).append('\n');
+                            out.line("[MONITOR ERROR] " + e.positioned());
                             throw e;
                         }
                     });
@@ -280,8 +312,7 @@ public final class Interpreter {
     }
 
     // ---- loops -------------------------------------------------------------
-
-    private static final int LOOP_LIMIT = 1000;
+    //   (max iterations is the instance field `maxIterations`, default 1000, configurable via setLoopLimit)
 
     private void execLoop(IterationStmtContext loop) {
         requireKeyword("loop", loop.getStart());
@@ -297,7 +328,7 @@ public final class Interpreter {
         boolean infinite = c.K_INFINITE() != null;
         int count = 0;
         while (Values.isTruthy(eval(c.expression()))) {
-            if (!infinite && count >= LOOP_LIMIT) throw loopLimit(c);
+            if (!infinite && count >= maxIterations) throw loopLimit(c);
             if (runBody(c.block())) break;
             count++;
         }
@@ -308,7 +339,7 @@ public final class Interpreter {
         String var = v.value.getText();
         int count = 0;
         for (Object element : iterableValues(eval(v.expression()), v)) {
-            if (!infinite && count >= LOOP_LIMIT) throw loopLimit(v);
+            if (!infinite && count >= maxIterations) throw loopLimit(v);
             bindLocal(var, element);                // deepCopy => loop var is independent (68 test 7)
             if (runBody(v.block())) break;
             count++;
@@ -322,7 +353,7 @@ public final class Interpreter {
         Object coll = eval(kv.expression());
         int count = 0;
         for (Map.Entry<Object, Object> entry : iterableEntries(coll, kv)) {
-            if (!infinite && count >= LOOP_LIMIT) throw loopLimit(kv);
+            if (!infinite && count >= maxIterations) throw loopLimit(kv);
             bindLocal(keyVar, entry.getKey());
             bindLocal(valVar, entry.getValue());
             if (runBody(kv.block())) break;
@@ -709,7 +740,7 @@ public final class Interpreter {
             if (i > 0) line.append(' ');
             line.append(TeeFormat.display(args.get(i)));
         }
-        out.append(line).append('\n');
+        out.line(line.toString());
         return Values.emptyObject();
     }
 
@@ -828,7 +859,7 @@ public final class Interpreter {
     }
 
     private TeeError loopLimit(ParserRuleContext ctx) {
-        return err("Loop exceeded maximum iterations (" + LOOP_LIMIT
+        return err("Loop exceeded maximum iterations (" + maxIterations
                 + "). Use 'loop condition infinite do' if you need unlimited iterations.", ctx);
     }
 }
