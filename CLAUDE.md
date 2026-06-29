@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `propertee2-java` is a **fully-cooperative runtime** for the [ProperTee](https://github.com/flatide/ProperTee) language. Its goal is to fundamentally resolve the eager seams left by the frozen [`propertee-java`](https://github.com/flatide/propertee-java) **v1.0.0** (Java 7/8, stepper-based) using **Java 21 virtual-thread (Project Loom) coroutines (Strategy B)**. **TeeBox** will consume this runtime once it stabilizes.
 
-> **Status: full conformance — all 84 fixtures pass; PF (release) next.** The engine is feature-complete against the v1 conformance suite: JDK 25 Gradle build + ANTLR codegen, the `value/` model, the full builtin catalog (incl. host-gated ENV/file I/O and `SHELL`/`SHELL_CTX`), a recursive tree-walk interpreter (`interp/`), the **production Coop cooperative runtime** (`coop/`, `ScopedValue`) with the program as the root fiber + the `Coop.blocking` host contract, **`multi`/`thread`/`monitor`**, external-function registration, and keyword/function hiding. **All 84 `.tee/.expected` fixtures pass** (deterministic, no flakiness); ~218 tests green. Remaining: **PF** (packaging/CLI/README/release 0.1.0). The throwaway **spike** (`spike/`) is documented in `docs/spike-findings.md`.
+> **Status: 0.1.0 — feature-complete, full conformance.** All design phases (spike → PA–PF) are done. The engine passes **all 84 `.tee/.expected` fixtures** (byte-for-byte, deterministic, no flakiness; ~222 tests green): JDK 25 Gradle build + ANTLR codegen, the `value/` model, the full builtin catalog (incl. host-gated ENV/file I/O and `SHELL`/`SHELL_CTX`), a recursive tree-walk interpreter (`interp/`), the **production Coop cooperative runtime** (`coop/`, `ScopedValue`) with the program as the root fiber + the `Coop.blocking` host contract, **`multi`/`thread`/`monitor`**, external-function registration, keyword/function hiding, an `Engine` embedding API, and a `propertee2` CLI. Post-1.0: real `SHELL`/HTTP/Task execution, the `StructuredTaskScope` swap (when it leaves preview), a `core`/`cli` module split. Spike writeup: `docs/spike-findings.md`.
 
 ## Locked-in core decisions (agreed in a prior session — changing them requires justification)
 
@@ -52,7 +52,7 @@ Validated in `spike/` (run `spike/run.sh`; full writeup in `docs/spike-findings.
 - **PD done.** ✅ `multi`/`thread`/`monitor` driving the scheduler's `spawn`/`awaitChildren`/`wake`: isolated setup phase, read-only global snapshot, worker fibers with statement-boundary interleaving + purity (`::`-write errors), `[THREAD ERROR]`/`[MONITOR ERROR]` reporting, `{status,ok,value}` collection (auto `#N` + dynamic keys, dup detection), and a monitor that ticks mid-run + once final (matches v1's tick counts, robust to timing).
 - **Host tail done.** ✅ `SHELL`/`SHELL_CTX` (core-only "requires a host-provided TaskRunner" — `72`/`78`/`80`), external functions (`Engine.registerExternal`/`registerExternalAsync`, return→`Result.ok` / throw→`Result.error`, async via `Coop.blocking` — `41`/`71`), and keyword/function hiding (`Engine.setHiddenKeywords`/`setIgnoredFunctions` — `73`/`74`).
 - **PE done — full conformance.** ✅ **All 84 `.tee/.expected` fixtures pass** byte-for-byte (`ConformanceTest`), deterministic, no flakiness over repeated runs; ~218 tests green. The seam-timing & async-replay-removal properties the design calls for were validated in the spike (`docs/spike-findings.md`).
-- **PF (next).** Docs/release (from 0.1.0): module/CLI packaging, README, version. Real `SHELL`/HTTP/Task execution and the `StructuredTaskScope` swap (when it leaves preview) are post-1.0.
+- **PF done — 0.1.0.** ✅ `propertee2` CLI (`cli/Main` — `-p` props, `--version`/`--help`) + Gradle `application` plugin (`run`, `installDist`); version `0.1.0`; `README.md` + `CHANGELOG.md` refreshed. Real `SHELL`/HTTP/Task execution, the `StructuredTaskScope` swap (when it leaves preview), and a `core`/`cli` module split are post-1.0.
 
 ## Build/test
 
@@ -61,9 +61,13 @@ JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is regi
 ```bash
 ./gradlew build                 # compile + jar + all tests (JDK 25, no preview flags)
 ./gradlew test                  # run the JUnit5 suite
-./gradlew test --tests 'com.flatide.propertee2.conformance.*'   # parser smoke over all 84 fixtures
+./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 84 fixtures vs .expected
 ./gradlew test --tests '*TeeFormatTest'                          # one test class
 ./gradlew generateGrammarSource # regenerate the ANTLR parser/visitor only
+
+# CLI (application plugin). Needs JDK 25 at runtime — the start script honors JAVA_HOME.
+./gradlew run --args="path/to/script.tee"
+./gradlew installDist && JAVA_HOME=<jdk25> ./build/install/propertee2/bin/propertee2 -p '{"width":100}' script.tee
 ```
 
 > Fixtures are a **fixed baseline** copied from v1. `.expected` files are the correct answer **down to output order**, so never edit them (this is why the scheduler must be deterministic round-robin — design §6). The new engine conforms to the fixtures, not the other way around. The conformance fixture list is hardcoded in `conformance/Fixtures` (v1 convention); per-fixture semantics and host-injection caveats are in `docs/conformance-tests.md`.

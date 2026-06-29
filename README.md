@@ -1,9 +1,51 @@
 # ProperTee2 for Java (Java 25 · virtual-thread runtime)
 
-`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. 동결된 [`propertee-java`](https://github.com/flatide/propertee-java) v1.0.0(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 21 virtual thread(Project Loom) 기반 코루틴(Strategy B)** 으로 근본 해결하는 것을 목표로 한다. **TeeBox**가 안정화 후 이 런타임을 사용한다.
+`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. 동결된 [`propertee-java`](https://github.com/flatide/propertee-java) v1.0.0(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. **값/타입/스코프/에러 메시지 의미는 v1과 동일**하고, 바뀌는 것은 **스케줄링(중단/협력)** 뿐이다.
 
-- **베이스라인:** Java 25 LTS (stable API만 — virtual threads + `ScopedValue`. `StructuredTaskScope`는 25에서도 preview이므로 회피). 근거는 설계 문서 §0.1.
-- **문법/값 의미는 v1과 동일.** 바뀌는 것은 **스케줄링(중단/협력)** 뿐이다.
+- **베이스라인:** Java 25 LTS, **stable API만** (virtual threads + `ScopedValue`). `StructuredTaskScope`는 25에서도 preview라 회피 — `multi`는 hand-roll. **preview 의존 0.**
+- **상태:** **v1 conformance 스위트 84/84 통과** (byte-for-byte, deterministic). 0.1.0.
+
+## 빌드 / 테스트
+
+JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.java.installations.paths`에 JDK 25 home 등록).
+
+```bash
+./gradlew build     # 컴파일 + 전체 테스트(conformance 84 fixture 포함)
+./gradlew test      # 테스트만
+```
+
+## 실행 (CLI)
+
+```bash
+./gradlew installDist
+JAVA_HOME=/path/to/jdk-25 ./build/install/propertee2/bin/propertee2 script.tee
+
+# 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
+propertee2 -p '{"width":100,"height":200}' script.tee
+```
+
+> 런타임에 **JDK 25**가 필요하다(start 스크립트는 `JAVA_HOME`을 사용). 개발 중에는 `./gradlew run --args="script.tee"`도 가능.
+
+## 임베드 (Java 호스트)
+
+```java
+import com.flatide.propertee2.interp.Engine;
+
+String out = new Engine()
+        .registerExternal("GET_BALANCE", args -> lookupBalance((String) args.get(0))) // 값→Result.ok, throw→Result.error
+        .registerExternalAsync("DB_QUERY", args -> db.query((String) args.get(0)))    // blocking I/O는 Coop.blocking 경유
+        .setIgnoredFunctions(java.util.Set.of("SHELL"))                                 // 특정 함수 비활성화
+        .run(source, java.util.Map.of("width", 100));                                  // -p 프로퍼티
+// out == 스크립트 stdout(런타임 에러도 "Runtime error: ..." 한 줄로 포함)
+```
+
+호스트 통합: built-in 프로퍼티(`-p`/`_PROPS`), `ENV`·파일 I/O(`DefaultPlatformProvider`), 외부 함수 등록(sync=`registerExternal`/`registerPure`, blocking=`registerExternalAsync`), 키워드/함수 숨김(`setHiddenKeywords`/`setIgnoredFunctions`). 외부 함수 인자·반환은 deep-copy로 격리된다.
+
+## 동작 모델 (요약)
+
+- ProperTee 논리 스레드 1개 = **Java virtual thread 1개**. **단일 바톤**으로 "한 번에 하나만" 실행 → purity·무락·결정론 보존. 콜스택 자체가 continuation이라 표현식 한복판에서도 협력 중단.
+- 모든 잠재적 blocking(`SLEEP`/host I/O/외부 함수)은 `Coop.blocking`으로 **"바톤 반납→blocking→재획득"** → cooperative scheduler를 멈추지 않음.
+- `multi`는 워커별 vthread + 결정론적 round-robin(문장 경계 인터리빙) + 라이브 monitor + 워커 purity(globals read-only 스냅샷).
 
 ## 두 라인의 관계
 
@@ -14,31 +56,10 @@
 | 소비처 | 레거시 expression-evaluator 서버 | TeeBox |
 | 정책 | 동결(보안/버그픽스만) | 활성 개발 |
 
-## 현재 상태 — 스캐폴딩 (구현 전)
+## 문서
 
-이 repo는 아직 **엔진 구현 전**이며, v1과의 **의미 동치를 보장하기 위한 자산**을 먼저 복사해 둔 상태다:
-
-```
-grammar/ProperTee.g4                      # 문법(v1과 동일, 변경 없음)
-docs/
-  java25-vthread-runtime-design-ko.md     # 설계도(Strategy B, 베이스라인/바톤/Coop 계약/단계)
-  value-model-and-builtins.md             # 새 엔진이 재현해야 할 값-수준 의미 계약
-  conformance-tests.md                    # v1 의미 동치가 필요한 테스트 목록 + 정책
-  LANGUAGE.md                             # 언어 명세 정본(v1에서 복사)
-src/test/resources/tests/                 # .tee / .expected conformance fixtures (84쌍, v1에서 복사)
-```
-
-## 다음 단계 (설계 §10.1 spike)
-
-0. JDK 25에서 `StructuredTaskScope` preview 여부 실측(여전히 preview면 hand-roll 유지).
-1. Coop/scheduler 최소 프로토타입(바톤, READY/SLEEPING/BLOCKED/WAITING, wake timer, 결정론적 round-robin).
-2. 재귀 인터프리터에서 `SLEEP`, `x = f()`, `a + f()`, `return f()` 협력 중단 PoC(타이밍 오버랩 입증).
-3. `Coop.blocking`으로 async statement-replay 제거 확인.
-4. `multi` result/monitor conformance 확인.
-
-spike 통과 후 본 구현(PA–PF). 자세한 내용은 [`docs/java25-vthread-runtime-design-ko.md`](docs/java25-vthread-runtime-design-ko.md).
-
-## 참고
-
-- 값/타입/스코프/Result/에러 메시지/builtin 반환은 **v1과 1바이트도 다르면 안 된다** — [`docs/value-model-and-builtins.md`](docs/value-model-and-builtins.md).
-- 출력 순서 동치를 위해 스케줄러는 **결정론적 round-robin**을 명시 고정해야 한다(설계 §6).
+- [`docs/java25-vthread-runtime-design-ko.md`](docs/java25-vthread-runtime-design-ko.md) — 설계도 정본(모델/Coop 계약/단계 PA–PF)
+- [`docs/value-model-and-builtins.md`](docs/value-model-and-builtins.md) — 값-수준 의미 계약
+- [`docs/LANGUAGE.md`](docs/LANGUAGE.md) — 언어 명세 / [`docs/conformance-tests.md`](docs/conformance-tests.md) — conformance 목록
+- [`docs/spike-findings.md`](docs/spike-findings.md) — 협력 모델 검증 spike 결과
+- [`CHANGELOG.md`](CHANGELOG.md)
