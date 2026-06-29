@@ -4,9 +4,6 @@ out/
 bin/
 *.class
 
-# dist/ holds built release JARs (dist/README.md is committed)
-dist/*.jar
-
 # Spike scratch build dirs (spike/run.sh recreates these)
 spike/out*/
 spike/probe.err

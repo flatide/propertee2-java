@@ -14,5 +14,5 @@ java -jar dist/propertee2-0.1.0.jar -p '{"width":100}' script.tee
 ```
 
 The JAR bundles `propertee-cli` + `propertee-core` + `antlr4-runtime` (Main-Class
-`com.flatide.propertee2.cli.Main`). The `*.jar` here is a build output and is git-ignored;
-this README is the only committed file.
+`com.flatide.propertee2.cli.Main`). The built `propertee2-<version>.jar` is committed here
+(as in v1); refresh it with `./gradlew dist` after changing the engine.
