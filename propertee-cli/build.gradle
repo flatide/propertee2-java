@@ -1,0 +1,43 @@
+// propertee-cli — the `propertee2` command-line runner. Depends on propertee-core.
+plugins {
+    id 'application'
+}
+
+evaluationDependsOn(':propertee-core')   // so project(':propertee-core').sourceSets is available below
+
+dependencies {
+    implementation project(':propertee-core')
+}
+
+application {
+    mainClass = 'com.flatide.propertee2.cli.Main'
+    applicationName = 'propertee2'
+}
+
+// Keep the ANTLR tool out of the runtime classpath / fat JAR (only antlr4-runtime is needed).
+configurations.named('runtimeClasspath') {
+    exclude group: 'org.antlr', module: 'antlr4'
+}
+
+// Self-contained runnable JAR: cli + core classes + antlr4-runtime, with a Main-Class manifest.
+// Requires JDK 25 at runtime (the bytecode targets 25). Produced into dist/ by the root `dist` task.
+tasks.register('fatJar', Jar) {
+    group = 'build'
+    description = 'Self-contained runnable JAR (java -jar propertee2-<version>.jar <script.tee>)'
+    archiveBaseName = 'propertee2'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': 'com.flatide.propertee2.cli.Main',
+                   'Implementation-Title': 'propertee2',
+                   'Implementation-Version': project.version
+    }
+    from sourceSets.main.output                                          // cli classes
+    from project(':propertee-core').sourceSets.main.output              // core classes + generated parser
+    from {
+        // external runtime deps only (antlr4-runtime) — NOT the propertee-core project jar (used as
+        // compiled output above), so the fat jar doesn't need the core jar to exist.
+        configurations.runtimeClasspath
+                .findAll { it.name.endsWith('.jar') && !it.name.startsWith('propertee-core') }
+                .collect { zipTree(it) }
+    }
+}

@@ -1,80 +1,52 @@
 plugins {
-    id 'java'
-    id 'antlr'
-    id 'application'
+    id 'base'
 }
 
-group = 'com.flatide'
-version = '0.1.0'
-
-application {
-    mainClass = 'com.flatide.propertee2.cli.Main'
-    applicationName = 'propertee2'
-}
-
-// Stamp the version into the jar manifest so `propertee2 --version` reports it.
-tasks.named('jar') {
-    manifest {
-        attributes('Implementation-Title': 'propertee2', 'Implementation-Version': project.version)
+allprojects {
+    group = 'com.flatide'
+    version = '0.1.0'
+    repositories {
+        mavenCentral()
     }
 }
 
-// Baseline = Java 25 LTS, STABLE APIs ONLY. No --enable-preview anywhere (design §0.1).
-// StructuredTaskScope is still preview on JDK 25 (verified in the spike) so it is avoided;
-// virtual threads + ScopedValue are final and used directly.
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
+subprojects {
+    apply plugin: 'java'
+
+    // Baseline = Java 25 LTS, STABLE APIs ONLY. No --enable-preview anywhere (design §0.1):
+    // StructuredTaskScope is still preview on JDK 25 (verified in the spike) and is avoided;
+    // virtual threads + ScopedValue are final and used directly.
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(25)
+        }
     }
-}
 
-repositories {
-    mavenCentral()
-}
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+    }
 
-dependencies {
-    // ANTLR 4.9.3 is already in the local Gradle cache (offline-friendly); the generated
-    // parser is plain Java and compiles under JDK 25. The tool runs in the Gradle JVM.
-    antlr 'org.antlr:antlr4:4.9.3'
-    implementation 'org.antlr:antlr4-runtime:4.9.3'
+    dependencies {
+        testImplementation platform('org.junit:junit-bom:5.11.4')
+        testImplementation 'org.junit.jupiter:junit-jupiter'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
 
-    testImplementation platform('org.junit:junit-bom:5.11.4')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-}
-
-// The `antlr` plugin leaks the ANTLR TOOL (antlr4 + ST4 + icu4j + antlr3-runtime + treelayout +
-// javax.json) onto the runtime classpath; only antlr4-runtime is needed to run. Keep the generator
-// out of runtimeClasspath so `installDist` ships just the runtime.
-configurations.named('runtimeClasspath') {
-    exclude group: 'org.antlr', module: 'antlr4'
-}
-
-// Grammar stays at grammar/ProperTee.g4 (canonical, frozen — identical to v1).
-sourceSets {
-    main {
-        antlr {
-            srcDirs = ['grammar']
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+        testLogging {
+            events = ['passed', 'skipped', 'failed']
+            exceptionFormat = 'full'
         }
     }
 }
 
-// Generate a typed VISITOR (the grammar uses labeled alternatives; the recursive
-// tree-walk interpreter in PB will subclass the generated base visitor). No listener.
-tasks.named('generateGrammarSource') {
-    arguments += ['-visitor', '-no-listener', '-package', 'com.flatide.propertee2.parser']
-}
-
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8'
-    // Explicitly assert no preview flags are in play.
-    options.compilerArgs.removeAll(['--enable-preview'])
-}
-
-tasks.named('test') {
-    useJUnitPlatform()
-    testLogging {
-        events = ['passed', 'skipped', 'failed']
-        exceptionFormat = 'full'
-    }
+// Assemble the self-contained runnable JAR into dist/ (like v1's dist/), so it can be run with
+//   java -jar dist/propertee2-<version>.jar <script.tee>      (requires JDK 25)
+tasks.register('dist', Copy) {
+    group = 'build'
+    description = 'Copy the runnable fat JAR into dist/'
+    dependsOn ':propertee-cli:fatJar'
+    from { project(':propertee-cli').tasks.named('fatJar').get().archiveFile }
+    into layout.projectDirectory.dir('dist')
 }

@@ -1,0 +1,31 @@
+// propertee-core — the engine: ANTLR grammar + recursive interpreter + Coop runtime + value model.
+// This is the artifact TeeBox depends on (no CLI).
+plugins {
+    id 'java-library'
+    id 'antlr'
+}
+
+dependencies {
+    // ANTLR 4.9.3 (cached locally); the generated parser is plain Java and compiles under JDK 25.
+    antlr 'org.antlr:antlr4:4.9.3'
+    api 'org.antlr:antlr4-runtime:4.9.3'   // api: the parse-tree types are visible to the runtime
+}
+
+// Grammar stays at propertee-core/grammar/ProperTee.g4 (canonical, frozen — identical to v1).
+sourceSets {
+    main {
+        antlr {
+            srcDirs = ['grammar']
+        }
+    }
+}
+
+// Generate a typed VISITOR into com.flatide.propertee2.parser (the interpreter subclasses it).
+tasks.named('generateGrammarSource') {
+    arguments += ['-visitor', '-no-listener', '-package', 'com.flatide.propertee2.parser']
+}
+
+// The `antlr` plugin leaks the ANTLR TOOL onto the runtime classpath; only antlr4-runtime is needed.
+configurations.named('runtimeClasspath') {
+    exclude group: 'org.antlr', module: 'antlr4'
+}

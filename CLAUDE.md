@@ -20,14 +20,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository structure (current)
 
+Two Gradle modules (design §10), matching v1's `propertee-core` / `propertee-cli` / `dist` layout:
+
 ```
-grammar/ProperTee.g4                      # Grammar (identical to v1, unchanged). ANTLR4.
+settings.gradle / build.gradle            # root: subproject config (JDK 25 toolchain) + `dist` task
+propertee-core/                           # the engine (TeeBox depends on this; no CLI)
+  grammar/ProperTee.g4                    #   grammar (identical to v1, unchanged). ANTLR4.
+  src/main/java/com/flatide/propertee2/   #   value/ coop/ host/ builtin/ interp/ + Parsing.java
+  src/test/java + src/test/resources/tests/  #   unit + conformance tests; 84 .tee/.expected fixtures
+propertee-cli/                            # the `propertee2` command (application plugin, fat jar)
+  src/main/java/com/flatide/propertee2/cli/Main.java
+dist/                                     # `./gradlew dist` -> dist/propertee2-<version>.jar (java -jar)
+spike/                                    # throwaway cooperative-model PoC (standalone, not a module)
 docs/
   java25-vthread-runtime-design-ko.md     # ★Canonical design doc — model / Coop contract / preview decision / phases PA-PF / spike §10.1
   value-model-and-builtins.md             # ★Value-level semantic contract the new engine must reproduce
   conformance-tests.md                    # ★List of v1 semantic-equivalence tests + host-injection / interleaving notes
   LANGUAGE.md                             # Canonical language spec (copied from v1)
-src/test/resources/tests/                 # .tee / .expected conformance fixtures (84 pairs, copied from v1)
 ```
 
 Read the three ★ docs above before starting any work.
@@ -52,22 +61,21 @@ Validated in `spike/` (run `spike/run.sh`; full writeup in `docs/spike-findings.
 - **PD done.** ✅ `multi`/`thread`/`monitor` driving the scheduler's `spawn`/`awaitChildren`/`wake`: isolated setup phase, read-only global snapshot, worker fibers with statement-boundary interleaving + purity (`::`-write errors), `[THREAD ERROR]`/`[MONITOR ERROR]` reporting, `{status,ok,value}` collection (auto `#N` + dynamic keys, dup detection), and a monitor that ticks mid-run + once final (matches v1's tick counts, robust to timing).
 - **Host tail done.** ✅ `SHELL`/`SHELL_CTX` (core-only "requires a host-provided TaskRunner" — `72`/`78`/`80`), external functions (`Engine.registerExternal`/`registerExternalAsync`, return→`Result.ok` / throw→`Result.error`, async via `Coop.blocking` — `41`/`71`), and keyword/function hiding (`Engine.setHiddenKeywords`/`setIgnoredFunctions` — `73`/`74`).
 - **PE done — full conformance.** ✅ **All 84 `.tee/.expected` fixtures pass** byte-for-byte (`ConformanceTest`), deterministic, no flakiness over repeated runs; ~218 tests green. The seam-timing & async-replay-removal properties the design calls for were validated in the spike (`docs/spike-findings.md`).
-- **PF done — 0.1.0.** ✅ `propertee2` CLI (`cli/Main` — `-p` props, `--version`/`--help`) + Gradle `application` plugin (`run`, `installDist`); version `0.1.0`; `README.md` + `CHANGELOG.md` refreshed. Real `SHELL`/HTTP/Task execution, the `StructuredTaskScope` swap (when it leaves preview), and a `core`/`cli` module split are post-1.0.
+- **PF done — 0.1.0.** ✅ Two-module Gradle build (`propertee-core` + `propertee-cli`) matching v1's layout; `propertee2` CLI (`cli/Main` — `-p` props, `--version`/`--help`); `dist` task → `dist/propertee2-0.1.0.jar` (fat jar, `java -jar`); version `0.1.0`; `README.md` + `CHANGELOG.md`. Real `SHELL`/HTTP/Task execution and the `StructuredTaskScope` swap (when it leaves preview) are post-1.0.
 
 ## Build/test
 
-JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is registered machine-locally in `~/.gradle/gradle.properties` (`org.gradle.java.installations.paths`); on a fresh machine add a JDK 25 home there. Source layout is standard (`src/main/java`, `src/test/java`); the grammar stays at `grammar/ProperTee.g4` and the antlr plugin generates the visitor into `com.flatide.propertee2.parser`.
+JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is registered machine-locally in `~/.gradle/gradle.properties` (`org.gradle.java.installations.paths`); on a fresh machine add a JDK 25 home there. Two modules: engine in `propertee-core` (grammar at `propertee-core/grammar/ProperTee.g4`; antlr plugin generates the visitor into `com.flatide.propertee2.parser`), CLI in `propertee-cli`.
 
 ```bash
-./gradlew build                 # compile + jar + all tests (JDK 25, no preview flags)
-./gradlew test                  # run the JUnit5 suite
+./gradlew build                 # compile + all tests, both modules (JDK 25, no preview flags)
+./gradlew :propertee-core:test  # engine tests only
 ./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 84 fixtures vs .expected
-./gradlew test --tests '*TeeFormatTest'                          # one test class
-./gradlew generateGrammarSource # regenerate the ANTLR parser/visitor only
+./gradlew :propertee-core:generateGrammarSource   # regenerate the ANTLR parser/visitor only
 
-# CLI (application plugin). Needs JDK 25 at runtime — the start script honors JAVA_HOME.
-./gradlew run --args="path/to/script.tee"
-./gradlew installDist && JAVA_HOME=<jdk25> ./build/install/propertee2/bin/propertee2 -p '{"width":100}' script.tee
+# CLI: dev run, or build the fat jar into dist/ and run it (JDK 25 at runtime).
+./gradlew :propertee-cli:run --args="path/to/script.tee"
+./gradlew dist && java -jar dist/propertee2-0.1.0.jar -p '{"width":100}' script.tee
 ```
 
 > Fixtures are a **fixed baseline** copied from v1. `.expected` files are the correct answer **down to output order**, so never edit them (this is why the scheduler must be deterministic round-robin — design §6). The new engine conforms to the fixtures, not the other way around. The conformance fixture list is hardcoded in `conformance/Fixtures` (v1 convention); per-fixture semantics and host-injection caveats are in `docs/conformance-tests.md`.

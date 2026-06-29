@@ -1,5 +1,5 @@
 // propertee2-java — Java 25 virtual-thread cooperative runtime for ProperTee.
-// Single root project for now; design §10 envisions a core/cli split, deferred until
-// there is a runnable CLI (PB/PC). The conformance fixtures already live at the Gradle
-// default test-resources path (src/test/resources/tests), so no relayout is needed.
+// Two modules (design §10): propertee-core (engine: grammar + interpreter + Coop runtime) and
+// propertee-cli (the `propertee2` command). TeeBox depends on propertee-core.
 rootProject.name = 'propertee2'
+include 'propertee-core', 'propertee-cli'

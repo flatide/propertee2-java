@@ -7,24 +7,23 @@
 
 ## 빌드 / 테스트
 
-JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.java.installations.paths`에 JDK 25 home 등록).
+JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.java.installations.paths`에 JDK 25 home 등록). 두 모듈로 구성된다: **`propertee-core`**(엔진 — TeeBox가 의존), **`propertee-cli`**(`propertee2` 커맨드).
 
 ```bash
-./gradlew build     # 컴파일 + 전체 테스트(conformance 84 fixture 포함)
-./gradlew test      # 테스트만
+./gradlew build     # 두 모듈 컴파일 + 전체 테스트(conformance 84 fixture 포함)
 ```
 
 ## 실행 (CLI)
 
 ```bash
-./gradlew installDist
-JAVA_HOME=/path/to/jdk-25 ./build/install/propertee2/bin/propertee2 script.tee
+./gradlew dist                                  # → dist/propertee2-0.1.0.jar (self-contained fat jar)
+java -jar dist/propertee2-0.1.0.jar script.tee
 
 # 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
-propertee2 -p '{"width":100,"height":200}' script.tee
+java -jar dist/propertee2-0.1.0.jar -p '{"width":100,"height":200}' script.tee
 ```
 
-> 런타임에 **JDK 25**가 필요하다(start 스크립트는 `JAVA_HOME`을 사용). 개발 중에는 `./gradlew run --args="script.tee"`도 가능.
+> 런타임에 **JDK 25**가 필요하다. 개발 중에는 `./gradlew :propertee-cli:run --args="script.tee"`도 가능.
 
 ## 임베드 (Java 호스트)
 
