@@ -117,6 +117,20 @@ public final class Interpreter {
         builtins.register(name, Builtins.Kind.PURE, fn::apply);
     }
 
+    /** Observes multi worker logical-thread lifecycle, so a host (façade) can surface them to a listener. */
+    public interface ThreadObserver {
+        void created(int id, String name, Integer parentId, String resultKeyName);
+        void completed(int id, Object result);
+        void error(int id, Throwable error);
+    }
+
+    private ThreadObserver threadObserver = null;
+    private final java.util.concurrent.atomic.AtomicInteger workerIdSeq =
+            new java.util.concurrent.atomic.AtomicInteger(0);          // 0 reserved for the main thread
+
+    /** Observe multi worker threads (created/completed/error). The program's main thread is the host's id 0. */
+    public void setThreadObserver(ThreadObserver observer) { this.threadObserver = observer; }
+
     private boolean inFunction() { return !ec().frames.isEmpty(); }
     private Map<String, Object> localTop() { return ec().frames.peek(); }
     private Map<String, Object> currentScope() { return inFunction() ? localTop() : ec().globalsView; }
@@ -208,14 +222,21 @@ public final class Interpreter {
         Runnable signalParent = () -> { if (parentPending.decrementAndGet() == 0) s.wake(parent); };
 
         for (MultiBuilder.Pending p : pending) {
+            int tid = workerIdSeq.incrementAndGet();              // 1, 2, ... (the main thread is the host's id 0)
+            // Announce the worker before it runs so a host observer sees it during execution; its key in the
+            // result collection is the worker's result-key name (a host groups run threads by it).
+            if (threadObserver != null) threadObserver.created(tid, p.funcName(), 0, p.key());
             s.spawn(p.key(), () -> ScopedValue.where(CTX, ExecContext.worker(snapshot)).run(() -> {
                 try {
-                    collection.put(p.key(), Result.ok(invokeNamed(p.funcName(), p.args(), p.call())));
+                    Object r = invokeNamed(p.funcName(), p.args(), p.call());
+                    collection.put(p.key(), Result.ok(r));
+                    if (threadObserver != null) threadObserver.completed(tid, r);
                 } catch (RuntimeException e) {
                     // TeeError, or a stray control-flow signal / other failure: never leave the entry "running"
                     String pos = failureText(e);
                     out.line("[THREAD ERROR] " + pos);
                     collection.put(p.key(), Result.error(pos));
+                    if (threadObserver != null) threadObserver.error(tid, e);
                 } finally {
                     remaining.decrementAndGet();
                     signalParent.run();

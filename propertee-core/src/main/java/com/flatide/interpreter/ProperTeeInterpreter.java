@@ -70,6 +70,33 @@ public class ProperTeeInterpreter {
             final BuiltinFunctions.BuiltinFunction fn = e.getValue();
             interp.addRawBuiltin(e.getKey(), fn::call);
         }
+        // Surface multi worker threads to the host listener (created before each runs, completed/error after),
+        // keyed by the worker's result-key name — so a host that observes a run sees alpha/beta/... threads.
+        if (listener != null) {
+            interp.setThreadObserver(new Interpreter.ThreadObserver() {
+                private final java.util.Map<Integer, com.flatide.scheduler.ThreadContext> ctxs =
+                        new java.util.concurrent.ConcurrentHashMap<>();
+
+                @Override public void created(int id, String name, Integer parentId, String resultKeyName) {
+                    com.flatide.scheduler.ThreadContext tc = new com.flatide.scheduler.ThreadContext();
+                    tc.id = id; tc.name = name; tc.parentId = parentId; tc.resultKeyName = resultKeyName;
+                    tc.inThreadContext = true; tc.state = com.flatide.scheduler.ThreadState.RUNNING;
+                    ctxs.put(id, tc);
+                    listener.onThreadCreated(tc);
+                }
+                @Override public void completed(int id, Object result) {
+                    com.flatide.scheduler.ThreadContext tc = ctxs.getOrDefault(id, new com.flatide.scheduler.ThreadContext());
+                    tc.state = com.flatide.scheduler.ThreadState.COMPLETED; tc.result = result;
+                    listener.onThreadCompleted(tc);
+                }
+                @Override public void error(int id, Throwable err) {
+                    com.flatide.scheduler.ThreadContext tc = ctxs.getOrDefault(id, new com.flatide.scheduler.ThreadContext());
+                    tc.state = com.flatide.scheduler.ThreadState.ERROR; tc.error = err;
+                    listener.onThreadError(tc);
+                }
+            });
+        }
+
         interp.globals().putAll(this.variables);                 // inject host globals (e.g. _SYS) before the run
 
         // Register the program's root logical thread with the host listener so it can observe the run
