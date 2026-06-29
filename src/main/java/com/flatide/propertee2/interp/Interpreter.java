@@ -258,13 +258,13 @@ public final class Interpreter {
     }
 
     private void execFlow(FlowControlContext f) {
+        // Hideable keywords are exactly if/loop/function/multi/thread/debug (LANGUAGE.md §Host
+        // Environment Restrictions); break/continue/return are NOT hideable, matching v1.
         switch (f) {
-            case BreakStmtContext b    -> { requireKeyword("break", f.getStart()); throw Signals.Break.INSTANCE; }
-            case ContinueStmtContext c -> { requireKeyword("continue", f.getStart()); throw Signals.Continue.INSTANCE; }
-            case ReturnStmtContext r   -> {
-                requireKeyword("return", f.getStart());
-                throw new Signals.Return(r.expression() != null ? eval(r.expression()) : Values.emptyObject());
-            }
+            case BreakStmtContext b    -> throw Signals.Break.INSTANCE;
+            case ContinueStmtContext c -> throw Signals.Continue.INSTANCE;
+            case ReturnStmtContext r   ->
+                    throw new Signals.Return(r.expression() != null ? eval(r.expression()) : Values.emptyObject());
             case DebugStmtContext d    -> requireKeyword("debug", f.getStart()); // else no-op (70_debug_statement)
             default -> throw err("unsupported flow statement", f);
         }

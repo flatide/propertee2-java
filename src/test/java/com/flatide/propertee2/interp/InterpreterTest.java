@@ -48,6 +48,22 @@ class InterpreterTest {
         assertEquals("100\n5\n", out);
     }
 
+    /** Only the documented keywords are hideable (if/loop/function/multi/thread/debug) — not break/continue/return. */
+    @Test void hidingANonHideableKeywordIsANoOp() {
+        // "break" is not a hideable keyword, so hiding it leaves break working
+        String ok = new Engine().setHiddenKeywords(java.util.Set.of("break")).run("""
+                loop true do
+                    break
+                end
+                PRINT("ok")
+                """);
+        assertEquals("ok\n", ok);
+
+        // a documented keyword ("if") is hidden -> runtime error at its token
+        String hidden = new Engine().setHiddenKeywords(java.util.Set.of("if")).run("if true then PRINT(1) end\n");
+        assertEquals("Runtime error: Runtime Error at line 1:0: 'if' is not available in this environment\n", hidden);
+    }
+
     /** A worker that leaks a non-error control-flow signal must yield an error result, never stay "running". */
     @Test void workerLeakingControlFlowYieldsErrorNotRunning() {
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
