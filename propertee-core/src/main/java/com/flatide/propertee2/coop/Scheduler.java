@@ -201,6 +201,11 @@ public final class Scheduler {
         lock.lock();
         try {
             me.state = FiberState.DONE;
+            // Drop the finished fiber so a long run with many `multi` rounds doesn't accumulate DONE
+            // fibers (O(total spawned)) and grow the selectNext/anotherReady scan. Safe for the
+            // deterministic round-robin: selection is by state+id, not list position, and DONE fibers
+            // were skipped anyway; the list stays ascending-id and ~aliveCount in size.
+            fibers.remove(me);
             if (current == me) current = null;
             aliveCount--;
             scheduleNext();

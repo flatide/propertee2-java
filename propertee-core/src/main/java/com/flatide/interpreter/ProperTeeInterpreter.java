@@ -85,12 +85,14 @@ public class ProperTeeInterpreter {
                     listener.onThreadCreated(tc);
                 }
                 @Override public void completed(int id, Object result) {
-                    com.flatide.scheduler.ThreadContext tc = ctxs.getOrDefault(id, new com.flatide.scheduler.ThreadContext());
+                    com.flatide.scheduler.ThreadContext tc = ctxs.remove(id);   // free the worker context
+                    if (tc == null) tc = new com.flatide.scheduler.ThreadContext();
                     tc.state = com.flatide.scheduler.ThreadState.COMPLETED; tc.result = result;
                     listener.onThreadCompleted(tc);
                 }
                 @Override public void error(int id, Throwable err) {
-                    com.flatide.scheduler.ThreadContext tc = ctxs.getOrDefault(id, new com.flatide.scheduler.ThreadContext());
+                    com.flatide.scheduler.ThreadContext tc = ctxs.remove(id);   // free the worker context
+                    if (tc == null) tc = new com.flatide.scheduler.ThreadContext();
                     tc.state = com.flatide.scheduler.ThreadState.ERROR; tc.error = err;
                     listener.onThreadError(tc);
                 }

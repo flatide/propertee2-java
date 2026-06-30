@@ -29,22 +29,27 @@ final class Shell {
     Shell(TaskRunner taskRunner, String runId) { this.taskRunner = taskRunner; this.runId = runId; }
 
     Object run(List<Object> args) {
+        if (args.isEmpty()) return Result.error("SHELL() requires at least 1 argument");
+        Task task;
         try {
-            if (args.isEmpty()) return Result.error("SHELL() requires at least 1 argument");
-            TaskRequest request = buildRequest(args);
-            Task task = taskRunner.execute(request);
-            try {
-                Task completed = taskRunner.waitForCompletion(task.taskId, 0);
-                if (completed == null) return Result.error("Unknown task: " + task.taskId);
-                Object result = buildResult(task);
-                taskRunner.releaseTask(task.taskId);   // lightweight runners free state; persistent ones no-op
-                return result;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return Result.error("interrupted");
-            }
-        } catch (UnsupportedOperationException | TeeError e) {
-            return Result.error(e.getMessage());       // no runner, or bad args -> Result.error (v1 behavior)
+            task = taskRunner.execute(buildRequest(args));   // UnsupportedTaskRunner throws here (no task created)
+        } catch (RuntimeException e) {                        // no runner, or bad args (TeeError) -> Result.error
+            return Result.error(e.getMessage());
+        }
+        // Once a task exists, always release it (finally) so a lightweight TaskRunner doesn't retain its
+        // task map / output buffer / process handle on an exception or interrupt path.
+        try {
+            Task completed = taskRunner.waitForCompletion(task.taskId, 0);
+            if (completed == null) return Result.error("Unknown task: " + task.taskId);
+            return buildResult(task);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            try { taskRunner.killTask(task.taskId); } catch (RuntimeException ignore) { /* best-effort */ }
+            return Result.error("interrupted");
+        } catch (RuntimeException e) {                        // observe/getCombinedOutput/getExitCode failure
+            return Result.error(e.getMessage());
+        } finally {
+            try { taskRunner.releaseTask(task.taskId); } catch (RuntimeException ignore) { /* best-effort */ }
         }
     }
 
