@@ -68,7 +68,11 @@ public class ProperTeeInterpreter {
         interp.setLoopLimit(maxIterations);
         for (Map.Entry<String, BuiltinFunctions.BuiltinFunction> e : builtins.custom.entrySet()) {
             final BuiltinFunctions.BuiltinFunction fn = e.getValue();
-            interp.addRawBuiltin(e.getKey(), fn::call);
+            interp.addRawBuiltin(e.getKey(), fn::call);          // cheap, on the baton (raw return)
+        }
+        for (Map.Entry<String, BuiltinFunctions.BuiltinFunction> e : builtins.blocking.entrySet()) {
+            final BuiltinFunctions.BuiltinFunction fn = e.getValue();
+            interp.addBlockingExternal(e.getKey(), fn::call);    // may block -> off the baton, Result-wrapped
         }
         // Surface multi worker threads to the host listener (created before each runs, completed/error after),
         // keyed by the worker's result-key name — so a host that observes a run sees alpha/beta/... threads.

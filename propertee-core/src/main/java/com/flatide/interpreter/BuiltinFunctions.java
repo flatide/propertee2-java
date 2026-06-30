@@ -34,6 +34,7 @@ public class BuiltinFunctions {
     final TaskRunner taskRunner;
     final PlatformProvider platform;
     final Map<String, BuiltinFunction> custom = new LinkedHashMap<>();
+    final Map<String, BuiltinFunction> blocking = new LinkedHashMap<>();
 
     public BuiltinFunctions(PrintFunction stdout, PrintFunction stderr) {
         this(stdout, stderr, null, null, null);
@@ -52,9 +53,17 @@ public class BuiltinFunctions {
         this.platform = platform;
     }
 
-    /** Register an extra host builtin (raw return value). */
+    /** Register an extra host builtin whose return value is used as-is (no Result wrapper). Runs on the
+     *  cooperative baton — only for cheap, non-blocking work (e.g. STREAM_FILE returning a descriptor). */
     public void register(String name, BuiltinFunction fn) {
         custom.put(name, fn);
+    }
+
+    /** Register a host builtin that may block (image/network/disk work). It runs OFF the baton and its
+     *  return value becomes Result.ok(value) / a thrown exception becomes Result.error(message). Prefer
+     *  this over {@link #register} for anything that does real I/O or heavy CPU (e.g. THUMBNAIL). */
+    public void registerBlocking(String name, BuiltinFunction fn) {
+        blocking.put(name, fn);
     }
 
     /** Release host resources (e.g. the TaskRunner's process pool). Called by the host after a run. */

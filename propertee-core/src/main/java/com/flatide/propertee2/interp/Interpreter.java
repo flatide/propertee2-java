@@ -117,6 +117,16 @@ public final class Interpreter {
         builtins.register(name, Builtins.Kind.PURE, fn::apply);
     }
 
+    /**
+     * Register a host function that may block (image/network/disk work). It runs OFF the baton via
+     * {@code Coop.blocking} (§3.1, so it never stalls the cooperative scheduler), with its return value
+     * wrapped in {@code Result.ok} and a thrown exception in {@code Result.error} — args and return are
+     * deep-copied for isolation. Use this (not {@link #addRawBuiltin}) for anything slow.
+     */
+    public void addBlockingExternal(String name, java.util.function.Function<List<Object>, Object> fn) {
+        externals.put(name, new ExternalFunction(fn, true));
+    }
+
     /** Observes multi worker logical-thread lifecycle, so a host (façade) can surface them to a listener. */
     public interface ThreadObserver {
         void created(int id, String name, Integer parentId, String resultKeyName);

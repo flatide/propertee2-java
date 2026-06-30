@@ -63,4 +63,21 @@ class FacadeTest {
 
         assertEquals(42, result);
     }
+
+    @Test void blockingHostBuiltinIsResultWrappedOffBaton() {
+        java.util.List<String> out = new ArrayList<>();
+        BuiltinFunctions.PrintFunction sink = a -> out.add(join(a));
+        BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);
+        builtins.registerBlocking("DBL", args -> ((Integer) args.get(0)) * 2);    // return -> Result.ok(value)
+        builtins.registerBlocking("BOOM", args -> { throw new RuntimeException("kaboom"); }); // throw -> Result.error
+
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "a = DBL(21)\nb = BOOM()\nPRINT(a.ok)\nPRINT(a.value)\nPRINT(b.ok)\nPRINT(b.value)\n",
+                new ArrayList<>());
+        ProperTeeInterpreter visitor =
+                new ProperTeeInterpreter(new LinkedHashMap<>(), sink, sink, 1000, "error", builtins);
+        new Scheduler(visitor).run(visitor.createRootStepper(tree));
+
+        assertEquals(List.of("true", "42", "false", "kaboom"), out);
+    }
 }
