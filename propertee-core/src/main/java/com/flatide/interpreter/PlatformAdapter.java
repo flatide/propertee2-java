@@ -5,7 +5,9 @@ import com.flatide.propertee2.host.PlatformProvider.FileStat;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Bridges a v1 {@link com.flatide.platform.PlatformProvider} (what TeeBox supplies) to the engine's
@@ -54,6 +56,19 @@ final class PlatformAdapter implements com.flatide.propertee2.host.PlatformProvi
                 out.add(new DirEntry(e.name, e.type, e.size));
             }
             return out;
+        });
+    }
+
+    @Override
+    public com.flatide.propertee2.host.PlatformProvider.HttpResponse httpRequest(
+            String method, String url, Map<String, String> headers, String body, int timeoutMs) throws IOException {
+        return io(() -> {
+            com.flatide.platform.PlatformProvider.HttpResponse r =
+                    v1.httpRequest(method, url, headers, body, timeoutMs);
+            Map<String, String> outHeaders = new LinkedHashMap<>();
+            if (r.headers != null) outHeaders.putAll(r.headers);
+            return new com.flatide.propertee2.host.PlatformProvider.HttpResponse(
+                    r.status, r.body != null ? r.body : "", outHeaders);
         });
     }
 

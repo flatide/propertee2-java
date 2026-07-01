@@ -105,6 +105,7 @@ public final class Builtins {
         Builtins b = standard();
         registerEnv(b, platform);
         registerFileIO(b, platform);
+        registerHttp(b, platform);
         registerShell(b, platform, taskRunner, runId);
         return b;
     }
@@ -473,6 +474,106 @@ public final class Builtins {
 
     private static Object numberFromLong(long v) {
         return (v >= Integer.MIN_VALUE && v <= Integer.MAX_VALUE) ? (Object) (int) v : (Object) (double) v;
+    }
+
+    // ---- HTTP (host-backed blocking I/O; v1 Result shape) -----------------
+
+    private static void registerHttp(Builtins b, PlatformProvider platform) {
+        // A completed request -> value={status,body,headers}, ok=(2xx). A transport-level failure
+        // -> ok=false with value.status=0, so callers can always inspect res.value.status/body.
+        b.register("HTTP", Kind.BLOCKING, args -> {
+            if (args.size() < 2 || !(args.get(0) instanceof String) || !(args.get(1) instanceof String)) {
+                return Result.error("HTTP() requires (method, url, [options])");
+            }
+            Map<String, Object> options = options(args, 2);
+            return doHttp(platform, (String) args.get(0), (String) args.get(1),
+                    optionsHeaders(options), optionsBody(options), optionsTimeout(options));
+        });
+
+        b.register("HTTP_GET", Kind.BLOCKING, args -> {
+            if (args.isEmpty() || !(args.get(0) instanceof String)) {
+                return Result.error("HTTP_GET() requires (url, [options])");
+            }
+            Map<String, Object> options = options(args, 1);
+            return doHttp(platform, "GET", (String) args.get(0), optionsHeaders(options), null, optionsTimeout(options));
+        });
+
+        b.register("HTTP_POST", Kind.BLOCKING, args -> {
+            if (args.size() < 2 || !(args.get(0) instanceof String)) {
+                return Result.error("HTTP_POST() requires (url, body, [options])");
+            }
+            Map<String, Object> options = options(args, 2);
+            String body = coerceBody(args.get(1));
+            return doHttp(platform, "POST", (String) args.get(0), optionsHeaders(options),
+                    body != null ? body : "", optionsTimeout(options));
+        });
+    }
+
+    private static Object doHttp(PlatformProvider platform, String method, String url,
+                                 Map<String, String> headers, String body, int timeoutMs) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        try {
+            PlatformProvider.HttpResponse resp = platform.httpRequest(method, url, headers, body, timeoutMs);
+            value.put("status", numberFromLong(resp.status()));
+            value.put("body", resp.body() != null ? resp.body() : "");
+            Map<String, Object> hdrs = new LinkedHashMap<>();
+            if (resp.headers() != null) {
+                for (Map.Entry<String, String> e : resp.headers().entrySet()) {
+                    hdrs.put(e.getKey(), e.getValue());
+                }
+            }
+            value.put("headers", hdrs);
+            return httpEnvelope(resp.status() >= 200 && resp.status() < 300, value);
+        } catch (Exception e) {
+            value.put("status", 0);
+            value.put("body", e.getMessage() != null ? e.getMessage() : "HTTP request failed");
+            value.put("headers", new LinkedHashMap<String, Object>());
+            return httpEnvelope(false, value);
+        }
+    }
+
+    private static Object httpEnvelope(boolean ok, Object value) {
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("status", ok ? "done" : "error");
+        r.put("ok", ok);
+        r.put("value", value);
+        return r;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> options(List<Object> args, int index) {
+        return args.size() > index && args.get(index) instanceof Map
+                ? (Map<String, Object>) args.get(index) : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, String> optionsHeaders(Map<String, Object> options) {
+        if (options == null) return null;
+        Object h = options.get("headers");
+        if (!(h instanceof Map)) h = options.get("header"); // v1 accepted the common singular alias
+        if (!(h instanceof Map)) return null;
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : ((Map<?, ?>) h).entrySet()) {
+            result.put(String.valueOf(e.getKey()), e.getValue() != null ? String.valueOf(e.getValue()) : "");
+        }
+        return result;
+    }
+
+    private static String optionsBody(Map<String, Object> options) {
+        if (options == null) return null;
+        return coerceBody(options.get("body"));
+    }
+
+    private static int optionsTimeout(Map<String, Object> options) {
+        if (options == null) return 0;
+        Object t = options.get("timeout");
+        return Values.isNumber(t) ? (int) Values.toDouble(t) : 0;
+    }
+
+    private static String coerceBody(Object body) {
+        if (body == null) return null;
+        if (body instanceof String s) return s;
+        return TeeFormat.json(body);
     }
 
     // ---- Shell (executes via a host TaskRunner; default UnsupportedTaskRunner — 72/78/80) ----

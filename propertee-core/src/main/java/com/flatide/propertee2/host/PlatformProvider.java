@@ -2,9 +2,10 @@ package com.flatide.propertee2.host;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Host integration seam for environment + filesystem that the runtime gates through
+ * Host integration seam for environment, filesystem, and HTTP that the runtime gates through
  * {@code Coop.blocking} (design §3.1). Implementations may block; the interpreter always invokes
  * them off the baton. The builtin layer wraps these in the v1 {@code Result} shape and does
  * argument validation — these methods do the raw work and throw {@link IOException} on failure.
@@ -37,8 +38,17 @@ public interface PlatformProvider {
 
     void deleteFile(String path) throws IOException;           // throws if a directory or not found
 
+    /**
+     * Perform an HTTP request. Hosts may restrict URLs/headers or throw on transport failures.
+     * Any HTTP status is returned normally; only transport/setup failures should throw.
+     */
+    HttpResponse httpRequest(String method, String url, Map<String, String> headers, String body, int timeoutMs)
+            throws IOException;
+
     /** type is "file" or "dir"; size in bytes; modified in epoch millis. */
     record FileStat(String type, long size, long modified) {}
 
     record DirEntry(String name, String type, long size) {}
+
+    record HttpResponse(int status, String body, Map<String, String> headers) {}
 }

@@ -3,6 +3,17 @@
 All notable changes to `propertee2-java`. Value/type/scope/error semantics track the frozen
 `propertee-java` v1.0.0 exactly; this runtime changes only scheduling (cooperative suspension).
 
+## Unreleased
+
+### Fixed
+- Restored the v1 HTTP builtins (`HTTP_GET`, `HTTP_POST`, `HTTP`) in the propertee2 builtin catalog.
+  They run through `Coop.blocking`, return the v1 Result shape with `{status, body, headers}`, treat
+  non-2xx HTTP responses as `ok=false` with the real status/body, and map transport failures to
+  `status=0`.
+- Added HTTP capability to the propertee2 host `PlatformProvider` and bridged the v1
+  `com.flatide.platform.PlatformProvider` through `PlatformAdapter`, so TeeBox's existing
+  `TeeBoxPlatformProvider` exposes HTTP without application-code changes.
+
 ## 0.1.0
 
 First release of the Java 25 virtual-thread cooperative runtime. **Passes the full v1 conformance

@@ -1,6 +1,11 @@
 package com.flatide.propertee2.host;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -8,11 +13,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-/** Default host integration backed by the real JVM environment and filesystem (NIO). */
+/** Default host integration backed by the real JVM environment, filesystem (NIO), and HTTP. */
 public final class DefaultPlatformProvider implements PlatformProvider {
 
     @Override
@@ -79,5 +86,63 @@ public final class DefaultPlatformProvider implements PlatformProvider {
         Path p = Path.of(path);
         if (Files.isDirectory(p)) throw new IOException("is a directory: " + path);
         Files.delete(p);   // throws NoSuchFileException if absent
+    }
+
+    @Override
+    public HttpResponse httpRequest(String method, String url, Map<String, String> headers, String body, int timeoutMs)
+            throws IOException {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) URI.create(url).toURL().openConnection();
+            conn.setRequestMethod(method != null ? method.toUpperCase() : "GET");
+            int t = timeoutMs > 0 ? timeoutMs : 30000;
+            conn.setConnectTimeout(t);
+            conn.setReadTimeout(t);
+            conn.setInstanceFollowRedirects(true);
+            if (headers != null) {
+                for (Map.Entry<String, String> e : headers.entrySet()) {
+                    if (e.getKey() != null) conn.setRequestProperty(e.getKey(), e.getValue());
+                }
+            }
+            if (body != null && !body.isEmpty()) {
+                conn.setDoOutput(true);
+                byte[] payload = body.getBytes(StandardCharsets.UTF_8);
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(payload);
+                }
+            }
+            int status = conn.getResponseCode();
+            InputStream in = (status >= 200 && status < 400) ? conn.getInputStream() : conn.getErrorStream();
+            String respBody = readStream(in);
+            Map<String, String> respHeaders = new LinkedHashMap<>();
+            Map<String, List<String>> headerFields = conn.getHeaderFields();
+            if (headerFields != null) {
+                for (Map.Entry<String, List<String>> e : headerFields.entrySet()) {
+                    if (e.getKey() != null && e.getValue() != null && !e.getValue().isEmpty()) {
+                        respHeaders.put(e.getKey(), e.getValue().getFirst());
+                    }
+                }
+            }
+            return new HttpResponse(status, respBody, respHeaders);
+        } catch (IllegalArgumentException e) {
+            throw new IOException("HTTP request failed: " + e.getMessage(), e);
+        } catch (IOException e) {
+            throw new IOException("HTTP request failed: " + e.getMessage(), e);
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static String readStream(InputStream in) throws IOException {
+        if (in == null) return "";
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] chunk = new byte[4096];
+        int read;
+        try (InputStream input = in) {
+            while ((read = input.read(chunk)) != -1) {
+                buffer.write(chunk, 0, read);
+            }
+        }
+        return buffer.toString(StandardCharsets.UTF_8);
     }
 }
