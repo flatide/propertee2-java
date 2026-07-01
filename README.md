@@ -3,7 +3,7 @@
 `propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. 동결된 [`propertee-java`](https://github.com/flatide/propertee-java) v1.0.0(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. **값/타입/스코프/에러 메시지 의미는 v1과 동일**하고, 바뀌는 것은 **스케줄링(중단/협력)** 뿐이다.
 
 - **베이스라인:** Java 25 LTS, **stable API만** (virtual threads + `ScopedValue`). `StructuredTaskScope`는 25에서도 preview라 회피 — `multi`는 hand-roll. **preview 의존 0.**
-- **상태:** **v1 conformance 스위트 84/84 통과** (byte-for-byte, deterministic). 0.1.0.
+- **상태:** **v1 conformance 스위트 84/84 통과** (byte-for-byte, deterministic). 0.2.0 (v1 HTTP 빌트인 복원).
 
 ## 빌드 / 테스트
 

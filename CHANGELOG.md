@@ -3,16 +3,23 @@
 All notable changes to `propertee2-java`. Value/type/scope/error semantics track the frozen
 `propertee-java` v1.0.0 exactly; this runtime changes only scheduling (cooperative suspension).
 
-## Unreleased
+## 0.2.0
 
-### Fixed
-- Restored the v1 HTTP builtins (`HTTP_GET`, `HTTP_POST`, `HTTP`) in the propertee2 builtin catalog.
-  They run through `Coop.blocking`, return the v1 Result shape with `{status, body, headers}`, treat
-  non-2xx HTTP responses as `ok=false` with the real status/body, and map transport failures to
-  `status=0`.
-- Added HTTP capability to the propertee2 host `PlatformProvider` and bridged the v1
-  `com.flatide.platform.PlatformProvider` through `PlatformAdapter`, so TeeBox's existing
-  `TeeBoxPlatformProvider` exposes HTTP without application-code changes.
+Restores the v1 HTTP builtins that were missing from the propertee2 builtin catalog (HTTP calls were
+dead in embedded hosts such as TeeBox). Minor bump — the host interface gains a method.
+
+- **`HTTP_GET`, `HTTP_POST`, `HTTP` builtins.** Registered as `Kind.BLOCKING`, so the interpreter runs
+  them off the baton via `Coop.blocking` (design §3.1). They return the v1 Result shape
+  `{status, ok, value:{status, body, headers}}` — a non-2xx response is `ok=false` with the real
+  status/body, a transport failure is `ok=false` with `status=0`. `HTTP_POST` serializes an object
+  body to JSON; options accept the `headers`/`header` alias and a `timeout`.
+- **Host `PlatformProvider` gains `httpRequest` (+ an `HttpResponse` record).** `DefaultPlatformProvider`
+  implements it over `HttpURLConnection` (timeouts, redirects, error-stream read, disconnect in
+  `finally`). This is a new method on the host interface — direct implementers must add it.
+- **`PlatformAdapter` bridges the v1 `com.flatide.platform.PlatformProvider` HTTP** to the host seam, so
+  a v1-API host (e.g. TeeBox's `TeeBoxPlatformProvider`) exposes HTTP with no application-code change.
+- Covered by `FacadeHttpBuiltinTest` (real loopback server; GET/POST/404/generic/transport-failure/
+  JSON-body/header-alias through the façade path TeeBox uses).
 
 ## 0.1.0
 
