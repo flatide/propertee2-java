@@ -4,6 +4,8 @@
 > 전체 문법·빌트인 시그니처는 [`LANGUAGE.md`](./LANGUAGE.md)가 정본이며, 이 문서는 그중 **conformance에 필수인 불변식**만 추린 체크리스트다.
 >
 > **핵심 원칙:** 새 런타임은 **스케줄링(중단/협력)만** 바꾸고 **값 의미는 1바이트도 바꾸지 않는다.** blocking 빌트인은 `Coop.blocking`을 통해 실행될 뿐, 반환값·에러·포맷은 v1과 동일해야 한다. ([`LANGUAGE.md`] 출력과 [`src/test/resources/tests/*.expected`]가 그 기준.)
+>
+> **⚠️ 스펙 divergence:** 이 문서는 **v1(= spec v0.6.0) 계약의 스냅샷**이다. spec **v0.7.0**(strict boolean 조건 — 아래 truthiness 항목은 폐기됨, short-circuit `and`/`or`, `RANDOM` 단일 인자 제거, `SLICE` count, strict `LEN`)과 spec **v0.8.0**(일급 `null` — 7번째 타입 `JsonNull`, `TYPE_OF`→`"null"`, `JSON_PARSE`가 null 보존)에서 의도적으로 바뀐 지점은 [`LANGUAGE.md`](./LANGUAGE.md) §Changelog가 우선한다.
 
 ## 1. 값 타입
 

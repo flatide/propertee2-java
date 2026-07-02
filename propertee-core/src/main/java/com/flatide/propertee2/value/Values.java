@@ -46,6 +46,7 @@ public final class Values {
         if (v instanceof Boolean) return "boolean";
         if (v instanceof Map) return "object";
         if (v instanceof List) return "array";
+        if (v instanceof JsonNull) return "null";   // spec v0.8.0 (#4)
         return v == null ? "object" : v.getClass().getSimpleName();
     }
 
@@ -75,7 +76,7 @@ public final class Values {
             for (Object e : src) out.add(deepCopy(e));
             return out;
         }
-        return v; // Integer, Double, String, Boolean are immutable
+        return v; // Integer, Double, String, Boolean, JsonNull are immutable
     }
 
     /**

@@ -34,6 +34,7 @@ public final class TeeFormat {
 
     private static String render(Object v) {
         if (v instanceof String s)  return s;
+        if (v instanceof JsonNull)  return "null";  // spec v0.8.0 (#4): unquoted, also inside containers
         if (v instanceof Boolean b) return b ? "true" : "false";
         if (v instanceof Integer i) return i.toString();
         if (v instanceof Double d)  return formatDouble(d);
@@ -86,6 +87,8 @@ public final class TeeFormat {
     private static void json(Object v, StringBuilder sb) {
         if (v instanceof String s) {
             jsonString(s, sb);
+        } else if (v instanceof JsonNull) {
+            sb.append("null");                      // spec v0.8.0 (#4): lossless round-trip
         } else if (v instanceof Boolean b) {
             sb.append(b ? "true" : "false");
         } else if (v instanceof Integer i) {

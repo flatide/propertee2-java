@@ -21,9 +21,9 @@ PRINT(res.value)
 res = JSON_PARSE("true")
 PRINT(res.value)
 
-// Parse null → {}
+// Parse null → null (preserved — spec v0.8.0; was {} until spec v0.7.0)
 res = JSON_PARSE("null")
-PRINT(res.value == {})
+PRINT(res.value == null)
 
 // Parse nested
 res = JSON_PARSE("{\"data\":{\"items\":[1,2]},\"ok\":true}")
