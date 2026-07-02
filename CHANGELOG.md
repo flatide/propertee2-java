@@ -2,7 +2,28 @@
 
 All notable changes to `propertee2-java`. Value/type/scope/error semantics are pinned to the
 ProperTee language spec (`flatide/ProperTee` LANGUAGE.md) — identical to the frozen
-`propertee-java` v1.0.0 up to spec v0.6.0, with the deliberate spec v0.7.0 breaking batch from 0.3.0.
+`propertee-java` v1.0.0 up to spec v0.6.0, with the deliberate spec v0.7.0 breaking batch from 0.3.0
+and first-class `null` (spec v0.8.0) from 0.4.0.
+
+## 0.4.0
+
+Implements **spec v0.8.0 — first-class `null`** (ProperTee issue
+[#4](https://github.com/flatide/ProperTee/issues/4)), added so JSON round-trips losslessly.
+**Breaking for scripts** — see the migration note in `docs/LANGUAGE.md` §Changelog (`null` is now a
+reserved word; `JSON_PARSE` stops normalizing JSON `null` to `{}`). No host-API change.
+
+- **`null` literal and value type.** The design principle is **no implicit null**: the language never
+  produces `null` (missing arguments and bare `return` still yield `{}`); it enters only via the
+  `null` literal or data (`JSON_PARSE`, host values). Represented by the immutable `JsonNull.NULL`
+  singleton in `value/`.
+- **Inert data semantics.** Equality works (`null == null` true, `null == {}` false),
+  `TYPE_OF(null)` → `"null"`, displays/JSON-formats as unquoted `null`. Conditions, logic,
+  arithmetic, and member access on `null` are runtime errors via the existing spec v0.7.0
+  strictness — no null propagation.
+- **Lossless JSON.** `JSON_PARSE` preserves JSON `null`; `JSON_FORMAT` emits `null`.
+- Grammar: `K_NULL` token + `NullAtom` (synced with the canonical `flatide/ProperTee` grammar).
+- Conformance: 4 new fixtures (93–96), 1 updated (84_json) → **94 fixtures, 249 tests green,
+  deterministic**. `docs/LANGUAGE.md` synced to spec v0.8.0.
 
 ## 0.3.0
 
