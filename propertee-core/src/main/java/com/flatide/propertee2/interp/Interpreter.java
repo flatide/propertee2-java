@@ -322,7 +322,16 @@ public final class Interpreter {
         requireKeyword("if", i.getStart());
         if (condition(i.condition)) {
             execBlock(i.thenBody);
-        } else if (i.elseBody != null) {
+            return;
+        }
+        // spec v0.9.0 (#3): elseif arms — first true condition wins; later conditions unevaluated
+        for (int n = 0; n < i.elseifConds.size(); n++) {
+            if (condition(i.elseifConds.get(n))) {
+                execBlock(i.elseifBodies.get(n));
+                return;
+            }
+        }
+        if (i.elseBody != null) {
             execBlock(i.elseBody);
         }
     }
