@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처: `propertee-java`(v1.0.0) `ScriptTest`의 `testNames` 배열 + `src/test/resources/tests/*.tee`/`*.expected`(84쌍, 이 repo로 복사됨). **spec v0.7.0 breaking 배치**(ProperTee 이슈 #1/#2/#5/#6/#7)에서 신규 `87`–`92` 6쌍이 추가되고 기존 3쌍이 갱신되어 현재 **90쌍**이다 — 아래 [spec v0.7.0 배치](#spec-v070-breaking-배치-87-92) 참고. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**스펙 v0.7.0 동치**"가 기준이다(의도적 divergence 5건).
+출처: `propertee-java`(v1.0.0) `ScriptTest`의 `testNames` 배열 + `src/test/resources/tests/*.tee`/`*.expected`(84쌍, 이 repo로 복사됨). **spec v0.7.0 breaking 배치**(ProperTee 이슈 #1/#2/#5/#6/#7)에서 신규 `87`–`92` 6쌍이 추가되고 기존 3쌍이 갱신됐고, **spec v0.8.0 null 리터럴**(이슈 #4)에서 신규 `93`–`96` 4쌍이 추가되고 `84_json`이 갱신되어 현재 **94쌍**이다 — 아래 [spec v0.7.0 배치](#spec-v070-breaking-배치-87-92)와 [spec v0.8.0 null](#spec-v080-null-리터럴-93-96) 참고. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence).
 
 ## 동치 정책
 
@@ -38,6 +38,19 @@ ProperTee 이슈 #1/#2/#5/#6/#7의 breaking 변경을 검증하는 신규 fixtur
 | `92_error_len_non_collection` | 비컬렉션 `LEN` → `LEN() requires a string, array, or object argument` (#7) |
 
 갱신된 기존 fixture: `11_arrays`(SLICE count 의미론 — expected 1줄 변경), `28_error_not_boolean`(short-circuit로 에러 메시지가 좌변 타입만 언급), `64_time_functions`(`RANDOM(10)` → `RANDOM(0, 9)`, 출력 불변).
+
+## spec v0.8.0 null 리터럴 (93-96)
+
+ProperTee 이슈 #4(first-class `null`)를 검증하는 신규 fixture. 설계 원칙은 "**no implicit null**" — 언어 자체는 null을 만들지 않고(인자 생략·bare return은 여전히 `{}`), null은 리터럴 또는 JSON/호스트 데이터로만 유입된다:
+
+| fixture | 검증 내용 |
+|---|---|
+| `93_null_literal` | 리터럴·`TYPE_OF`→`"null"`·동등성 행렬(`null==null` true, `null=={}` false)·컨테이너 표시(`[ 1, null, 'a' ]`)·문자열 연결·no-implicit-null(`noop()=={}` true) |
+| `94_json_null_roundtrip` | `JSON_PARSE`↔`JSON_FORMAT` 무손실 왕복(`{"a":null,"b":{},"c":[1,null]}`), null↛{} 정규화 제거 |
+| `95_error_null_condition` | 조건 위치의 null → `Condition requires a boolean value. Got null` (v0.7.0 #1 엄격성 재활용) |
+| `96_error_null_member` | null 멤버 접근 → `Property 'name' does not exist` |
+
+갱신된 기존 fixture: `84_json`(`JSON_PARSE("null")` 결과 비교가 `== {}` → `== null`, expected 불변).
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

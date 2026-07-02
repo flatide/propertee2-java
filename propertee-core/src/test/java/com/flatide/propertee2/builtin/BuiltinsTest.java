@@ -148,7 +148,8 @@ class BuiltinsTest {
         assertEquals(true, parsed.get("ok"));
         assertEquals(obj("name", "Alice", "age", 30), parsed.get("value"));
         assertEquals(false, ((Map<?, ?>) call("JSON_PARSE", "{invalid}")).get("ok"));
-        assertEquals(new LinkedHashMap<>(), ((Map<?, ?>) call("JSON_PARSE", "null")).get("value")); // null -> {}
+        assertEquals(com.flatide.propertee2.value.JsonNull.NULL,
+                ((Map<?, ?>) call("JSON_PARSE", "null")).get("value")); // spec v0.8.0 (#4): null preserved
         assertEquals(Integer.valueOf(42), ((Map<?, ?>) call("JSON_PARSE", "42")).get("value"));
     }
 

@@ -7,8 +7,9 @@ import java.util.Map;
 
 /**
  * Minimal recursive-descent JSON parser producing ProperTee values
- * (Integer / Double / String / Boolean / LinkedHashMap / ArrayList).
- * JSON {@code null} maps to {@code {}} (an empty object) — there is no null (84_json).
+ * (Integer / Double / String / Boolean / LinkedHashMap / ArrayList / JsonNull).
+ * JSON {@code null} maps to {@link JsonNull#NULL} — preserved losslessly (spec v0.8.0 #4;
+ * until spec v0.7.0 it was normalized to {@code {}}).
  * Integers without a fractional/exponent part become {@code Integer}; otherwise {@code Double}.
  *
  * <p>Used by the {@code JSON_PARSE} builtin, which wraps success/failure in a {@link Result}.
@@ -131,7 +132,7 @@ public final class JsonParser {
     }
 
     private Object nullValue() {
-        if (s.startsWith("null", i)) { i += 4; return Values.emptyObject(); } // null -> {}
+        if (s.startsWith("null", i)) { i += 4; return JsonNull.NULL; } // spec v0.8.0 (#4): preserved
         throw err("invalid literal");
     }
 

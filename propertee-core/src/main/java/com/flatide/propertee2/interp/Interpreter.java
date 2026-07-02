@@ -6,6 +6,7 @@ import com.flatide.propertee2.coop.Fiber;
 import com.flatide.propertee2.coop.Scheduler;
 import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.parser.ProperTeeParser.*;
+import com.flatide.propertee2.value.JsonNull;
 import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeFormat;
@@ -556,6 +557,7 @@ public final class Interpreter {
             case IntegerAtomContext i -> Integer.parseInt(i.INTEGER().getText());
             case StringAtomContext s -> unescape(s.STRING().getText());
             case BooleanAtomContext b -> b.K_TRUE() != null;
+            case NullAtomContext n -> JsonNull.NULL;            // spec v0.8.0 (#4): the null literal
             case ObjectAtomContext o -> evalObject(o.objectLiteral());
             case ArrayAtomContext ar -> evalArray(ar.arrayLiteral());
             case ParenAtomContext p -> eval(p.expression());
