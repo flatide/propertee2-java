@@ -55,7 +55,8 @@ class BuiltinsTest {
         assertEquals(0, call("LEN", ""));
         assertEquals(3, call("LEN", list(1, 2, 3)));
         assertEquals(1, call("LEN", obj("a", 1)));
-        assertEquals(0, call("LEN", 42));                 // other types -> 0
+        assertEquals("LEN() requires a string, array, or object argument",   // spec v0.7.0 (#7)
+                assertThrows(TeeError.class, () -> call("LEN", 42)).getMessage());
         assertEquals("HELLO", call("UPPERCASE", "hello"));
         assertEquals("hello", call("LOWERCASE", "HELLO"));
         assertEquals("hi", call("TRIM", "  hi  "));
@@ -105,7 +106,10 @@ class BuiltinsTest {
         assertEquals(list(99, 2, 3, 4, 5), call("PUSH", list(99, 2, 3), 4, 5));
         assertEquals(list(99, 2, 3, 4), call("POP", list(99, 2, 3, 4, 5)));
         assertEquals(list(1, 2, 3, 4), call("CONCAT", list(1, 2), list(3, 4)));
-        assertEquals(list(20, 30, 40), call("SLICE", list(10, 20, 30, 40, 50), 2, 4));
+        // spec v0.7.0 (#6): the 3rd arg is a COUNT (was an end bound until v0.6.0)
+        assertEquals(list(20, 30, 40, 50), call("SLICE", list(10, 20, 30, 40, 50), 2, 4));
+        assertEquals(list(20, 30, 40), call("SLICE", list(10, 20, 30, 40, 50), 2, 3));
+        assertEquals(list(40, 50), call("SLICE", list(10, 20, 30, 40, 50), 4, 99)); // count clamps at end
         assertEquals(list(30, 40, 50), call("SLICE", list(10, 20, 30, 40, 50), 3));
         // original unchanged (COW)
         List<Object> original = list(3, 1, 2);
@@ -153,8 +157,10 @@ class BuiltinsTest {
         assertEquals(Double.class, r.getClass());
         double rd = (Double) r;
         org.junit.jupiter.api.Assertions.assertTrue(rd >= 0 && rd < 1);
-        int ri = (Integer) call("RANDOM", 10);
-        org.junit.jupiter.api.Assertions.assertTrue(ri >= 0 && ri < 10);
+        int ri = (Integer) call("RANDOM", 1, 10);
+        org.junit.jupiter.api.Assertions.assertTrue(ri >= 1 && ri <= 10);
+        assertEquals("RANDOM() requires zero or two arguments",              // spec v0.7.0 (#5)
+                assertThrows(TeeError.class, () -> call("RANDOM", 10)).getMessage());
         org.junit.jupiter.api.Assertions.assertTrue((Double) call("MILTIME") > 0);
         assertEquals(10, ((String) call("DATE")).length());   // yyyy-MM-dd
         assertEquals(8, ((String) call("TIME")).length());    // HH:MM:SS

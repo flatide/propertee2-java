@@ -160,7 +160,8 @@ public final class Builtins {
             if (v instanceof String s) return s.length();
             if (v instanceof List<?> l) return l.size();
             if (v instanceof Map<?, ?> m) return m.size();
-            return 0; // LANGUAGE.md §String: 0 for other types
+            // Spec v0.7.0 (#7): non-collections are an error (was a silent 0 until v0.6.0).
+            throw new TeeError("LEN() requires a string, array, or object argument");
         });
         b.register("UPPERCASE", Kind.PURE, args -> string("UPPERCASE", arg("UPPERCASE", args, 0)).toUpperCase());
         b.register("LOWERCASE", Kind.PURE, args -> string("LOWERCASE", arg("LOWERCASE", args, 0)).toLowerCase());
@@ -245,11 +246,12 @@ public final class Builtins {
             for (Object a : args) for (Object e : array("CONCAT", a)) out.add(Values.deepCopy(e));
             return out;
         });
-        // SLICE(arr, start, [end]) — start is 1-based; end is the 0-based exclusive bound (11_arrays).
+        // SLICE(arr, start, [count]) — start is 1-based; the 3rd arg is a COUNT, unified with
+        // SUBSTRING and READ_LINES (spec v0.7.0 #6; until v0.6.0 it was an end bound instead).
         b.register("SLICE", Kind.PURE, args -> {
             List<Object> arr = array("SLICE", arg("SLICE", args, 0));
             int from = clamp((int) intArg("SLICE", args, 1) - 1, 0, arr.size());
-            int to = args.size() > 2 ? clamp((int) intArg("SLICE", args, 2), from, arr.size()) : arr.size();
+            int to = args.size() > 2 ? clamp(from + (int) intArg("SLICE", args, 2), from, arr.size()) : arr.size();
             List<Object> out = new ArrayList<>(to - from);
             for (int i = from; i < to; i++) out.add(Values.deepCopy(arr.get(i)));
             return out;
@@ -615,9 +617,12 @@ public final class Builtins {
     private static void registerTiming(Builtins b) {
         b.register("RANDOM", Kind.PURE, args -> {
             if (args.isEmpty()) return Math.random();                 // [0.0, 1.0)
-            int max = (int) intArg("RANDOM", args, 0);
-            if (args.size() == 1) return (int) (Math.random() * max); // 0 .. max-1
-            int lo = max;
+            if (args.size() == 1) {
+                // Spec v0.7.0 (#5): the single-argument form (0 .. max-1) was REMOVED — its bounds
+                // convention clashed with the inclusive two-argument form. Fails loudly by design.
+                throw new TeeError("RANDOM() requires zero or two arguments");
+            }
+            int lo = (int) intArg("RANDOM", args, 0);
             int hi = (int) intArg("RANDOM", args, 1);
             return lo + (int) (Math.random() * (hi - lo + 1));        // lo .. hi inclusive
         });

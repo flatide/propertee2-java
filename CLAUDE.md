@@ -6,11 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `propertee2-java` is a **fully-cooperative runtime** for the [ProperTee](https://github.com/flatide/ProperTee) language. Its goal is to fundamentally resolve the eager seams left by the frozen [`propertee-java`](https://github.com/flatide/propertee-java) **v1.0.0** (Java 7/8, stepper-based) using **Java 21 virtual-thread (Project Loom) coroutines (Strategy B)**. **TeeBox now consumes this runtime** — it runs on propertee2 with no application-code changes, via a v1-compatible API surface layered on the cooperative engine (see Status).
 
-> **Status: 0.2.0 — feature-complete, full conformance; consumed by TeeBox 1.4.0.** All design phases (spike → PA–PF) plus the TeeBox v1-API realignment (R1–R6) are done. The engine passes **all 84 `.tee/.expected` fixtures** (byte-for-byte, deterministic, no flakiness; **229 tests green**): JDK 25 Gradle build + ANTLR codegen, the `value/` model, the full builtin catalog (incl. host-gated ENV/file I/O, `SHELL`/`SHELL_CTX`, and `HTTP`/`HTTP_GET`/`HTTP_POST`), a recursive tree-walk interpreter (`interp/`), the **production Coop cooperative runtime** (`coop/`, `ScopedValue`) with the program as the root fiber + the `Coop.blocking` host contract, **`multi`/`thread`/`monitor`**, external-function registration, keyword/function hiding, an `Engine` embedding API, and a `propertee2` CLI.
+> **Status: 0.3.0 — feature-complete, full conformance on spec v0.7.0; TeeBox consumes the 0.2.x line until it migrates the breaking batch.** All design phases (spike → PA–PF) plus the TeeBox v1-API realignment (R1–R6) are done. The engine passes **all 90 `.tee/.expected` fixtures** (byte-for-byte, deterministic, no flakiness; **241 tests green**): JDK 25 Gradle build + ANTLR codegen, the `value/` model, the full builtin catalog (incl. host-gated ENV/file I/O, `SHELL`/`SHELL_CTX`, and `HTTP`/`HTTP_GET`/`HTTP_POST`), a recursive tree-walk interpreter (`interp/`), the **production Coop cooperative runtime** (`coop/`, `ScopedValue`) with the program as the root fiber + the `Coop.blocking` host contract, **`multi`/`thread`/`monitor`**, external-function registration, keyword/function hiding, an `Engine` embedding API, and a `propertee2` CLI.
 >
 > **TeeBox runs on this runtime unchanged.** A v1-API compatibility layer — the original `com.flatide.{task, runtime, platform, core, parser, interpreter, scheduler}` packages (the host `task` engine ported verbatim from v1; thin façades over `Engine`/Coop) — reproduces the host surface the frozen v1 exposed. So `SHELL` executes through a host-registered `TaskRunner`, the `ProperTeeInterpreter`/`Scheduler` façade streams `PRINT` live + emits main/worker thread-lifecycle events to a `SchedulerListener`, and props/globals/structured-result behave as v1. TeeBox's whole suite (incl. server integration tests) passes on v2; the only host-side change is a Java 25 toolchain. TeeBox shipped this as **1.0.0** (`flatide/TeeBox`), with the last v1-runtime release tagged `v0.12.0-propertee-v1`. It has since kept evolving **host-side only** (no runtime change) — e.g. **1.2.0** merges external `SHELL` task stdout/stderr into the client run-output endpoints (`taskLines`, default last 200 lines, `?taskLines=N`; `taskCount`/`tasks` breakdown), implemented entirely in the host `task`/server layer over the unchanged `Coop.blocking` SHELL task contract.
 >
 > Post-1.0: a standalone in-process `SimpleTaskRunner` and the `StructuredTaskScope` swap (when it leaves preview). (The `core`/`cli` module split landed in PF.) Spike writeup: `docs/spike-findings.md`; TeeBox-consumption realignment lives in the R1–R6 commits.
+>
+> **0.3.0 — spec v0.7.0 breaking batch shipped** (ProperTee issues #1/#2/#5/#6/#7; batching rationale in ProperTee `docs/design-notes.md`): strict boolean conditions, short-circuit `and`/`or`, single-arg `RANDOM` removed, `SLICE` count convention, strict `LEN`. **90 fixtures / 241 tests green, deterministic.** The canonical spec (`flatide/ProperTee` LANGUAGE.md v0.7.0) and propertee-js shipped the same batch. **TeeBox note:** upgrading past 0.2.0 changes script semantics — review scripts against the migration note in `docs/LANGUAGE.md` §Changelog before bumping the dependency.
 
 ## Locked-in core decisions (agreed in a prior session — changing them requires justification)
 
@@ -79,7 +81,7 @@ JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is regi
 ```bash
 ./gradlew build                 # compile + all tests, both modules (JDK 25, no preview flags)
 ./gradlew :propertee-core:test  # engine tests only
-./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 84 fixtures vs .expected
+./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 90 fixtures vs .expected
 ./gradlew :propertee-core:test --tests 'com.flatide.propertee2.interp.InterpreterTest'   # one test class
 ./gradlew :propertee-core:generateGrammarSource   # regenerate the ANTLR parser/visitor only
 
@@ -90,7 +92,9 @@ JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is regi
 
 > Fixtures are a **fixed baseline** copied from v1. `.expected` files are the correct answer **down to output order**, so never edit them (this is why the scheduler must be deterministic round-robin — design §6). The new engine conforms to the fixtures, not the other way around. The conformance fixture list is hardcoded in `conformance/Fixtures` (v1 convention); per-fixture semantics and host-injection caveats are in `docs/conformance-tests.md`.
 
-## Conventions (value semantics — identical to v1, never change)
+## Conventions (value semantics — pinned to the spec; change only with a spec version bump)
+
+> **Spec v0.7.0 breaking batch** (shipped in 0.3.0; ProperTee issues #1/#2/#5/#6/#7): `if`/`loop` conditions require a boolean (#1), `and`/`or` short-circuit left-to-right — right side unevaluated when the left decides (#2), single-argument `RANDOM` removed (#5), `SLICE`'s 3rd arg is a **count** like SUBSTRING/READ_LINES (#6), `LEN` on non-collections is an error (#7). Fixtures 87–92 cover the batch; 11/28/64 were updated. Everything below is otherwise identical to v1 (= spec v0.6.0).
 
 - **No null** — absence is `{}` (empty object). Missing arguments and no-return functions → `{}`.
 - Numbers: integers are `Integer`, decimals are `Double`, **division is always Double**, and `.0` is stripped on formatting.

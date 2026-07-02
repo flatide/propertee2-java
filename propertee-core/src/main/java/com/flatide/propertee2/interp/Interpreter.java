@@ -319,7 +319,7 @@ public final class Interpreter {
 
     private void execIf(IfStatementContext i) {
         requireKeyword("if", i.getStart());
-        if (Values.isTruthy(eval(i.condition))) {
+        if (condition(i.condition)) {
             execBlock(i.thenBody);
         } else if (i.elseBody != null) {
             execBlock(i.elseBody);
@@ -364,7 +364,7 @@ public final class Interpreter {
     private void conditionLoop(ConditionLoopContext c) {
         boolean infinite = c.K_INFINITE() != null;
         int count = 0;
-        while (Values.isTruthy(eval(c.expression()))) {
+        while (condition(c.expression())) {
             if (!infinite && count >= maxIterations) throw loopLimit(c);
             if (runBody(c.block())) break;
             count++;
@@ -541,8 +541,8 @@ public final class Interpreter {
             case MultiplicativeExprContext mu -> multiplicative(mu);
             case AdditiveExprContext ad -> additive(ad);
             case ComparisonExprContext c -> comparison(c);
-            case AndExprContext a -> logical("AND", "and", eval(a.expression(0)), eval(a.expression(1)), a);
-            case OrExprContext o -> logical("OR", "or", eval(o.expression(0)), eval(o.expression(1)), o);
+            case AndExprContext a -> logical("AND", a.expression(0), a.expression(1), a);
+            case OrExprContext o -> logical("OR", o.expression(0), o.expression(1), o);
             default -> throw err("unsupported expression", e);
         };
     }
@@ -643,12 +643,34 @@ public final class Interpreter {
         }
     }
 
-    private Object logical(String name, String word, Object l, Object r, ParserRuleContext ctx) {
-        if (!(l instanceof Boolean lb) || !(r instanceof Boolean rb)) {
-            throw err("Logical " + name + " requires boolean operands. Got "
-                    + Values.typeName(l) + " " + word + " " + Values.typeName(r), ctx);
-        }
-        return name.equals("AND") ? (lb && rb) : (lb || rb);
+    /**
+     * Spec v0.7.0 (#2): {@code and}/{@code or} SHORT-CIRCUIT left to right. Each operand must be
+     * boolean, but the right operand is evaluated (and therefore type-checked) only when the left
+     * side does not already determine the result — {@code false and X} / {@code true or X} skip X
+     * entirely, side effects included. (Until spec v0.6.0 both sides were always evaluated.)
+     */
+    private Object logical(String name, ExpressionContext left, ExpressionContext right, ParserRuleContext ctx) {
+        boolean lb = logicalOperand(name, left, ctx);
+        if (name.equals("AND") ? !lb : lb) return lb;
+        return logicalOperand(name, right, ctx);
+    }
+
+    private boolean logicalOperand(String name, ExpressionContext expr, ParserRuleContext ctx) {
+        Object v = eval(expr);
+        if (v instanceof Boolean b) return b;
+        throw err("Logical " + name + " requires boolean operands. Got " + Values.typeName(v), ctx);
+    }
+
+    /**
+     * Spec v0.7.0 (#1): an {@code if}/{@code loop} condition must be a boolean — any other type is
+     * a runtime error, matching the strictness of the logical operators. (Until spec v0.6.0
+     * non-booleans were silently falsy; {@link Values#isTruthy} keeps that rule for the v1-compat
+     * {@code TypeChecker} façade.)
+     */
+    private boolean condition(ExpressionContext expr) {
+        Object v = eval(expr);
+        if (v instanceof Boolean b) return b;
+        throw err("Condition requires a boolean value. Got " + Values.typeName(v), expr);
     }
 
     private Object notOp(Object v, ParserRuleContext ctx) {
