@@ -11,6 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **TeeBox runs on this runtime unchanged.** A v1-API compatibility layer — the original `com.flatide.{task, runtime, platform, core, parser, interpreter, scheduler}` packages (the host `task` engine ported verbatim from v1; thin façades over `Engine`/Coop) — reproduces the host surface the frozen v1 exposed. So `SHELL` executes through a host-registered `TaskRunner`, the `ProperTeeInterpreter`/`Scheduler` façade streams `PRINT` live + emits main/worker thread-lifecycle events to a `SchedulerListener`, and props/globals/structured-result behave as v1. TeeBox's whole suite (incl. server integration tests) passes on v2; the only host-side change is a Java 25 toolchain. TeeBox shipped this as **1.0.0** (`flatide/TeeBox`), with the last v1-runtime release tagged `v0.12.0-propertee-v1`. It has since kept evolving **host-side only** (no runtime change) — e.g. **1.2.0** merges external `SHELL` task stdout/stderr into the client run-output endpoints (`taskLines`, default last 200 lines, `?taskLines=N`; `taskCount`/`tasks` breakdown), implemented entirely in the host `task`/server layer over the unchanged `Coop.blocking` SHELL task contract.
 >
 > Post-1.0: a standalone in-process `SimpleTaskRunner` and the `StructuredTaskScope` swap (when it leaves preview). (The `core`/`cli` module split landed in PF.) Spike writeup: `docs/spike-findings.md`; TeeBox-consumption realignment lives in the R1–R6 commits.
+>
+> **In progress — spec v0.7.0 breaking batch** on branch `spec-v0.7.0` (ProperTee issues #1/#2/#5/#6/#7; batching rationale in ProperTee `docs/design-notes.md`). Engine + conformance fixtures are done (90 fixtures, 241 tests green, deterministic over repeated runs). Remaining: canonical spec update (ProperTee repo `LANGUAGE.md` → v0.7.0 + changelog + migration note), this repo's `docs/LANGUAGE.md` runtime copy, propertee-js, and a 0.3.0 release. **TeeBox note:** merging this to master changes script semantics — coordinate the TeeBox upgrade with the migration note.
 
 ## Locked-in core decisions (agreed in a prior session — changing them requires justification)
 
@@ -79,7 +81,7 @@ JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is regi
 ```bash
 ./gradlew build                 # compile + all tests, both modules (JDK 25, no preview flags)
 ./gradlew :propertee-core:test  # engine tests only
-./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 84 fixtures vs .expected
+./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 90 fixtures vs .expected
 ./gradlew :propertee-core:test --tests 'com.flatide.propertee2.interp.InterpreterTest'   # one test class
 ./gradlew :propertee-core:generateGrammarSource   # regenerate the ANTLR parser/visitor only
 
@@ -90,7 +92,9 @@ JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is regi
 
 > Fixtures are a **fixed baseline** copied from v1. `.expected` files are the correct answer **down to output order**, so never edit them (this is why the scheduler must be deterministic round-robin — design §6). The new engine conforms to the fixtures, not the other way around. The conformance fixture list is hardcoded in `conformance/Fixtures` (v1 convention); per-fixture semantics and host-injection caveats are in `docs/conformance-tests.md`.
 
-## Conventions (value semantics — identical to v1, never change)
+## Conventions (value semantics — pinned to the spec; change only with a spec version bump)
+
+> **Spec v0.7.0 breaking batch** (branch `spec-v0.7.0`; ProperTee issues #1/#2/#5/#6/#7): `if`/`loop` conditions require a boolean (#1), `and`/`or` short-circuit left-to-right — right side unevaluated when the left decides (#2), single-argument `RANDOM` removed (#5), `SLICE`'s 3rd arg is a **count** like SUBSTRING/READ_LINES (#6), `LEN` on non-collections is an error (#7). Fixtures 87–92 cover the batch; 11/28/64 were updated. Everything below is otherwise identical to v1 (= spec v0.6.0).
 
 - **No null** — absence is `{}` (empty object). Missing arguments and no-return functions → `{}`.
 - Numbers: integers are `Integer`, decimals are `Double`, **division is always Double**, and `.0` is stripped on formatting.

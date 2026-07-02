@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처: `propertee-java`(v1.0.0) `ScriptTest`의 `testNames` 배열 + `src/test/resources/tests/*.tee`/`*.expected`(84쌍, 이 repo로 복사됨).
+출처: `propertee-java`(v1.0.0) `ScriptTest`의 `testNames` 배열 + `src/test/resources/tests/*.tee`/`*.expected`(84쌍, 이 repo로 복사됨). **spec v0.7.0 breaking 배치**(ProperTee 이슈 #1/#2/#5/#6/#7)에서 신규 `87`–`92` 6쌍이 추가되고 기존 3쌍이 갱신되어 현재 **90쌍**이다 — 아래 [spec v0.7.0 배치](#spec-v070-breaking-배치-87-92) 참고. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**스펙 v0.7.0 동치**"가 기준이다(의도적 divergence 5건).
 
 ## 동치 정책
 
@@ -24,7 +24,22 @@
 
 > `31_*`는 v1에서 **skip**(번호 결번). 새 repo도 동일하게 비움.
 
-## 카테고리별 목록 (84 fixtures)
+## spec v0.7.0 breaking 배치 (87-92)
+
+ProperTee 이슈 #1/#2/#5/#6/#7의 breaking 변경을 검증하는 신규 fixture와, 구의미론에 의존해 **갱신된** 기존 fixture:
+
+| fixture | 검증 내용 |
+|---|---|
+| `87_short_circuit` | `and`/`or` 좌→우 short-circuit: 우변 미평가(부수효과 스킵), HAS_KEY 가드 관용구 (#2) |
+| `88_error_condition_not_boolean` | 비불리언 `if` 조건 → `Condition requires a boolean value` (#1) |
+| `89_error_loop_condition_not_boolean` | 비불리언 `loop` 조건 → 동일 에러 (#1) |
+| `90_slice_count` | `SLICE(arr, start, count)` — 제3인자가 count(클램프 포함), SUBSTRING과 동형 (#6) |
+| `91_error_random_single_arg` | `RANDOM(max)` 단일 인자 폐지 → `RANDOM() requires zero or two arguments` (#5) |
+| `92_error_len_non_collection` | 비컬렉션 `LEN` → `LEN() requires a string, array, or object argument` (#7) |
+
+갱신된 기존 fixture: `11_arrays`(SLICE count 의미론 — expected 1줄 변경), `28_error_not_boolean`(short-circuit로 에러 메시지가 좌변 타입만 언급), `64_time_functions`(`RANDOM(10)` → `RANDOM(0, 9)`, 출력 불변).
+
+## 카테고리별 목록 (v1 유래 84 fixtures)
 
 ### 코어 언어 (순서 안정, 그대로 일치 기대)
 `01_variables_types` `02_arithmetic` `03_comparisons_logic` `04_if_else`

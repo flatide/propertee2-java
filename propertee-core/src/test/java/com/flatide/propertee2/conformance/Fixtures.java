@@ -7,8 +7,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * The canonical conformance fixture set (84 .tee/.expected pairs under
- * src/test/resources/tests, copied from v1). The list is HARDCODED — not
+ * The canonical conformance fixture set (90 .tee/.expected pairs under
+ * src/test/resources/tests — the 84 copied from v1, plus 87–92 added by the
+ * spec v0.7.0 breaking batch). The list is HARDCODED — not
  * directory-discovered — matching the v1 ScriptTest convention so a missing or
  * stray fixture shows up as a test failure (conformance-tests.md §하네스 TODO).
  *
@@ -41,7 +42,10 @@ public final class Fixtures {
             "70_debug_statement", "71_async_external", "72_shell", "73_keyword_ignore",
             "74_function_ignore", "75_range_step_eval_once", "76_range_tiny_float_bound", "77_range_int_overflow",
             "78_task_basic", "80_task_unique_ids", "81_string_matching", "82_map_extensions",
-            "83_type_env", "84_json", "85_file_io", "86_props_object");
+            "83_type_env", "84_json", "85_file_io", "86_props_object",
+            // spec v0.7.0 breaking batch (ProperTee issues #1/#2/#5/#6/#7)
+            "87_short_circuit", "88_error_condition_not_boolean", "89_error_loop_condition_not_boolean",
+            "90_slice_count", "91_error_random_single_arg", "92_error_len_non_collection");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {
