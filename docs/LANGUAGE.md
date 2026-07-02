@@ -1,4 +1,4 @@
-# ProperTee Language Specification v0.8.0
+# ProperTee Language Specification v0.9.0
 
 ## Overview
 
@@ -309,7 +309,7 @@ data.users.2.name    // "Bob"
 
 ## Control Flow
 
-### If / Else
+### If / Elseif / Else
 
 ```
 if condition then
@@ -321,11 +321,23 @@ if condition then
 else
     // statements
 end
+
+if condition then
+    // statements
+elseif condition then
+    // statements
+elseif condition then
+    // statements
+else
+    // statements
+end
 ```
+
+Conditions are checked top to bottom; the first `true` arm runs and everything after it — later conditions included — is skipped (an `elseif` condition is only evaluated, and only type-checked, when reached). The optional `else` arm runs when no condition matched. Each evaluated condition must be a boolean (see Truthiness). One `end` closes the whole chain — `elseif` was added in spec v0.9.0; previously multi-way branches had to nest `else if ... end` with stacked `end`s (that form still works).
 
 ### Loops
 
-**Condition loop** — repeats while condition is truthy:
+**Condition loop** — repeats while the condition is `true` (a non-boolean condition is a runtime error, as in `if`):
 
 ```
 i = 0
@@ -1010,7 +1022,7 @@ if x == 10 then    // Runtime error: 'if' is not available in this environment
 end
 ```
 
-Keywords that can be hidden: `if`, `loop`, `function`, `multi`, `thread`, `debug`.
+Keywords that can be hidden: `if`, `loop`, `function`, `multi`, `thread`, `debug`. Hiding `if` covers the whole `if`/`elseif`/`else` statement.
 
 **Ignored functions** produce a runtime error when called:
 
@@ -1103,6 +1115,12 @@ Common error conditions:
 ## Changelog
 
 > Entries below `spec v0.7.0` use the **v1-runtime version numbers** this copy inherited (v1.0.0, v0.9.0, ... are propertee-java releases, not spec versions). New entries follow the spec versioning of the canonical `flatide/ProperTee` LANGUAGE.md.
+
+### spec v0.9.0 — `elseif`
+
+Lua-style `elseif` ([#3](https://github.com/flatide/ProperTee/issues/3)): multi-way branches no longer nest `else if ... end` with stacked `end`s — one chain, one `end`. Conditions are checked top to bottom; the first `true` arm wins and later conditions are not evaluated (and so not type-checked). The strict-boolean rule (spec v0.7.0) applies to each evaluated condition, and hiding the `if` keyword covers the whole chain.
+
+**Migration note:** `elseif` is now a reserved word — a script using it as a variable or function name must rename it. Existing nested `else if ... end` chains keep working unchanged.
 
 ### spec v0.8.0 — first-class `null`
 

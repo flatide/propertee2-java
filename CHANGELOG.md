@@ -3,7 +3,23 @@
 All notable changes to `propertee2-java`. Value/type/scope/error semantics are pinned to the
 ProperTee language spec (`flatide/ProperTee` LANGUAGE.md) — identical to the frozen
 `propertee-java` v1.0.0 up to spec v0.6.0, with the deliberate spec v0.7.0 breaking batch from 0.3.0
-and first-class `null` (spec v0.8.0) from 0.4.0.
+first-class `null` (spec v0.8.0) from 0.4.0, and `elseif` (spec v0.9.0) from 0.5.0.
+
+## 0.5.0
+
+Implements **spec v0.9.0 — `elseif`** (ProperTee issue
+[#3](https://github.com/flatide/ProperTee/issues/3)). Nearly non-breaking — `elseif` becomes a
+reserved word (see the migration note in `docs/LANGUAGE.md` §Changelog); existing nested
+`else if ... end` chains keep working. No host-API change.
+
+- **Lua-style `elseif`**: one chain, one `end`. Conditions are checked top to bottom; the first
+  `true` arm wins and later conditions are not evaluated (and so not type-checked). The strict
+  boolean rule (spec v0.7.0) applies to each evaluated condition; hiding the `if` keyword covers
+  the whole chain.
+- Grammar: `K_ELSEIF` token + `(K_ELSEIF elseifConds+=expression K_THEN elseifBodies+=block)*`
+  (synced with the canonical `flatide/ProperTee` grammar).
+- Conformance: 2 new fixtures (97–98) → **96 fixtures, 253 tests green, deterministic**.
+  `docs/LANGUAGE.md` synced to spec v0.9.0.
 
 ## 0.4.0
 
