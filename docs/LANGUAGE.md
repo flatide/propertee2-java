@@ -458,9 +458,11 @@ PRINT(x)               // "global" (unchanged)
 
 Loop variables (`item`, `key`, `val`) follow the same scoping rules — local if inside a function, global otherwise. They are always accessible without `::`.
 
-## Multi Blocks (Parallel Execution)
+## Multi Blocks (Cooperative Concurrency)
 
 Any function can be run concurrently inside a `multi` block using the `thread` keyword. Results are collected into a single object.
+
+**Concurrency, not parallelism.** ProperTee threads are cooperatively scheduled: only one thread executes at any moment, interleaving at statement boundaries in a deterministic round-robin order. A `multi` block therefore does not make CPU-bound work faster. Its benefit is overlapping *waits* — while one thread is blocked in `SLEEP`, `SHELL`, `HTTP*`, an async external function, or host I/O, the other threads keep running. What you get in exchange is reproducibility: the same script produces the same interleaving and the same output order on every run, with no data races and no locks.
 
 ```
 function worker(name) do

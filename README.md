@@ -16,11 +16,11 @@ JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.ja
 ## 실행 (CLI)
 
 ```bash
-./gradlew dist                                  # → dist/propertee2-0.1.0.jar (self-contained fat jar)
-java -jar dist/propertee2-0.1.0.jar script.tee
+./gradlew dist                                  # → dist/propertee2-0.2.0.jar (self-contained fat jar)
+java -jar dist/propertee2-0.2.0.jar script.tee
 
 # 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
-java -jar dist/propertee2-0.1.0.jar -p '{"width":100,"height":200}' script.tee
+java -jar dist/propertee2-0.2.0.jar -p '{"width":100,"height":200}' script.tee
 ```
 
 > 런타임에 **JDK 25**가 필요하다. 개발 중에는 `./gradlew :propertee-cli:run --args="script.tee"`도 가능.

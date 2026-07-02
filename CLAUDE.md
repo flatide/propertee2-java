@@ -29,8 +29,12 @@ Two Gradle modules (design §10), matching v1's `propertee-core` / `propertee-cl
 ```
 settings.gradle / build.gradle            # root: subproject config (JDK 25 toolchain) + `dist` task
 propertee-core/                           # the engine (TeeBox depends on this; no CLI)
-  grammar/ProperTee.g4                    #   grammar (identical to v1, unchanged). ANTLR4.
+  grammar/ProperTee.g4                    #   grammar (identical to v1, unchanged). ANTLR4 visitor is
+                                          #   generated into com.flatide.parser (the v1 package — R1)
   src/main/java/com/flatide/propertee2/   #   value/ coop/ host/ builtin/ interp/ + Parsing.java
+  src/main/java/com/flatide/{core,interpreter,platform,runtime,scheduler,task}/
+                                          #   v1-API compat layer (TeeBox host surface): ScriptParser,
+                                          #   ProperTeeInterpreter/Scheduler façades, Task engine
   src/test/java + src/test/resources/tests/  #   unit + conformance tests; 84 .tee/.expected fixtures
 propertee-cli/                            # the `propertee2` command (application plugin, fat jar)
   src/main/java/com/flatide/propertee2/cli/Main.java
@@ -57,7 +61,7 @@ Validated in `spike/` (run `spike/run.sh`; full writeup in `docs/spike-findings.
 
 > The spike is throwaway (no ANTLR / real builtins / value formatting) — it validates *scheduling* only. It uses `ThreadLocal<Fiber>` for self; production swaps to `ScopedValue` (§5).
 
-## Main implementation — PA–PE done (full conformance), PF next
+## Main implementation — all phases done (PA–PF, then R1–R6)
 
 - **PA done.** ✅ JDK 25 Gradle build (ANTLR visitor codegen, no preview flags), ✅ value model (`value/` — `TeeFormat` display+json, `Values`, `Result`, `TeeError`, `JsonParser`), ✅ parser facade + all-84-fixtures parse smoke test, ✅ full PURE builtin catalog (`builtin/Builtins` — math/type/string/string-matching/array+sort/object/JSON/timing) with return-type & error-message fidelity. HOST_GATED (`ENV`, file I/O) and BLOCKING (`SHELL`, `HTTP*`) builtins are deliberately deferred to PC/PD where they get the `Coop.blocking` contract.
 - **PB done (sequential language).** ✅ Recursive tree-walk in `interp/` (`Engine`, `Interpreter`, `Ranges`, `Signals`, `UserFunction`) — instanceof-dispatch over the parse tree (no stepper/replay). Covers scopes (global/local/`::`), arithmetic+coercion, strict comparison/logic, 1-based access & dynamic keys, literals, ranges (BigDecimal float precision), control flow, functions, PRINT, pure builtins, escape processing, deepCopy/COW, and v1-exact errors (line:col). `ConformanceTest` runs the **46 sequential fixtures** byte-for-byte (the 38 multi/thread/SLEEP/monitor + host fixtures are the `PENDING` set, deferred to PC/PD).
@@ -66,20 +70,22 @@ Validated in `spike/` (run `spike/run.sh`; full writeup in `docs/spike-findings.
 - **Host tail done.** ✅ `SHELL`/`SHELL_CTX` (core-only "requires a host-provided TaskRunner" — `72`/`78`/`80`), `HTTP`/`HTTP_GET`/`HTTP_POST` via host `PlatformProvider.httpRequest`, external functions (`Engine.registerExternal`/`registerExternalAsync`, return→`Result.ok` / throw→`Result.error`, async via `Coop.blocking` — `41`/`71`), and keyword/function hiding (`Engine.setHiddenKeywords`/`setIgnoredFunctions` — `73`/`74`).
 - **PE done — full conformance.** ✅ **All 84 `.tee/.expected` fixtures pass** byte-for-byte (`ConformanceTest`), deterministic, no flakiness over repeated runs; ~218 tests green. The seam-timing & async-replay-removal properties the design calls for were validated in the spike (`docs/spike-findings.md`).
 - **PF done — 0.1.0.** ✅ Two-module Gradle build (`propertee-core` + `propertee-cli`) matching v1's layout; `propertee2` CLI (`cli/Main` — `-p` props, `--version`/`--help`); `dist` task → `dist/propertee2-0.1.0.jar` (fat jar, `java -jar`); version `0.1.0`; `README.md` + `CHANGELOG.md`. A standalone in-process `SimpleTaskRunner` and the `StructuredTaskScope` swap (when it leaves preview) are post-1.0.
+- **R1–R6 done — TeeBox realignment (0.2.0).** ✅ Parser codegen moved to `com.flatide.parser` (the v1 package — R1); the v1 `com.flatide.task` engine ported verbatim, with `SHELL` executing through a host-registered `TaskRunner` (R2); v1-name façades — `core.ScriptParser`, `platform.PlatformProvider`/`DefaultPlatformProvider`, `runtime.TypeChecker` (R3), `interpreter.BuiltinFunctions` + `interpreter.ProperTeeInterpreter` + `scheduler.Scheduler`/`SchedulerListener` (R4+R5); SHELL runId tagging + main/worker thread-lifecycle listener events (R6). Then: host-registerable BLOCKING builtins (off-baton, Result-wrapped) and the restored v1 `HTTP`/`HTTP_GET`/`HTTP_POST` builtins → released as **0.2.0**.
 
 ## Build/test
 
-JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is registered machine-locally in `~/.gradle/gradle.properties` (`org.gradle.java.installations.paths`); on a fresh machine add a JDK 25 home there. Two modules: engine in `propertee-core` (grammar at `propertee-core/grammar/ProperTee.g4`; antlr plugin generates the visitor into `com.flatide.propertee2.parser`), CLI in `propertee-cli`.
+JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is registered machine-locally in `~/.gradle/gradle.properties` (`org.gradle.java.installations.paths`); on a fresh machine add a JDK 25 home there. Two modules: engine in `propertee-core` (grammar at `propertee-core/grammar/ProperTee.g4`; antlr plugin generates the visitor into `com.flatide.parser` — the v1 package name, since R1), CLI in `propertee-cli`.
 
 ```bash
 ./gradlew build                 # compile + all tests, both modules (JDK 25, no preview flags)
 ./gradlew :propertee-core:test  # engine tests only
 ./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 84 fixtures vs .expected
+./gradlew :propertee-core:test --tests 'com.flatide.propertee2.interp.InterpreterTest'   # one test class
 ./gradlew :propertee-core:generateGrammarSource   # regenerate the ANTLR parser/visitor only
 
 # CLI: dev run, or build the fat jar into dist/ and run it (JDK 25 at runtime).
 ./gradlew :propertee-cli:run --args="path/to/script.tee"
-./gradlew dist && java -jar dist/propertee2-0.1.0.jar -p '{"width":100}' script.tee
+./gradlew dist && java -jar dist/propertee2-0.2.0.jar -p '{"width":100}' script.tee
 ```
 
 > Fixtures are a **fixed baseline** copied from v1. `.expected` files are the correct answer **down to output order**, so never edit them (this is why the scheduler must be deterministic round-robin — design §6). The new engine conforms to the fixtures, not the other way around. The conformance fixture list is hardcoded in `conformance/Fixtures` (v1 convention); per-fixture semantics and host-injection caveats are in `docs/conformance-tests.md`.

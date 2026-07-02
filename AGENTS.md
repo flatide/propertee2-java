@@ -2,34 +2,25 @@
 
 ## Project Structure & Module Organization
 
-This repository is a pre-engine scaffold for the Java 25 ProperTee runtime. Core implementation code has not been created yet. Current assets are:
+Two Gradle modules on a JDK 25 toolchain (see `CLAUDE.md` for the full map and status):
 
-- `grammar/ProperTee.g4`: ANTLR4 grammar copied from v1; treat as compatibility-critical.
+- `propertee-core/`: the engine — ANTLR grammar, `value/` model, `coop/` cooperative runtime, `interp/` recursive interpreter, `builtin/` catalog, plus the v1-API compat layer (`com.flatide.{core,interpreter,platform,runtime,scheduler,task}`) that TeeBox consumes.
+- `propertee-cli/`: the `propertee2` command (fat jar via `./gradlew dist`).
+- `propertee-core/grammar/ProperTee.g4`: ANTLR4 grammar copied from v1; treat as compatibility-critical. The visitor is generated into `com.flatide.parser` (the v1 package).
 - `docs/`: canonical design and semantic contracts. Read `java25-vthread-runtime-design-ko.md`, `value-model-and-builtins.md`, and `conformance-tests.md` before runtime work.
-- `src/test/resources/tests/`: 84 `.tee` inputs paired with 84 `.expected` outputs for v1 semantic conformance.
-- `spike/`: throwaway Java cooperative-runtime prototype proving the scheduling model.
+- `propertee-core/src/test/resources/tests/`: 84 `.tee` inputs paired with 84 `.expected` outputs for v1 semantic conformance.
+- `spike/`: throwaway cooperative-runtime prototype that proved the scheduling model (historical; `spike/run.sh`).
 
 ## Build, Test, and Development Commands
 
-No Gradle skeleton or main test runner exists yet. Use the commands that are valid for the current scaffold:
-
 ```bash
-spike/run.sh
+./gradlew build                 # compile + all tests, both modules (no preview flags)
+./gradlew :propertee-core:test  # engine tests only
+./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 84 fixtures
+./gradlew dist                  # -> dist/propertee2-<version>.jar (run with java -jar, JDK 25)
 ```
 
-Compiles and runs the cooperative-runtime spike without preview flags.
-
-```bash
-spike/run.sh sts
-```
-
-Checks whether `StructuredTaskScope` still requires preview flags on the active JDK.
-
-```bash
-cd src/test/resources/tests && for f in *.tee; do [ -f "${f%.tee}.expected" ] || echo "MISSING: ${f%.tee}.expected"; done
-```
-
-Verifies fixture-pair integrity.
+The toolchain JDK is registered machine-locally in `~/.gradle/gradle.properties` (`org.gradle.java.installations.paths`).
 
 ## Coding Style & Naming Conventions
 
@@ -37,11 +28,11 @@ Target Java 25 stable APIs only: virtual threads and `ScopedValue` are allowed; 
 
 ## Testing Guidelines
 
-Conformance fixtures are the source of truth. Do not edit `.expected` files to fit new behavior; change runtime behavior to match them byte-for-byte, including output order and error strings. Name new fixtures with the existing numeric prefix pattern, for example `87_feature_name.tee` and `87_feature_name.expected`.
+Conformance fixtures are the source of truth. Do not edit `.expected` files to fit new behavior; change runtime behavior to match them byte-for-byte, including output order and error strings. Name new fixtures with the existing numeric prefix pattern, for example `87_feature_name.tee` and `87_feature_name.expected`, and register them in `conformance/Fixtures`.
 
 ## Commit & Pull Request Guidelines
 
-Existing history uses short, descriptive subjects such as `Add CLAUDE.md: project context + confirmed decisions for fresh sessions`. Prefer imperative, focused commit subjects and mention compatibility or fixture impact in the body when relevant. PRs should describe the runtime phase affected, list commands run, and call out any semantic-contract changes. Link related issues or design sections when applicable.
+Existing history uses short, descriptive subjects such as `Restore v1 HTTP builtins (HTTP_GET/HTTP_POST/HTTP) in the propertee2 catalog`. Prefer imperative, focused commit subjects and mention compatibility or fixture impact in the body when relevant. PRs should describe the runtime phase affected, list commands run, and call out any semantic-contract changes. Link related issues or design sections when applicable.
 
 ## Agent-Specific Instructions
 
