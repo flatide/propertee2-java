@@ -1,7 +1,27 @@
 # Changelog
 
-All notable changes to `propertee2-java`. Value/type/scope/error semantics track the frozen
-`propertee-java` v1.0.0 exactly; this runtime changes only scheduling (cooperative suspension).
+All notable changes to `propertee2-java`. Value/type/scope/error semantics are pinned to the
+ProperTee language spec (`flatide/ProperTee` LANGUAGE.md) — identical to the frozen
+`propertee-java` v1.0.0 up to spec v0.6.0, with the deliberate spec v0.7.0 breaking batch from 0.3.0.
+
+## 0.3.0
+
+Implements the **spec v0.7.0 breaking-change batch** (ProperTee issues
+[#1](https://github.com/flatide/ProperTee/issues/1)/[#2](https://github.com/flatide/ProperTee/issues/2)/[#5](https://github.com/flatide/ProperTee/issues/5)/[#6](https://github.com/flatide/ProperTee/issues/6)/[#7](https://github.com/flatide/ProperTee/issues/7)).
+**Breaking for scripts** — see the migration note in `docs/LANGUAGE.md` §Changelog. Hosts (TeeBox)
+should review scripts before upgrading; no host-API change.
+
+- **Strict conditions** (#1): a non-boolean `if`/`loop` condition raises
+  `Condition requires a boolean value. Got <type>` instead of being silently falsy.
+- **Short-circuit `and`/`or`** (#2): left to right; the right operand is not evaluated (side effects
+  included) when the left side decides. Operand type errors report only the evaluated operand.
+- **`RANDOM(max)` removed** (#5): single-argument calls raise `RANDOM() requires zero or two
+  arguments`; use `RANDOM(0, max - 1)` for the old meaning.
+- **`SLICE(arr, start, count)`** (#6): the third argument is a count (was a 1-based inclusive end in
+  practice), unified with `SUBSTRING`/`READ_LINES`. Migrate `SLICE(a, s, e)` → `SLICE(a, s, e - s + 1)`.
+- **Strict `LEN`** (#7): non-collections raise `LEN() requires a string, array, or object argument`.
+- Conformance: 6 new fixtures (87–92), 3 updated (11/28/64) → **90 fixtures, 241 tests green,
+  deterministic**. `docs/LANGUAGE.md` synced to spec v0.7.0 (header now follows spec versioning).
 
 ## 0.2.0
 
