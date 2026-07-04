@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `propertee2-java` is a **fully-cooperative runtime** for the [ProperTee](https://github.com/flatide/ProperTee) language. Its goal is to fundamentally resolve the eager seams left by [`propertee-java`](https://github.com/flatide/propertee-java) **v1** (Java 7/8, stepper-based) using **Java 21 virtual-thread (Project Loom) coroutines (Strategy B)**. **TeeBox now consumes this runtime** — it runs on propertee2 with no application-code changes, via a v1-compatible API surface layered on the cooperative engine (see Status).
 
-> **Status: 0.5.0 — feature-complete, full conformance on spec v0.9.0; TeeBox consumes the 0.2.x line until it migrates the breaking batches.** All design phases (spike → PA–PF) plus the TeeBox v1-API realignment (R1–R6) are done. The engine passes **all 96 `.tee/.expected` fixtures** (byte-for-byte, deterministic, no flakiness; **253 tests green**): JDK 25 Gradle build + ANTLR codegen, the `value/` model, the full builtin catalog (incl. host-gated ENV/file I/O, `SHELL`/`SHELL_CTX`, and `HTTP`/`HTTP_GET`/`HTTP_POST`), a recursive tree-walk interpreter (`interp/`), the **production Coop cooperative runtime** (`coop/`, `ScopedValue`) with the program as the root fiber + the `Coop.blocking` host contract, **`multi`/`thread`/`monitor`**, external-function registration, keyword/function hiding, an `Engine` embedding API, and a `propertee2` CLI.
+> **Status: 0.6.0 — feature-complete, full conformance on spec v0.10.0; TeeBox consumes the 0.2.x line until it migrates the breaking batches.** All design phases (spike → PA–PF) plus the TeeBox v1-API realignment (R1–R6) are done. The engine passes **all 101 `.tee/.expected` fixtures** (byte-for-byte, deterministic, no flakiness; **263 tests green**): JDK 25 Gradle build + ANTLR codegen, the `value/` model, the full builtin catalog (incl. host-gated ENV/file I/O, `SHELL`/`SHELL_CTX`, and `HTTP`/`HTTP_GET`/`HTTP_POST`), a recursive tree-walk interpreter (`interp/`), the **production Coop cooperative runtime** (`coop/`, `ScopedValue`) with the program as the root fiber + the `Coop.blocking` host contract, **`multi`/`thread`/`monitor`**, external-function registration, keyword/function hiding, an `Engine` embedding API, and a `propertee2` CLI.
 >
 > **TeeBox runs on this runtime unchanged.** A v1-API compatibility layer — the original `com.flatide.{task, runtime, platform, core, parser, interpreter, scheduler}` packages (the host `task` engine ported verbatim from v1; thin façades over `Engine`/Coop) — reproduces the host surface the frozen v1 exposed. So `SHELL` executes through a host-registered `TaskRunner`, the `ProperTeeInterpreter`/`Scheduler` façade streams `PRINT` live + emits main/worker thread-lifecycle events to a `SchedulerListener`, and props/globals/structured-result behave as v1. TeeBox's whole suite (incl. server integration tests) passes on v2; the only host-side change is a Java 25 toolchain. TeeBox shipped this as **1.0.0** (`flatide/TeeBox`), with the last v1-runtime release tagged `v0.12.0-propertee-v1`. It has since kept evolving **host-side only** (no runtime change) — e.g. **1.2.0** merges external `SHELL` task stdout/stderr into the client run-output endpoints (`taskLines`, default last 200 lines, `?taskLines=N`; `taskCount`/`tasks` breakdown), implemented entirely in the host `task`/server layer over the unchanged `Coop.blocking` SHELL task contract.
 >
@@ -17,10 +17,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **0.4.0 — spec v0.8.0 first-class `null` shipped** (ProperTee issue #4): `null` is the seventh value type under a "**no implicit null**" principle — the language never produces it (missing args / bare `return` stay `{}`); it enters only via the `null` literal or data (`JSON_PARSE`, host values), making JSON round-trips lossless. Represented by the immutable `value/JsonNull.NULL` singleton; misuse (conditions/logic/arith/member access) fails loudly via the v0.7.0 strictness. Breaking: `null` reserved + `JSON_PARSE` stops normalizing `null`→`{}`.
 >
 > **0.5.0 — spec v0.9.0 `elseif` shipped** (ProperTee issue #3): Lua-style `elseif` — one chain, one `end`; first true arm wins, later conditions unevaluated (so untype-checked); strict-boolean per evaluated condition; hiding `if` covers the chain. Nearly non-breaking: `elseif` becomes reserved. **96 fixtures / 253 tests green, deterministic.**
+>
+> **0.6.0 — spec v0.10.0 Result escalation shipped** (no tracker issue — analyzed/adopted via ProperTee `docs/design-draft-result-handling.md`): `FAIL`/`UNWRAP`/`OK`/`ERR`/`IS_RESULT` built-ins + the **genuine-Result origin brand** (`value/TeeResult`, a `LinkedHashMap` subclass the `Result` factory returns; `Values.deepCopy` preserves it; invisible to TYPE_OF/display/JSON — only `UNWRAP`/`IS_RESULT` observe it). `FAIL`/`UNWRAP` are dispatched at the interpreter level (like PRINT/SLEEP) for line:col errors; catalog builtins stay positionless. Non-breaking. **101 fixtures / 263 tests green, deterministic.**
 
 ## Locked-in core decisions (agreed in a prior session — changing them requires justification)
 
-1. **Two diverging lines** (revised 2026-07 by user decision). propertee-java (Java 7/8) serves the legacy expression-evaluator server and now receives **language-spec syncs** (semantics only — 1.1.0 implements spec v0.7.0–v0.9.0, same 96 fixtures byte-for-byte) plus security/bugfixes; its stepper architecture and host API stay untouched, and the `v1.0.0` tag remains the pre-sync baseline. All runtime features and full cooperativization happen in this repo (the modern runtime). Runtime architectures are **not synchronized**; language semantics are.
+1. **Two diverging lines** (revised 2026-07 by user decision). propertee-java (Java 7/8) serves the legacy expression-evaluator server and now receives **language-spec syncs** (semantics only — the 1.x line tracks the spec (1.2.0 = v0.10.0), same fixtures byte-for-byte) plus security/bugfixes; its stepper architecture and host API stay untouched, and the `v1.0.0` tag remains the pre-sync baseline. All runtime features and full cooperativization happen in this repo (the modern runtime). Runtime architectures are **not synchronized**; language semantics are.
 2. **Baseline = Java 25 LTS, stable APIs only.** Uses virtual threads (final) + `ScopedValue` (JEP 506, final in 25). **`StructuredTaskScope` is still preview in 25 (JEP 505, 5th preview), so avoid it** — `multi` is hand-rolled with `newVirtualThreadPerTaskExecutor` + direct fork/join (encapsulated so it can be swapped locally once STS is finalized). → **zero preview dependencies.** (Before starting, empirically verify on a real JDK 25 whether STS is still preview by compiling.)
 3. **Execution model = single-baton vthread coroutine.** One logical thread = one vthread, with a baton (semaphore / park-unpark) ensuring **only one runs at a time** → preserves the existing purity, lock-free property, and determinism. The call stack itself is the continuation.
 4. **⚠️ Invariant — "no blocking while holding the baton."** Blocking while holding the baton halts the entire cooperative scheduler (a bigger risk than pinning). **Every potential blocking point (SLEEP / host I/O / external functions / spawn join) must honor the `Coop.*` primitive contract of "release baton → block → re-acquire."** Enforce this contract through the host-external registration API.
@@ -41,7 +43,7 @@ propertee-core/                           # the engine (TeeBox depends on this; 
   src/main/java/com/flatide/{core,interpreter,platform,runtime,scheduler,task}/
                                           #   v1-API compat layer (TeeBox host surface): ScriptParser,
                                           #   ProperTeeInterpreter/Scheduler façades, Task engine
-  src/test/java + src/test/resources/tests/  #   unit + conformance tests; 84 .tee/.expected fixtures
+  src/test/java + src/test/resources/tests/  #   unit + conformance tests; 101 .tee/.expected fixtures
 propertee-cli/                            # the `propertee2` command (application plugin, fat jar)
   src/main/java/com/flatide/propertee2/cli/Main.java
 dist/                                     # `./gradlew dist` -> dist/propertee2-<version>.jar (java -jar)
@@ -85,13 +87,13 @@ JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is regi
 ```bash
 ./gradlew build                 # compile + all tests, both modules (JDK 25, no preview flags)
 ./gradlew :propertee-core:test  # engine tests only
-./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 96 fixtures vs .expected
+./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 101 fixtures vs .expected
 ./gradlew :propertee-core:test --tests 'com.flatide.propertee2.interp.InterpreterTest'   # one test class
 ./gradlew :propertee-core:generateGrammarSource   # regenerate the ANTLR parser/visitor only
 
 # CLI: dev run, or build the fat jar into dist/ and run it (JDK 25 at runtime).
 ./gradlew :propertee-cli:run --args="path/to/script.tee"
-./gradlew dist && java -jar dist/propertee2-0.5.0.jar -p '{"width":100}' script.tee
+./gradlew dist && java -jar dist/propertee2-0.6.0.jar -p '{"width":100}' script.tee
 ```
 
 > Fixtures are a **fixed baseline** copied from v1. `.expected` files are the correct answer **down to output order**, so never edit them (this is why the scheduler must be deterministic round-robin — design §6). The new engine conforms to the fixtures, not the other way around. The conformance fixture list is hardcoded in `conformance/Fixtures` (v1 convention); per-fixture semantics and host-injection caveats are in `docs/conformance-tests.md`.
@@ -102,7 +104,9 @@ JDK 25 toolchain via Gradle (wrapper pinned to 9.3.1). The toolchain JDK is regi
 >
 > **Spec v0.8.0** (shipped in 0.4.0; issue #4): first-class `null` (`value/JsonNull.NULL`), fixtures 93–96; 84 updated.
 >
-> **Spec v0.9.0** (shipped in 0.5.0; issue #3): Lua-style `elseif`, fixtures 97–98. Everything below is otherwise identical to v1 (= spec v0.6.0).
+> **Spec v0.9.0** (shipped in 0.5.0; issue #3): Lua-style `elseif`, fixtures 97–98.
+>
+> **Spec v0.10.0** (shipped in 0.6.0; no issue — ProperTee `docs/design-draft-result-handling.md`): Result escalation — `FAIL`/`UNWRAP`/`OK`/`ERR`/`IS_RESULT` + genuine-Result brand, fixtures 99–103. Non-breaking. Everything below is otherwise identical to v1 (= spec v0.6.0).
 
 - **No implicit null** — absence is `{}` (empty object): missing arguments and no-return functions → `{}`. `null` (spec v0.8.0) is pure data for lossless JSON round-trips — it enters only via the `null` literal or `JSON_PARSE`/host values; equality (`null == null` only) and `TYPE_OF` (→ `"null"`) work, everything else (conditions/logic/arith/member access) is a runtime error.
 - Numbers: integers are `Integer`, decimals are `Double`, **division is always Double**, and `.0` is stripped on formatting.

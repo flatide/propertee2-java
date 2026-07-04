@@ -2,8 +2,29 @@
 
 All notable changes to `propertee2-java`. Value/type/scope/error semantics are pinned to the
 ProperTee language spec (`flatide/ProperTee` LANGUAGE.md) — identical to the frozen
-`propertee-java` v1.0.0 up to spec v0.6.0, with the deliberate spec v0.7.0 breaking batch from 0.3.0
-first-class `null` (spec v0.8.0) from 0.4.0, and `elseif` (spec v0.9.0) from 0.5.0.
+`propertee-java` v1.0.0 up to spec v0.6.0, with the deliberate spec v0.7.0 breaking batch from 0.3.0,
+first-class `null` (spec v0.8.0) from 0.4.0, `elseif` (spec v0.9.0) from 0.5.0, and Result
+escalation (spec v0.10.0) from 0.6.0.
+
+## 0.6.0
+
+Implements **spec v0.10.0 — Result escalation (`FAIL`/`UNWRAP`) and genuine Results** (analyzed in
+ProperTee `docs/design-draft-result-handling.md`; adopted without a tracker issue by user decision).
+**Non-breaking**: no grammar/keyword changes, no existing behavior changes, all previous fixtures
+byte-identical. No host-API change.
+
+- **Five new built-ins**: `FAIL(message)` raises a runtime error at the call site (the escalation
+  primitive — inside a `multi` worker it fails only that thread); `UNWRAP(res[, msg])` unwraps an
+  ok Result or escalates with `TO_STRING(res.value)`; `OK(v)`/`ERR(v)` construct genuine Results;
+  `IS_RESULT(x)` observes the origin. `FAIL`/`UNWRAP` are dispatched at the interpreter level
+  (like `PRINT`/`SLEEP`) so their errors carry the call site's line:col.
+- **Genuine-Result origin brand** (`value/TeeResult`, a `LinkedHashMap` subclass): every Result the
+  runtime creates — Result-returning built-ins, external-function wrapping, multi collection, and
+  `OK`/`ERR` — is branded; `Values.deepCopy` preserves the brand; JSON never produces it. Invisible
+  to `TYPE_OF`/display/JSON/equality — only `UNWRAP` and `IS_RESULT` observe it. (The HTTP
+  envelope, previously a hand-built map, now goes through the `Result` factory.)
+- Conformance: 5 new fixtures (99–103) → **101 fixtures, 263 tests green, deterministic**.
+  `docs/LANGUAGE.md` synced to spec v0.10.0.
 
 ## 0.5.0
 

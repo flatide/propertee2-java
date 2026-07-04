@@ -64,7 +64,8 @@ public final class Values {
     public static Object deepCopy(Object v) {
         if (v instanceof Map) {
             Map<String, Object> src = (Map<String, Object>) v;
-            Map<String, Object> out = new LinkedHashMap<>(src.size());
+            // A genuine Result stays genuine across copies (spec v0.10.0 — origin propagation).
+            Map<String, Object> out = (v instanceof TeeResult) ? new TeeResult() : new LinkedHashMap<>(src.size());
             for (Map.Entry<String, Object> e : src.entrySet()) {
                 out.put(e.getKey(), deepCopy(e.getValue()));
             }

@@ -4,6 +4,7 @@ import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.value.JsonParser;
 import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
+import com.flatide.propertee2.value.TeeResult;
 import com.flatide.propertee2.value.TeeFormat;
 import com.flatide.propertee2.value.Values;
 
@@ -87,6 +88,7 @@ public final class Builtins {
         registerObject(b);
         registerJson(b);
         registerTiming(b);
+        registerResult(b);
         return b;
     }
 
@@ -108,6 +110,18 @@ public final class Builtins {
         registerHttp(b, platform);
         registerShell(b, platform, taskRunner, runId);
         return b;
+    }
+
+    // ---- Result (spec v0.10.0: genuine-Result constructors + observer) -----
+
+    private static void registerResult(Builtins b) {
+        // OK/ERR construct genuine Results (the runtime-origin brand — value/TeeResult);
+        // a missing argument follows the "absence is {}" convention. ERR's value may be
+        // any type (structured errors, like HTTP error Results).
+        b.register("OK",  Kind.PURE, args -> Result.ok(args.isEmpty() ? Values.emptyObject() : args.get(0)));
+        b.register("ERR", Kind.PURE, args -> Result.errorValue(args.isEmpty() ? Values.emptyObject() : args.get(0)));
+        // IS_RESULT accepts any value and never errors (observability of the brand).
+        b.register("IS_RESULT", Kind.PURE, args -> !args.isEmpty() && args.get(0) instanceof TeeResult);
     }
 
     // ---- Math (return types verified against 02_arithmetic) ----------------
@@ -535,11 +549,8 @@ public final class Builtins {
     }
 
     private static Object httpEnvelope(boolean ok, Object value) {
-        Map<String, Object> r = new LinkedHashMap<>();
-        r.put("status", ok ? "done" : "error");
-        r.put("ok", ok);
-        r.put("value", value);
-        return r;
+        // Via the Result factory so HTTP results carry the genuine-Result brand (spec v0.10.0).
+        return ok ? Result.ok(value) : Result.errorValue(value);
     }
 
     @SuppressWarnings("unchecked")

@@ -10,6 +10,7 @@ import com.flatide.propertee2.value.JsonNull;
 import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeFormat;
+import com.flatide.propertee2.value.TeeResult;
 import com.flatide.propertee2.value.Values;
 
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -741,6 +742,10 @@ public final class Interpreter {
         if (fn != null) return callUser(fn, args, ctx);
         if (name.equals("PRINT")) return doPrint(args);
         if (name.equals("SLEEP")) return doSleep(args, ctx);
+        // FAIL/UNWRAP (spec v0.10.0) live at this dispatch level — not in the builtin catalog —
+        // so their errors carry the call site's line:col (catalog builtin errors are positionless).
+        if (name.equals("FAIL")) return doFail(args, ctx);
+        if (name.equals("UNWRAP")) return doUnwrap(args, ctx);
         ExternalFunction ext = externals.get(name);
         if (ext != null) {
             // value -> Result.ok, exception -> Result.error; blocking externals release the baton (§3.1)
@@ -802,6 +807,25 @@ public final class Interpreter {
         }
         coop.sleep((long) Values.toDouble(args.get(0)));
         return Values.emptyObject();
+    }
+
+    /** FAIL(message) — spec v0.10.0: raise a runtime error at the call site (the escalation primitive). */
+    private Object doFail(List<Object> args, ParserRuleContext ctx) {
+        if (args.size() != 1) throw err("FAIL() requires a message argument", ctx);
+        throw err(TeeFormat.display(args.get(0)), ctx);   // non-string coerced like TO_STRING
+    }
+
+    /**
+     * UNWRAP(res[, message]) — spec v0.10.0: the value of an ok genuine Result; an error/running
+     * Result escalates like FAIL with TO_STRING(res.value) (prefixed "message: " when given).
+     * Only genuine Results (value/TeeResult — runtime- or OK/ERR-created) are accepted.
+     */
+    private Object doUnwrap(List<Object> args, ParserRuleContext ctx) {
+        if (args.isEmpty() || args.size() > 2) throw err("UNWRAP() requires (result, [message])", ctx);
+        if (!(args.get(0) instanceof TeeResult res)) throw err("UNWRAP() requires a Result", ctx);
+        if (Boolean.TRUE.equals(res.get("ok"))) return res.get("value");
+        String value = TeeFormat.display(res.get("value"));
+        throw err(args.size() > 1 ? TeeFormat.display(args.get(1)) + ": " + value : value, ctx);
     }
 
     private Object doPrint(List<Object> args) {

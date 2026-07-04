@@ -1,6 +1,5 @@
 package com.flatide.propertee2.value;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -26,8 +25,13 @@ public final class Result {
         return of("error", false, message == null ? "" : message);
     }
 
+    /** {@code ERR(value)} (spec v0.10.0) — an error Result whose value may be any type (structured errors). */
+    public static Map<String, Object> errorValue(Object value) {
+        return of("error", false, value == null ? Values.emptyObject() : value);
+    }
+
     private static Map<String, Object> of(String status, boolean ok, Object value) {
-        Map<String, Object> m = new LinkedHashMap<>();
+        Map<String, Object> m = new TeeResult();   // genuine-Result origin brand (spec v0.10.0)
         m.put("status", status);
         m.put("ok", ok);
         m.put("value", value);
