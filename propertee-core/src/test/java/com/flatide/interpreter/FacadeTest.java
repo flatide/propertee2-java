@@ -51,6 +51,22 @@ class FacadeTest {
         assertEquals(Map.of(), result);                           // no explicit return -> run() yields {}
     }
 
+    /** v1 host contract: the exception MESSAGE carries the position (TeeBox stores getMessage()). */
+    @Test void runtimeErrorReachesTheHostWithThePositionedV1Message() {
+        BuiltinFunctions.PrintFunction sink = args -> {};
+        BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);
+
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "x = 1\nFAIL(\"upstream unreachable: giving up\")\n", new ArrayList<>());
+        ProperTeeInterpreter visitor =
+                new ProperTeeInterpreter(new LinkedHashMap<>(), sink, sink, 1000, "error", builtins);
+
+        com.flatide.runtime.ProperTeeError e =
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.runtime.ProperTeeError.class,
+                        () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
+        assertEquals("Runtime Error at line 2:0: upstream unreachable: giving up", e.getMessage());
+    }
+
     @Test void explicitReturnAndCustomBuiltin() {
         BuiltinFunctions.PrintFunction sink = args -> {};
         BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.1
+
+**v1-compat fidelity fix (host-facing error messages).** In v1, the source position was baked into
+the runtime exception's *message* (`createError` → `"Runtime Error at line L:C: <msg>"`), and hosts
+like TeeBox store `e.getMessage()` as the run's `errorMessage`. The propertee2 engine keeps the
+position separate (`value/TeeError.positioned()`), and the v1 façade rethrew the raw `TeeError` —
+so hosts received the bare message, losing the position (an R-phase gap; surfaced by the TeeBox
+run-result envelope work: a `FAIL(...)` run's envelope `value` had no `line:col`). The façade
+(`com.flatide.interpreter.ProperTeeInterpreter.execute`) now converts at its boundary:
+`TeeError` → `com.flatide.runtime.ProperTeeError` (v1's class, ported verbatim) carrying
+`positioned()` as the message. Engine/CLI/conformance surfaces unchanged; `FacadeTest` pins the
+contract.
+
 ## 0.9.0
 
 Adds the **opt-in static validation pass for host restrictions** (ProperTee

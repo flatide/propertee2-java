@@ -115,6 +115,16 @@ public class ProperTeeInterpreter {
 
         try {
             coop.run("main", () -> interp.run(stepper.tree));     // a TeeError here propagates to the host
+        } catch (com.flatide.propertee2.value.TeeError e) {
+            // v1 host contract: the position lives in the exception MESSAGE (v1's createError baked
+            // "Runtime Error at line L:C: <msg>" in; hosts store e.getMessage() as errorMessage).
+            // TeeError keeps it separate, so convert at the façade boundary (fidelity gap until 0.9.1).
+            com.flatide.runtime.ProperTeeError hostError =
+                    new com.flatide.runtime.ProperTeeError(e.positioned());
+            main.state = com.flatide.scheduler.ThreadState.ERROR;
+            main.error = hostError;
+            if (listener != null) listener.onThreadError(main);
+            throw hostError;
         } catch (Throwable t) {
             main.state = com.flatide.scheduler.ThreadState.ERROR;
             main.error = t;
