@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처: `propertee-java`(v1.0.0) `ScriptTest`의 `testNames` 배열 + `src/test/resources/tests/*.tee`/`*.expected`(84쌍, 이 repo로 복사됨). **spec v0.7.0 breaking 배치**(ProperTee 이슈 #1/#2/#5/#6/#7)에서 신규 `87`–`92` 6쌍이 추가되고 기존 3쌍이 갱신됐고, **spec v0.8.0 null 리터럴**(이슈 #4)에서 신규 `93`–`96` 4쌍 + `84_json` 갱신, **spec v0.9.0 elseif**(이슈 #3)에서 신규 `97`–`98` 2쌍, **spec v0.10.0 Result 승격**(이슈 없음 — design-draft-result-handling.md)에서 신규 `99`–`103` 5쌍, **spec v0.11.0 함수 이름 해석**(이슈 없음)에서 신규 `104` 1쌍이 추가되어 현재 **102쌍**이다 — 아래 [spec v0.7.0 배치](#spec-v070-breaking-배치-87-92), [spec v0.8.0 null](#spec-v080-null-리터럴-93-96), [spec v0.9.0 elseif](#spec-v090-elseif-97-98), [spec v0.10.0 Result 승격](#spec-v0100-result-승격-99-103), [spec v0.11.0 함수 이름 해석](#spec-v0110-함수-이름-해석-104) 참고. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence).
+출처: `propertee-java`(v1.0.0) `ScriptTest`의 `testNames` 배열 + `src/test/resources/tests/*.tee`/`*.expected`(84쌍, 이 repo로 복사됨). **spec v0.7.0 breaking 배치**(ProperTee 이슈 #1/#2/#5/#6/#7)에서 신규 `87`–`92` 6쌍이 추가되고 기존 3쌍이 갱신됐고, **spec v0.8.0 null 리터럴**(이슈 #4)에서 신규 `93`–`96` 4쌍 + `84_json` 갱신, **spec v0.9.0 elseif**(이슈 #3)에서 신규 `97`–`98` 2쌍, **spec v0.10.0 Result 승격**(이슈 없음 — design-draft-result-handling.md)에서 신규 `99`–`103` 5쌍, **spec v0.11.0 함수 이름 해석**(이슈 없음)에서 신규 `104` 1쌍이 추가됐다가 **spec v0.12.0 대문자 네임스페이스 예약**(이슈 없음 — design-draft-reserved-uppercase-namespace.md)에서 104 은퇴·75 갱신·`105`-`106` 2쌍 추가로 현재 **103쌍**이다 — 아래 [spec v0.7.0 배치](#spec-v070-breaking-배치-87-92), [spec v0.8.0 null](#spec-v080-null-리터럴-93-96), [spec v0.9.0 elseif](#spec-v090-elseif-97-98), [spec v0.10.0 Result 승격](#spec-v0100-result-승격-99-103), [spec v0.11.0/v0.12.0](#spec-v0110-함수-이름-해석--v0120-대문자-네임스페이스-예약-105-106) 참고. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence).
 
 ## 동치 정책
 
@@ -73,13 +73,14 @@ FAIL/UNWRAP/OK/ERR/IS_RESULT와 genuine-Result 브랜드(ProperTee `docs/design-
 | `102_error_unwrap_nonresult` | 위조 리터럴에 UNWRAP → `UNWRAP() requires a Result` |
 | `103_fail_thread` | multi 워커 안 FAIL → `[THREAD ERROR]` + `{status:"error"}` 수집·런 계속·수집 항목이 genuine |
 
-## spec v0.11.0 함수 이름 해석 (104)
+## spec v0.11.0 함수 이름 해석 → v0.12.0 대문자 네임스페이스 예약 (105-106)
 
-이름 해석 순서 확정(호스트 차단 → 스크립트 함수 → 빌트인/외부)을 검증. 호스트 주입 불필요:
+v0.11.0은 이름 해석 순서(호스트 차단 → 스크립트 함수 → 빌트인/외부)를 확정했고 `104_user_function_shadowing`이 이를 고정했으나, **v0.12.0이 전부-대문자 함수 정의 자체를 금지**하면서 104는 은퇴(전제 소멸; 번호 결번은 31 전례). `75_range_step_eval_once`의 헬퍼도 `STEP`→`step_fn`으로 갱신(.expected 불변 — "STEP"은 출력 문자열). 호스트 주입 불필요:
 
 | fixture | 검증 내용 |
 |---|---|
-| `104_user_function_shadowing` | 스크립트 정의 함수가 카탈로그 빌트인(`LEN`)·v0.10.0 빌트인(`OK`)·인터프리터 디스패치(`SLEEP`/`FAIL`/`UNWRAP`)를 전부 가림 — 이 런타임은 원래 이 순서였고(코드 무변경), v1/js가 이 fixture로 전환을 고정 |
+| `105_error_reserved_function_name` | `function LEN(...)` → 정의 시점 에러 + 정의 위치(line:col) 지목·앞 문장은 실행됨(정의문이 순차 실행되는 것도 함께 고정) |
+| `106_function_name_case` | 혼합/소문자 이름(`Foo`/`getBALANCE`/`get_balance`) 정의 합법·ALL-CAPS 빌트인 호출 불변 |
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

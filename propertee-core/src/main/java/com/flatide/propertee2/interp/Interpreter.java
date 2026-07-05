@@ -352,11 +352,17 @@ public final class Interpreter {
 
     private void defineFunction(FunctionDefContext f) {
         requireKeyword("function", f.getStart());
+        String name = f.funcName.getText();
+        // spec v0.12.0: the all-uppercase namespace is reserved for built-in/host functions
+        if (name.matches("[A-Z][A-Z0-9_]*")) {
+            throw err("Cannot define function '" + name
+                    + "': all-uppercase names are reserved for built-in and host functions", f);
+        }
         List<String> params = new ArrayList<>();
         if (f.parameterList() != null) {
             for (var id : f.parameterList().ID()) params.add(id.getText());
         }
-        functions.put(f.funcName.getText(), new UserFunction(f.funcName.getText(), params, f.block()));
+        functions.put(name, new UserFunction(name, params, f.block()));
     }
 
     // ---- loops -------------------------------------------------------------

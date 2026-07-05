@@ -1,7 +1,7 @@
-function STEP() do
+function step_fn() do
     PRINT("STEP")
     return 2
 end
 
-a = [1..5, STEP()]
+a = [1..5, step_fn()]
 PRINT(a)

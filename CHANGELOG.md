@@ -4,7 +4,25 @@ All notable changes to `propertee2-java`. Value/type/scope/error semantics are p
 ProperTee language spec (`flatide/ProperTee` LANGUAGE.md) — identical to the frozen
 `propertee-java` v1.0.0 up to spec v0.6.0, with the deliberate spec v0.7.0 breaking batch from 0.3.0,
 first-class `null` (spec v0.8.0) from 0.4.0, `elseif` (spec v0.9.0) from 0.5.0, Result
-escalation (spec v0.10.0) from 0.6.0, and pinned function-name resolution (spec v0.11.0) from 0.7.0.
+escalation (spec v0.10.0) from 0.6.0, pinned function-name resolution (spec v0.11.0) from 0.7.0,
+and the reserved all-uppercase function namespace (spec v0.12.0) from 0.8.0.
+
+## 0.8.0
+
+Implements **spec v0.12.0 — the all-uppercase function namespace is reserved** (analyzed in
+ProperTee `docs/design-draft-reserved-uppercase-namespace.md`, which grew out of a rejected
+`sleep`-keyword proposal). **Breaking** for scripts that define all-uppercase functions.
+
+- `function NAME` where NAME matches `^[A-Z][A-Z0-9_]*$` is now a definition-time runtime error
+  (`Interpreter.defineFunction`, with the definition's line:col): ALL-CAPS is guaranteed to be
+  built-in/host-provided, and script/built-in collisions become structurally impossible —
+  superseding the v0.11.0 shadowing rule where built-ins are concerned.
+- Fixtures: `104_user_function_shadowing` retired (premise gone), `75_range_step_eval_once`'s
+  helper renamed (`STEP` → `step_fn`), `105_error_reserved_function_name` +
+  `106_function_name_case` added → **103 fixtures**.
+- Docs: LANGUAGE.md gains §Reserved Function Names and §Blocking and Suspension (the suspension
+  model: SLEEP is the smallest primitive; waits compose on top of it; async externals get the
+  same `Coop.blocking` contract).
 
 ## 0.7.0
 
