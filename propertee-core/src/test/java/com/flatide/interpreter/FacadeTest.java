@@ -67,6 +67,52 @@ class FacadeTest {
         assertEquals("Runtime Error at line 2:0: upstream unreachable: giving up", e.getMessage());
     }
 
+    /** v1 host contract: [THREAD ERROR] lines stream to the stderr sink, never to stdout (TeeBox tags by stream). */
+    @Test void threadErrorsStreamToTheStderrSink() {
+        List<String> stdoutLines = new ArrayList<>();
+        List<String> stderrLines = new ArrayList<>();
+        BuiltinFunctions.PrintFunction stdout = args -> stdoutLines.add(join(args));
+        BuiltinFunctions.PrintFunction stderr = args -> stderrLines.add(join(args));
+        BuiltinFunctions builtins = new BuiltinFunctions(stdout, stderr, "r", null, null);
+
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "function boom() do\n" +
+                "    FAIL(\"worker down\")\n" +
+                "end\n" +
+                "function fine() do\n" +
+                "    return 7\n" +
+                "end\n" +
+                "multi r do\n" +
+                "    thread a: fine()\n" +
+                "    thread b: boom()\n" +
+                "end\n" +
+                "PRINT(\"after:\", r.a.value, r.b.ok)\n", new ArrayList<>());
+        ProperTeeInterpreter visitor =
+                new ProperTeeInterpreter(new LinkedHashMap<>(), stdout, stderr, 1000, "error", builtins);
+        new Scheduler(visitor).run(visitor.createRootStepper(tree));
+
+        assertEquals(List.of("after: 7 false"), stdoutLines);
+        assertEquals(List.of("[THREAD ERROR] Runtime Error at line 2:4: worker down"), stderrLines);
+    }
+
+    /** v1 iterationLimitBehavior="warn": the loop stops with a stderr warning; the run continues. */
+    @Test void warnLoopsStopTheLoopWithAStderrWarningAndContinue() {
+        List<String> stdoutLines = new ArrayList<>();
+        List<String> stderrLines = new ArrayList<>();
+        BuiltinFunctions.PrintFunction stdout = args -> stdoutLines.add(join(args));
+        BuiltinFunctions.PrintFunction stderr = args -> stderrLines.add(join(args));
+        BuiltinFunctions builtins = new BuiltinFunctions(stdout, stderr, "r", null, null);
+
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "i = 0\nloop i < 10 do\n    i = i + 1\nend\nPRINT(\"i =\", i)\n", new ArrayList<>());
+        ProperTeeInterpreter visitor =
+                new ProperTeeInterpreter(new LinkedHashMap<>(), stdout, stderr, 3, "warn", builtins);
+        new Scheduler(visitor).run(visitor.createRootStepper(tree));
+
+        assertEquals(List.of("i = 3"), stdoutLines);   // the loop ran exactly maxIterations times, as in v1
+        assertEquals(List.of("Warning: Loop exceeded maximum iterations (3), stopping loop"), stderrLines);
+    }
+
     @Test void explicitReturnAndCustomBuiltin() {
         BuiltinFunctions.PrintFunction sink = args -> {};
         BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);

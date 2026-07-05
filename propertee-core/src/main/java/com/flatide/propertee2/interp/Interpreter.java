@@ -36,6 +36,7 @@ public final class Interpreter {
     public interface Sink { void line(String text); }
 
     private final Sink out;
+    private Sink err;   // runtime diagnostics — v1's stderr channel ([THREAD ERROR]/[MONITOR ERROR]/loop warnings)
     private final Coop coop;
     private final Map<String, Object> globals = new LinkedHashMap<>();   // the program's top-level globals
     private final Map<String, Object> builtinProps;          // host-injected (-p), incl. _PROPS
@@ -45,6 +46,7 @@ public final class Interpreter {
     private final Set<String> hiddenKeywords;                // keywords made unavailable in this environment
     private final Set<String> ignoredFunctions;              // function names made unavailable
     private int maxIterations = 1000;                        // max loop iterations (configurable via façade)
+    private boolean loopLimitWarns = false;                  // v1 "warn": warn + stop the loop instead of failing
     private boolean hasExplicitReturn = false;               // did the program hit a top-level `return`?
     private Object returnValue = Values.emptyObject();        // the top-level return value (if any)
 
@@ -68,6 +70,7 @@ public final class Interpreter {
                        Map<String, ExternalFunction> externals, Set<String> hiddenKeywords,
                        Set<String> ignoredFunctions, com.flatide.task.TaskRunner taskRunner, String runId) {
         this.out = out;
+        this.err = out;   // single merged channel unless the host separates them (Engine.run buffers both in order)
         this.coop = coop;
         this.builtins = Builtins.standard(platform, taskRunner, runId);
         this.externals = externals;
@@ -113,6 +116,18 @@ public final class Interpreter {
 
     /** Configure the maximum loop iterations (v1 maxIterations). */
     public void setLoopLimit(int limit) { if (limit > 0) this.maxIterations = limit; }
+
+    /**
+     * Route runtime diagnostics — {@code [THREAD ERROR]}, {@code [MONITOR ERROR]}, and loop-limit
+     * warnings — to a separate channel, matching v1's stderr print sink. Defaults to the main sink.
+     */
+    public void setErrorSink(Sink err) { if (err != null) this.err = err; }
+
+    /**
+     * v1 {@code iterationLimitBehavior="warn"}: on hitting the loop limit, print a warning on the
+     * error channel and stop that loop (the program continues) instead of raising a runtime error.
+     */
+    public void setLoopLimitWarns(boolean warns) { this.loopLimitWarns = warns; }
 
     /** Register a host builtin whose return value is used as-is (no Result wrapper), e.g. STREAM_FILE. */
     public void addRawBuiltin(String name, java.util.function.Function<List<Object>, Object> fn) {
@@ -246,7 +261,7 @@ public final class Interpreter {
                 } catch (RuntimeException e) {
                     // TeeError, or a stray control-flow signal / other failure: never leave the entry "running"
                     String pos = failureText(e);
-                    out.line("[THREAD ERROR] " + pos);
+                    err.line("[THREAD ERROR] " + pos);
                     collection.put(p.key(), Result.error(pos));
                     if (threadObserver != null) threadObserver.error(tid, e);
                 } finally {
@@ -268,7 +283,7 @@ public final class Interpreter {
                         try {
                             execBlock(mc.block());
                         } catch (TeeError e) {
-                            out.line("[MONITOR ERROR] " + e.positioned());
+                            err.line("[MONITOR ERROR] " + e.positioned());
                             throw e;
                         }
                     });
@@ -382,7 +397,7 @@ public final class Interpreter {
         boolean infinite = c.K_INFINITE() != null;
         int count = 0;
         while (condition(c.expression())) {
-            if (!infinite && count >= maxIterations) throw loopLimit(c);
+            if (!infinite && count >= maxIterations && loopLimitExceeded(c)) break;
             if (runBody(c.block())) break;
             count++;
         }
@@ -393,7 +408,7 @@ public final class Interpreter {
         String var = v.value.getText();
         int count = 0;
         for (Object element : iterableValues(eval(v.expression()), v)) {
-            if (!infinite && count >= maxIterations) throw loopLimit(v);
+            if (!infinite && count >= maxIterations && loopLimitExceeded(v)) break;
             bindLocal(var, element);                // deepCopy => loop var is independent (68 test 7)
             if (runBody(v.block())) break;
             count++;
@@ -407,7 +422,7 @@ public final class Interpreter {
         Object coll = eval(kv.expression());
         int count = 0;
         for (Map.Entry<Object, Object> entry : iterableEntries(coll, kv)) {
-            if (!infinite && count >= maxIterations) throw loopLimit(kv);
+            if (!infinite && count >= maxIterations && loopLimitExceeded(kv)) break;
             bindLocal(keyVar, entry.getKey());
             bindLocal(valVar, entry.getValue());
             if (runBody(kv.block())) break;
@@ -958,8 +973,13 @@ public final class Interpreter {
         return sb.toString();
     }
 
-    private TeeError loopLimit(ParserRuleContext ctx) {
-        return err("Loop exceeded maximum iterations (" + maxIterations
+    /** In warn mode prints the v1 warning (error channel) and returns true = stop the loop; otherwise throws. */
+    private boolean loopLimitExceeded(ParserRuleContext ctx) {
+        if (loopLimitWarns) {
+            err.line("Warning: Loop exceeded maximum iterations (" + maxIterations + "), stopping loop");
+            return true;
+        }
+        throw err("Loop exceeded maximum iterations (" + maxIterations
                 + "). Use 'loop condition infinite do' if you need unlimited iterations.", ctx);
     }
 }

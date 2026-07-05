@@ -60,11 +60,16 @@ public final class Main {
         }
 
         try {
-            System.out.print(new Engine().run(source, props));   // output already carries its own newlines
+            // Live sinks (like the v1 CLI): program output streams to stdout as it prints; runtime
+            // diagnostics ([THREAD ERROR]/[MONITOR ERROR]/loop warnings) go to stderr, as in v1/js.
+            new Engine().run(source, props, System.out::println, System.err::println);
         } catch (Parsing.SyntaxException e) {
             // malformed input: a concise stderr line + nonzero exit (a script *runtime* error is in stdout)
             System.err.println("propertee2: " + file + ": " + e.getMessage());
             System.exit(1);
+        } catch (TeeError e) {
+            // script runtime error: part of normal output (stdout, exit 0) — the conformance contract
+            System.out.println("Runtime error: " + e.positioned());
         }
     }
 

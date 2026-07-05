@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.9.2
+
+**v1-compat fidelity fixes (host output channels).** v1's engine is a two-channel contract — the
+interpreter takes separate stdout/stderr print sinks, and exactly three kinds of lines go to
+stderr: `[THREAD ERROR]` (v1 `Scheduler.java:428`), `[MONITOR ERROR]` (`:318,355`), and the
+`iterationLimitBehavior="warn"` loop warning. The propertee2 engine had collapsed everything into
+one sink, so the v1 façade delivered those lines to the host's *stdout* sink (TeeBox tags run-log
+lines by stream — they were mis-tagged), and `"warn"` was silently ignored (a `warnLoops=true` run
+that completed under v1 failed under v2). Same class of gap as 0.9.1's positioned messages.
+
+- **Engine**: `Interpreter` gains an error channel (`setErrorSink`; defaults to the main sink) for
+  `[THREAD ERROR]` / `[MONITOR ERROR]` / loop warnings, plus `setLoopLimitWarns(true)` — the v1
+  `"warn"` behavior (print `Warning: Loop exceeded maximum iterations (N), stopping loop` on the
+  error channel, stop that loop, continue the run).
+- **Façade**: wires the host's stderr `PrintFunction` to the error channel and honors
+  `iterationLimitBehavior="warn"` — the v1 contract restored; TeeBox needs no change.
+- **CLI**: streams live through the new two-sink `Engine.run` overload — program output on stdout,
+  diagnostics on stderr, matching the v1/js CLIs (`... 2>/dev/null` now agrees across all three
+  runtimes). The runtime-error contract is unchanged: `Runtime error: ...` on stdout, exit 0.
+- Conformance unchanged: the buffered `Engine.run` merges both channels in program order (all
+  emission happens on the baton), so all 103 fixtures stay byte-identical. `FacadeTest` pins the
+  stream routing and the warn behavior (278 tests).
+
 ## 0.9.1
 
 **v1-compat fidelity fix (host-facing error messages).** In v1, the source position was baked into

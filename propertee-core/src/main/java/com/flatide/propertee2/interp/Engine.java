@@ -96,16 +96,34 @@ public final class Engine {
     /** Run with explicit host integration (used by the conformance harness for ENV / file I/O). */
     public String run(String source, Map<String, Object> props, PlatformProvider platform) {
         StringBuilder out = new StringBuilder();
-        Interpreter.Sink sink = line -> out.append(line).append('\n');   // buffer each line (CLI/conformance)
+        Interpreter.Sink sink = line -> out.append(line).append('\n');   // buffer each line (conformance)
         try {
-            ProperTeeParser.RootContext root = Parsing.parse(source);
-            Coop coop = new Coop();
-            Interpreter interp = new Interpreter(sink, props, coop, platform,
-                    externals, hiddenKeywords, ignoredFunctions, taskRunner);
-            coop.run("main", () -> interp.run(root));   // the program is the root logical thread
+            run(source, props, platform, sink, sink);   // both channels merge in order (the fixtures' shape)
         } catch (TeeError e) {
             out.append("Runtime error: ").append(e.positioned()).append('\n');
         }
         return out.toString();
+    }
+
+    /** Run with live sinks and the default platform (the CLI's form). */
+    public void run(String source, Map<String, Object> props, Interpreter.Sink out, Interpreter.Sink err) {
+        run(source, props, new DefaultPlatformProvider(), out, err);
+    }
+
+    /**
+     * Run with live host sinks: program output ({@code PRINT}) on {@code out}; runtime diagnostics —
+     * v1's stderr channel ({@code [THREAD ERROR]}, {@code [MONITOR ERROR]}, loop-limit warnings) —
+     * on {@code err}. Lines are emitted in program order across both sinks (everything prints on the
+     * baton). Unlike the buffered overloads, a script runtime error propagates as {@link TeeError}
+     * for the caller to present.
+     */
+    public void run(String source, Map<String, Object> props, PlatformProvider platform,
+                    Interpreter.Sink out, Interpreter.Sink err) {
+        ProperTeeParser.RootContext root = Parsing.parse(source);
+        Coop coop = new Coop();
+        Interpreter interp = new Interpreter(out, props, coop, platform,
+                externals, hiddenKeywords, ignoredFunctions, taskRunner);
+        interp.setErrorSink(err);
+        coop.run("main", () -> interp.run(root));   // the program is the root logical thread
     }
 }

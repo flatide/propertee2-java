@@ -19,7 +19,10 @@ import java.util.Map;
  * shape — the same constructor, a public {@link #variables} globals map (a host injects e.g. {@code _SYS}
  * before the run and reads {@code result} after), {@link #createRootStepper}, and a {@link RootStepper}
  * exposing {@link RootStepper#hasExplicitReturn()} — while delegating execution to the engine. PRINT is
- * streamed live to the stdout {@link BuiltinFunctions.PrintFunction}.
+ * streamed live to the stdout {@link BuiltinFunctions.PrintFunction}; {@code [THREAD ERROR]} /
+ * {@code [MONITOR ERROR]} / loop-limit warnings stream to the stderr one, and
+ * {@code iterationLimitBehavior="warn"} stops the offending loop with a warning instead of failing
+ * the run — both exactly as in v1.
  */
 public class ProperTeeInterpreter {
 
@@ -55,6 +58,10 @@ public class ProperTeeInterpreter {
     public Object execute(RootStepper stepper, SchedulerListener listener) {
         BuiltinFunctions.PrintFunction stdout = builtins.stdout;
         Interpreter.Sink sink = line -> { if (stdout != null) stdout.print(new Object[]{ line }); };
+        // v1's second channel: [THREAD ERROR]/[MONITOR ERROR]/loop-limit warnings go to the host's
+        // stderr print sink (a host like TeeBox tags its log lines by stream), never to stdout.
+        BuiltinFunctions.PrintFunction stderr = builtins.stderr;
+        Interpreter.Sink errSink = stderr != null ? line -> stderr.print(new Object[]{ line }) : sink;
 
         com.flatide.propertee2.host.PlatformProvider platform = builtins.platform != null
                 ? new PlatformAdapter(builtins.platform)
@@ -65,7 +72,9 @@ public class ProperTeeInterpreter {
 
         Coop coop = new Coop();
         Interpreter interp = new Interpreter(sink, properties, coop, platform, taskRunner, builtins.runId);
+        interp.setErrorSink(errSink);
         interp.setLoopLimit(maxIterations);
+        interp.setLoopLimitWarns("warn".equals(iterationLimitBehavior));
         for (Map.Entry<String, BuiltinFunctions.BuiltinFunction> e : builtins.custom.entrySet()) {
             final BuiltinFunctions.BuiltinFunction fn = e.getValue();
             interp.addRawBuiltin(e.getKey(), fn::call);          // cheap, on the baton (raw return)
