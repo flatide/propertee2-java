@@ -71,6 +71,18 @@ public final class Engine {
         return this;
     }
 
+    /**
+     * Opt-in <b>static validation</b> of the configured restrictions (ProperTee issue #9): scan the
+     * whole parse tree — dead branches included — and return one {@code "line L:C: 'X' is not
+     * available in this environment"} entry per hidden-keyword construct / ignored-function call
+     * (empty = clean). Syntax errors throw {@link Parsing.SyntaxException} as usual. Running the
+     * script still enforces the same restrictions at runtime (backstop) — this pass just moves
+     * detection before execution for sandboxing hosts.
+     */
+    public List<String> validate(String source) {
+        return Validator.validate(Parsing.parse(source), hiddenKeywords, ignoredFunctions);
+    }
+
     /** Run with no host-injected properties and the default platform. */
     public String run(String source) {
         return run(source, Map.of());

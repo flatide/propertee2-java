@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.0
+
+Adds the **opt-in static validation pass for host restrictions** (ProperTee
+[#9](https://github.com/flatide/ProperTee/issues/9)) — a host-API feature, no language change,
+no spec version bump (like the #8 tooling batch).
+
+- **`Engine.validate(source)`** scans the whole parse tree — dead branches included — and returns
+  one `"line L:C: 'X' is not available in this environment"` entry per hidden-keyword construct /
+  ignored-function call (empty = clean; `interp/Validator`). Sandboxing hosts can now reject a
+  script before execution instead of discovering a forbidden construct when input steers into it.
+- Default behavior unchanged: `run()` still enforces the same restrictions at runtime (backstop).
+- Unit-tested (`ValidatorTest`, 5 tests: dead-branch detection, all six hideable keywords, elseif
+  chain covered by hiding `if`, every call site reported, clean/no-restriction cases). Conformance
+  fixtures deliberately unused — the pass is a host API call, not script execution.
+
 All notable changes to `propertee2-java`. Value/type/scope/error semantics are pinned to the
 ProperTee language spec (`flatide/ProperTee` LANGUAGE.md) — identical to the frozen
 `propertee-java` v1.0.0 up to spec v0.6.0, with the deliberate spec v0.7.0 breaking batch from 0.3.0,
