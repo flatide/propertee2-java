@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처: `propertee-java`(v1.0.0) `ScriptTest`의 `testNames` 배열 + `src/test/resources/tests/*.tee`/`*.expected`(84쌍, 이 repo로 복사됨). **spec v0.7.0 breaking 배치**(ProperTee 이슈 #1/#2/#5/#6/#7)에서 신규 `87`–`92` 6쌍이 추가되고 기존 3쌍이 갱신됐고, **spec v0.8.0 null 리터럴**(이슈 #4)에서 신규 `93`–`96` 4쌍 + `84_json` 갱신, **spec v0.9.0 elseif**(이슈 #3)에서 신규 `97`–`98` 2쌍, **spec v0.10.0 Result 승격**(이슈 없음 — design-draft-result-handling.md)에서 신규 `99`–`103` 5쌍이 추가되어 현재 **101쌍**이다 — 아래 [spec v0.7.0 배치](#spec-v070-breaking-배치-87-92), [spec v0.8.0 null](#spec-v080-null-리터럴-93-96), [spec v0.9.0 elseif](#spec-v090-elseif-97-98), [spec v0.10.0 Result 승격](#spec-v0100-result-승격-99-103) 참고. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence).
+출처: `propertee-java`(v1.0.0) `ScriptTest`의 `testNames` 배열 + `src/test/resources/tests/*.tee`/`*.expected`(84쌍, 이 repo로 복사됨). **spec v0.7.0 breaking 배치**(ProperTee 이슈 #1/#2/#5/#6/#7)에서 신규 `87`–`92` 6쌍이 추가되고 기존 3쌍이 갱신됐고, **spec v0.8.0 null 리터럴**(이슈 #4)에서 신규 `93`–`96` 4쌍 + `84_json` 갱신, **spec v0.9.0 elseif**(이슈 #3)에서 신규 `97`–`98` 2쌍, **spec v0.10.0 Result 승격**(이슈 없음 — design-draft-result-handling.md)에서 신규 `99`–`103` 5쌍, **spec v0.11.0 함수 이름 해석**(이슈 없음)에서 신규 `104` 1쌍이 추가되어 현재 **102쌍**이다 — 아래 [spec v0.7.0 배치](#spec-v070-breaking-배치-87-92), [spec v0.8.0 null](#spec-v080-null-리터럴-93-96), [spec v0.9.0 elseif](#spec-v090-elseif-97-98), [spec v0.10.0 Result 승격](#spec-v0100-result-승격-99-103), [spec v0.11.0 함수 이름 해석](#spec-v0110-함수-이름-해석-104) 참고. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence).
 
 ## 동치 정책
 
@@ -72,6 +72,14 @@ FAIL/UNWRAP/OK/ERR/IS_RESULT와 genuine-Result 브랜드(ProperTee `docs/design-
 | `101_result_brand` | 브랜드 생성(OK)·전파(할당/PUSH)·위조 리터럴 false·JSON_PARSE 래퍼는 genuine·왕복 후 소멸·JSON_FORMAT byte 불변·ERR 구조화 value·IS_RESULT 무인자 false |
 | `102_error_unwrap_nonresult` | 위조 리터럴에 UNWRAP → `UNWRAP() requires a Result` |
 | `103_fail_thread` | multi 워커 안 FAIL → `[THREAD ERROR]` + `{status:"error"}` 수집·런 계속·수집 항목이 genuine |
+
+## spec v0.11.0 함수 이름 해석 (104)
+
+이름 해석 순서 확정(호스트 차단 → 스크립트 함수 → 빌트인/외부)을 검증. 호스트 주입 불필요:
+
+| fixture | 검증 내용 |
+|---|---|
+| `104_user_function_shadowing` | 스크립트 정의 함수가 카탈로그 빌트인(`LEN`)·v0.10.0 빌트인(`OK`)·인터프리터 디스패치(`SLEEP`/`FAIL`/`UNWRAP`)를 전부 가림 — 이 런타임은 원래 이 순서였고(코드 무변경), v1/js가 이 fixture로 전환을 고정 |
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

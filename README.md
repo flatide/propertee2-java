@@ -1,26 +1,26 @@
 # ProperTee2 for Java (Java 25 · virtual-thread runtime)
 
-`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다 — v1과 동일한 스펙 v0.6.0을 거쳐, 스펙 v0.7.0(조건 불리언 엄격화, `and`/`or` 단축 평가, `RANDOM` 단일 인자 폐지, `SLICE` count 규약, `LEN` 엄격화), v0.8.0(일급 `null` — 암묵적 null 없이 JSON 무손실 왕복), v0.9.0(`elseif`), 현재는 **스펙 v0.10.0**(Result 승격 — `FAIL`/`UNWRAP`/`OK`/`ERR`/`IS_RESULT`와 genuine-Result 브랜드; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
+`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다 — v1과 동일한 스펙 v0.6.0을 거쳐, 스펙 v0.7.0(조건 불리언 엄격화, `and`/`or` 단축 평가, `RANDOM` 단일 인자 폐지, `SLICE` count 규약, `LEN` 엄격화), v0.8.0(일급 `null` — 암묵적 null 없이 JSON 무손실 왕복), v0.9.0(`elseif`), v0.10.0(Result 승격 — `FAIL`/`UNWRAP`/`OK`/`ERR`/`IS_RESULT`와 genuine-Result 브랜드), 현재는 **스펙 v0.11.0**(함수 이름 해석 확정 — 스크립트 함수가 빌트인/외부 함수를 가림; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
 
 - **베이스라인:** Java 25 LTS, **stable API만** (virtual threads + `ScopedValue`). `StructuredTaskScope`는 25에서도 preview라 회피 — `multi`는 hand-roll. **preview 의존 0.**
-- **상태:** **conformance 스위트 101/101 통과** (byte-for-byte, deterministic). 0.6.0 — **스펙 v0.10.0 Result 승격(`FAIL`/`UNWRAP`)** 구현.
+- **상태:** **conformance 스위트 102/102 통과** (byte-for-byte, deterministic). 0.7.0 — **스펙 v0.11.0 함수 이름 해석 확정** 구현(코드 무변경 — 이 런타임의 기존 순서가 스펙이 됨).
 
 ## 빌드 / 테스트
 
 JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.java.installations.paths`에 JDK 25 home 등록). 두 모듈로 구성된다: **`propertee-core`**(엔진 — TeeBox가 의존), **`propertee-cli`**(`propertee2` 커맨드).
 
 ```bash
-./gradlew build     # 두 모듈 컴파일 + 전체 테스트(conformance 101 fixture 포함)
+./gradlew build     # 두 모듈 컴파일 + 전체 테스트(conformance 102 fixture 포함)
 ```
 
 ## 실행 (CLI)
 
 ```bash
-./gradlew dist                                  # → dist/propertee2-0.6.0.jar (self-contained fat jar)
-java -jar dist/propertee2-0.6.0.jar script.tee
+./gradlew dist                                  # → dist/propertee2-0.7.0.jar (self-contained fat jar)
+java -jar dist/propertee2-0.7.0.jar script.tee
 
 # 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
-java -jar dist/propertee2-0.6.0.jar -p '{"width":100,"height":200}' script.tee
+java -jar dist/propertee2-0.7.0.jar -p '{"width":100,"height":200}' script.tee
 ```
 
 > 런타임에 **JDK 25**가 필요하다. 개발 중에는 `./gradlew :propertee-cli:run --args="script.tee"`도 가능.

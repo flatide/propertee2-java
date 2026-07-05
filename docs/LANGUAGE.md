@@ -1,4 +1,4 @@
-# ProperTee Language Specification v0.10.0
+# ProperTee Language Specification v0.11.0
 
 ## Overview
 
@@ -457,6 +457,16 @@ function factorial(n) do
     return n * factorial(n - 1)
 end
 ```
+
+### Name Resolution
+
+A function call `NAME(...)` resolves in this order (specified since spec v0.11.0):
+
+1. If the host has blocked `NAME` (ignored functions), the call is a runtime error: `'NAME' is not available in this environment`.
+2. A script-defined function named `NAME`.
+3. Built-in functions and host-registered external functions.
+
+A script-defined function therefore **shadows** any same-named built-in or external function — and a spec release adding new built-ins can never change what an existing script's calls resolve to. Within step 3, `FAIL` and `UNWRAP` cannot be replaced by host-registered externals (the built-ins win); an external registered under another catalog built-in's name replaces that built-in. Registering externals under the names `PRINT` or `SLEEP` is implementation-defined — avoid it. (Runtime note: this runtime's full dispatch order is ignored functions → script functions → `PRINT`/`SLEEP`/`FAIL`/`UNWRAP` → host externals → builtin catalog.)
 
 ## Variable Scope
 
@@ -1170,6 +1180,12 @@ Common error conditions:
 ## Changelog
 
 > Entries below `spec v0.7.0` use the **v1-runtime version numbers** this copy inherited (v1.0.0, v0.9.0, ... are propertee-java releases, not spec versions). New entries follow the spec versioning of the canonical `flatide/ProperTee` LANGUAGE.md.
+
+### spec v0.11.0 — function-name resolution pinned
+
+A function call now resolves in a specified order — host-blocked check → script-defined functions → built-ins/externals (see [Name Resolution](#name-resolution)) — so a script-defined function shadows any same-named built-in or external in every runtime. Previously this was implementation-defined: this runtime already resolved script functions first (no behavior change here — fixture 104 pins it), while the v1/js runtimes resolved built-ins first and were switched. Pinning script-functions-first also makes future built-in additions genuinely non-breaking.
+
+**Migration note (v1/js runtimes only):** a script that defines a function under a built-in name *and relied on the built-in winning* must rename that function. No grammar or keyword changes; existing fixtures are byte-identical.
 
 ### spec v0.10.0 — Result escalation (`FAIL`/`UNWRAP`) and genuine Results
 

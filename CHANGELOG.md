@@ -3,8 +3,17 @@
 All notable changes to `propertee2-java`. Value/type/scope/error semantics are pinned to the
 ProperTee language spec (`flatide/ProperTee` LANGUAGE.md) — identical to the frozen
 `propertee-java` v1.0.0 up to spec v0.6.0, with the deliberate spec v0.7.0 breaking batch from 0.3.0,
-first-class `null` (spec v0.8.0) from 0.4.0, `elseif` (spec v0.9.0) from 0.5.0, and Result
-escalation (spec v0.10.0) from 0.6.0.
+first-class `null` (spec v0.8.0) from 0.4.0, `elseif` (spec v0.9.0) from 0.5.0, Result
+escalation (spec v0.10.0) from 0.6.0, and pinned function-name resolution (spec v0.11.0) from 0.7.0.
+
+## 0.7.0
+
+Implements **spec v0.11.0 — function-name resolution pinned**: host-blocked check → script-defined
+functions → built-ins/externals, so a script-defined function shadows any same-named built-in or
+external. **No code change** — this runtime already resolved names in that order (ignored →
+script functions → `PRINT`/`SLEEP`/`FAIL`/`UNWRAP` → host externals → catalog); the spec now
+guarantees it, and the new fixture `104_user_function_shadowing` pins it (102 fixtures total).
+The v1/js runtimes switched from builtins-first to script-first in the same spec batch.
 
 ## 0.6.0
 
