@@ -43,20 +43,33 @@ public final class Engine {
      * non-blocking function that may run on the baton.
      */
     public Engine registerExternal(String name, Function<List<Object>, Object> body) {
-        externals.put(name, new ExternalFunction(body, true));
+        externals.put(requireReplaceableName(name), new ExternalFunction(body, true));
         return this;
     }
 
     /** Alias of {@link #registerExternal} kept for v1 API familiarity (both honor the §3.1 contract). */
     public Engine registerExternalAsync(String name, Function<List<Object>, Object> body) {
-        externals.put(name, new ExternalFunction(body, true));
+        externals.put(requireReplaceableName(name), new ExternalFunction(body, true));
         return this;
     }
 
     /** Register a host function the host guarantees is non-blocking — runs in place, keeping the baton. */
     public Engine registerPure(String name, Function<List<Object>, Object> body) {
-        externals.put(name, new ExternalFunction(body, false));
+        externals.put(requireReplaceableName(name), new ExternalFunction(body, false));
         return this;
+    }
+
+    /**
+     * Interpreter-dispatched names cannot be replaced by externals — registering one is a host-API
+     * error (spec v0.13.0; previously PRINT/SLEEP were implementation-defined and FAIL/UNWRAP were
+     * silently ignored).
+     */
+    public static String requireReplaceableName(String name) {
+        if ("PRINT".equals(name) || "SLEEP".equals(name) || "FAIL".equals(name) || "UNWRAP".equals(name)) {
+            throw new IllegalArgumentException("Cannot register an external function named '" + name
+                    + "': interpreter-dispatched names (PRINT, SLEEP, FAIL, UNWRAP) cannot be replaced");
+        }
+        return name;
     }
 
     /** Keywords made unavailable in this environment (using one is a runtime error). */

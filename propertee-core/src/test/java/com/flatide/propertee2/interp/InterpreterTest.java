@@ -132,4 +132,46 @@ class InterpreterTest {
         // The caller's map itself is untouched.
         assertEquals(1, props.get("a"));
     }
+
+    /** Spec v0.13.0: every overflowing integer operator fails loudly (fixtures pin + and literals). */
+    @Test void integerOverflowCoversAllOperators() {
+        assertEquals("Runtime error: Runtime Error at line 1:6: Integer overflow\n",
+                engine.run("PRINT(-2147483647 - 2)\n"));
+        assertEquals("Runtime error: Runtime Error at line 1:6: Integer overflow\n",
+                engine.run("PRINT(46341 * 46341)\n"));
+        assertEquals("Runtime error: Runtime Error at line 1:6: Integer overflow\n",
+                engine.run("PRINT(-(-2147483647 - 1))\n"));                       // negate MIN
+        assertEquals("Runtime error: Runtime Error: Integer overflow\n",
+                engine.run("PRINT(ABS(-2147483647 - 1))\n"));                     // |MIN| doesn't fit
+        assertEquals("Runtime error: Runtime Error: Integer overflow\n",
+                engine.run("PRINT(CEIL(2147483648.5))\n"));
+        assertEquals("Runtime error: Runtime Error: Integer overflow\n",
+                engine.run("PRINT(ROUND(-3000000000.4))\n"));
+        // MIN itself is a legal value: reachable, printable, usable.
+        assertEquals("-2147483648\n-2147483647\n",
+                engine.run("min = -2147483647 - 1\nPRINT(min)\nPRINT(min + 1)\n"));
+    }
+
+    /** Spec v0.13.0: data conversion still promotes out-of-range integrals — JSON round-trips intact. */
+    @Test void dataConversionStillPromotesBeyondTheIntegerRange() {
+        assertEquals("9999999999\ntrue\n", engine.run(
+                "v = UNWRAP(JSON_PARSE(\"{\\\"n\\\":9999999999}\")).n\nPRINT(v)\nPRINT(v > 2147483647)\n"));
+    }
+
+    /** Spec v0.13.0: interpreter-dispatched names are a host-API error at registration time. */
+    @Test void interpreterDispatchedNamesCannotBeRegistered() {
+        for (String name : new String[] { "PRINT", "SLEEP", "FAIL", "UNWRAP" }) {
+            IllegalArgumentException e = org.junit.jupiter.api.Assertions.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new Engine().registerExternal(name, args -> 1));
+            assertTrue(e.getMessage().contains("'" + name + "'"), e.getMessage());
+        }
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new Engine().registerPure("SLEEP", args -> 1));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new Engine().registerExternalAsync("FAIL", args -> 1));
+        // A non-reserved ALL-CAPS name still registers fine (that namespace belongs to the host);
+        // externals stay Result-wrapped as ever.
+        assertEquals("42\n", new Engine().registerPure("ANSWER", args -> 42).run("PRINT(ANSWER().value)\n"));
+    }
 }

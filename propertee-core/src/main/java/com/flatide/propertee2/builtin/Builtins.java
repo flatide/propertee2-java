@@ -142,12 +142,23 @@ public final class Builtins {
         b.register("ABS", Kind.PURE, args -> {
             Object n = arg("ABS", args, 0);
             number("ABS", n);
-            return (n instanceof Integer i) ? (Object) Math.abs(i) : (Object) Math.abs((Double) n);
+            if (n instanceof Integer i) {
+                if (i == Integer.MIN_VALUE) throw new TeeError("Integer overflow");   // |MIN| doesn't fit (v0.13.0)
+                return Math.abs(i);
+            }
+            return Math.abs((Double) n);
         });
         // FLOOR/CEIL/ROUND always return an Integer (FLOOR(3.9)->3, CEIL(3.1)->4, ROUND(3.5)->4).
-        b.register("FLOOR", Kind.PURE, args -> (int) Math.floor(Values.toDouble(number("FLOOR", arg("FLOOR", args, 0)))));
-        b.register("CEIL",  Kind.PURE, args -> (int) Math.ceil(Values.toDouble(number("CEIL", arg("CEIL", args, 0)))));
-        b.register("ROUND", Kind.PURE, args -> (int) Math.round(Values.toDouble(number("ROUND", arg("ROUND", args, 0)))));
+        // A result outside the 32-bit range is a loud error, never a clamp (spec v0.13.0).
+        b.register("FLOOR", Kind.PURE, args -> intResult(Math.floor(Values.toDouble(number("FLOOR", arg("FLOOR", args, 0))))));
+        b.register("CEIL",  Kind.PURE, args -> intResult(Math.ceil(Values.toDouble(number("CEIL", arg("CEIL", args, 0))))));
+        b.register("ROUND", Kind.PURE, args -> intResult(Math.round(Values.toDouble(number("ROUND", arg("ROUND", args, 0))))));
+    }
+
+    /** The 32-bit integer envelope for integer-producing builtins (spec v0.13.0). */
+    private static int intResult(double d) {
+        if (d < Integer.MIN_VALUE || d > Integer.MAX_VALUE) throw new TeeError("Integer overflow");
+        return (int) d;
     }
 
     private static Object minMax(String fn, List<Object> args, boolean max) {

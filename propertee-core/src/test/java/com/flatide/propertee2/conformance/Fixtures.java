@@ -56,7 +56,10 @@ public final class Fixtures {
             "99_fail", "100_unwrap", "101_result_brand", "102_error_unwrap_nonresult",
             "103_fail_thread",
             // spec v0.12.0: reserved all-uppercase namespace (104 retired with it)
-            "105_error_reserved_function_name", "106_function_name_case");
+            "105_error_reserved_function_name", "106_function_name_case",
+            // spec v0.13.0: the integer envelope + blocked-spawn worker containment
+            "107_integer_limits", "108_error_integer_overflow", "109_error_integer_literal",
+            "110_error_integer_overflow_builtin", "111_thread_ignored_function");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.10.0
+
+**Spec v0.13.0 — the edges pinned** (ProperTee `docs/design-draft-v1.0-gate.md`, the
+v1.0-readiness gate; tracked locally, no tracker issues). Probing the envelope the fixtures never
+covered found three-way cross-runtime divergence; now specified and enforced. Breaking only in
+those corners — all previously-covered behavior is byte-identical.
+
+- **Integer envelope (32-bit signed)**: out-of-range integer literals (`Integer literal out of
+  range: …`, positioned — previously an unhandled `NumberFormatException` escaped with a raw
+  stack trace) and overflowing `+`/`-`/`*`/unary `-` (`Integer overflow`, positioned — previously
+  silent Java wrap-around) are runtime errors; `FLOOR`/`CEIL`/`ROUND` (previously silently
+  clamped to MAX) and `ABS` of −2³¹ raise the same positionless catalog error. −2³¹ stays a
+  legal value, reachable as `-2147483647 - 1`. Data conversion (`JSON_PARSE`/`TO_NUMBER`) still
+  promotes beyond-range integrals to decimals. Integer member-access literals and the monitor
+  interval follow the same literal rule.
+- **Blocked-spawn containment**: this runtime already contained a blocked function's `thread`
+  spawn in the worker; fixture 111 now pins it (v1/js change to match).
+- **Interpreter-dispatched names reserved at the host boundary**:
+  `Engine.registerExternal/Async/Pure`, `Interpreter.addRawBuiltin`/`addBlockingExternal`, and
+  the v1 façade's `BuiltinFunctions.register/registerBlocking` all reject `PRINT`/`SLEEP`/
+  `FAIL`/`UNWRAP` with an `IllegalArgumentException` at registration time.
+- Fixtures 107–111 (limits happy path; arithmetic/literal/builtin overflow errors;
+  thread-ignored containment) → **108 fixtures / 291 tests green**.
+
 ## 0.9.2
 
 **v1-compat fidelity fixes (host output channels).** v1's engine is a two-channel contract — the

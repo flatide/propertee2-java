@@ -131,7 +131,7 @@ public final class Interpreter {
 
     /** Register a host builtin whose return value is used as-is (no Result wrapper), e.g. STREAM_FILE. */
     public void addRawBuiltin(String name, java.util.function.Function<List<Object>, Object> fn) {
-        builtins.register(name, Builtins.Kind.PURE, fn::apply);
+        builtins.register(Engine.requireReplaceableName(name), Builtins.Kind.PURE, fn::apply);
     }
 
     /**
@@ -141,7 +141,7 @@ public final class Interpreter {
      * deep-copied for isolation. Use this (not {@link #addRawBuiltin}) for anything slow.
      */
     public void addBlockingExternal(String name, java.util.function.Function<List<Object>, Object> fn) {
-        externals.put(name, new ExternalFunction(fn, true));
+        externals.put(Engine.requireReplaceableName(name), new ExternalFunction(fn, true));
     }
 
     /** Observes multi worker logical-thread lifecycle, so a host (façade) can surface them to a listener. */
@@ -273,7 +273,7 @@ public final class Interpreter {
 
         if (hasMonitor) {
             MonitorClauseContext mc = m.monitorClause();
-            long interval = Long.parseLong(mc.INTEGER().getText());
+            long interval = parseIntLiteral(mc.INTEGER().getText(), mc);   // an INTEGER literal (32-bit rule)
             String resultVarName = m.resultVar != null ? m.resultVar.getText() : null;
             s.spawn("monitor", () -> {
                 try {
@@ -585,7 +585,7 @@ public final class Interpreter {
             case GlobalVarReferenceContext g -> lookupGlobal(g.ID().getText(), g);
             case VarReferenceContext v -> lookupVar(v.ID().getText(), v);
             case DecimalAtomContext d -> Double.parseDouble(d.INTEGER(0).getText() + "." + d.INTEGER(1).getText());
-            case IntegerAtomContext i -> Integer.parseInt(i.INTEGER().getText());
+            case IntegerAtomContext i -> parseIntLiteral(i.INTEGER().getText(), i);
             case StringAtomContext s -> unescape(s.STRING().getText());
             case BooleanAtomContext b -> b.K_TRUE() != null;
             case NullAtomContext n -> JsonNull.NULL;            // spec v0.8.0 (#4): the null literal
@@ -605,12 +605,12 @@ public final class Interpreter {
             if (l instanceof String || r instanceof String) {
                 return TeeFormat.display(l) + TeeFormat.display(r);              // concat (coerce)
             }
-            if (Values.isNumber(l) && Values.isNumber(r)) return numeric(l, r, '+');
+            if (Values.isNumber(l) && Values.isNumber(r)) return numeric(l, r, '+', ad);
             throw err("Addition requires numeric or string operands. Got "
                     + Values.typeName(l) + " + " + Values.typeName(r), ad);
         }
         requireNumbers("-", l, r, ad);
-        return numeric(l, r, '-');
+        return numeric(l, r, '-', ad);
     }
 
     private Object multiplicative(MultiplicativeExprContext mu) {
@@ -622,19 +622,26 @@ public final class Interpreter {
             return Values.toDouble(l) / Values.toDouble(r);                       // always Double
         }
         if (op == '%' && Values.toDouble(r) == 0.0) throw err("Division by zero", mu);
-        return numeric(l, r, op);
+        return numeric(l, r, op, mu);
     }
 
-    /** +,-,*,% with v1 type rule: both Integer -> Integer, otherwise Double. */
-    private static Object numeric(Object l, Object r, char op) {
+    /**
+     * +,-,*,% with v1 type rule: both Integer -> Integer, otherwise Double. Integer results must
+     * stay in the 32-bit range (spec v0.13.0) — overflow is a loud runtime error, never a wrap.
+     */
+    private Object numeric(Object l, Object r, char op, ParserRuleContext ctx) {
         if (l instanceof Integer li && r instanceof Integer ri) {
-            return switch (op) {
-                case '+' -> li + ri;
-                case '-' -> li - ri;
-                case '*' -> li * ri;
-                case '%' -> li % ri;
-                default -> throw new IllegalStateException();
-            };
+            try {
+                return switch (op) {
+                    case '+' -> Math.addExact(li, ri);
+                    case '-' -> Math.subtractExact(li, ri);
+                    case '*' -> Math.multiplyExact(li, ri);
+                    case '%' -> li % ri;   // cannot overflow (Integer.MIN_VALUE % -1 == 0 in Java)
+                    default -> throw new IllegalStateException();
+                };
+            } catch (ArithmeticException overflow) {
+                throw err("Integer overflow", ctx);
+            }
         }
         double a = Values.toDouble(l), b = Values.toDouble(r);
         return switch (op) {
@@ -647,9 +654,21 @@ public final class Interpreter {
     }
 
     private Object negate(Object v, ParserRuleContext ctx) {
-        if (v instanceof Integer i) return -i;
+        if (v instanceof Integer i) {
+            if (i == Integer.MIN_VALUE) throw err("Integer overflow", ctx);   // spec v0.13.0
+            return -i;
+        }
         if (v instanceof Double d) return -d;
         throw err("Unary minus requires a numeric operand. Got " + Values.typeName(v), ctx);
+    }
+
+    /** Integer literals must fit the 32-bit range (spec v0.13.0); tokens are unsigned digits. */
+    private Integer parseIntLiteral(String token, ParserRuleContext ctx) {
+        try {
+            return Integer.parseInt(token);
+        } catch (NumberFormatException tooBig) {
+            throw err("Integer literal out of range: " + token, ctx);
+        }
     }
 
     // ---- comparison / logic ------------------------------------------------
@@ -884,7 +903,7 @@ public final class Interpreter {
         return switch (a) {
             case StaticAccessContext s -> s.ID().getText();
             case StringKeyAccessContext sk -> unescape(sk.STRING().getText());
-            case ArrayAccessContext ar -> String.valueOf(Integer.parseInt(ar.INTEGER().getText())); // int key -> "1"
+            case ArrayAccessContext ar -> String.valueOf(parseIntLiteral(ar.INTEGER().getText(), ar)); // int key -> "1"
             case VarEvalAccessContext ve -> TeeFormat.display(evalVarEval(ve));
             case EvalAccessContext ev -> TeeFormat.display(eval(ev.expression()));
             default -> throw err("unsupported access", a);
@@ -892,7 +911,7 @@ public final class Interpreter {
     }
 
     private int arrayIndex(AccessContext a, ParserRuleContext ctx) {
-        if (a instanceof ArrayAccessContext ar) return Integer.parseInt(ar.INTEGER().getText());
+        if (a instanceof ArrayAccessContext ar) return parseIntLiteral(ar.INTEGER().getText(), ar);
         Object v = switch (a) {
             case VarEvalAccessContext ve -> evalVarEval(ve);
             case EvalAccessContext ev -> eval(ev.expression());
@@ -919,7 +938,7 @@ public final class Interpreter {
 
     private String objectKeyText(ObjectKeyContext k) {
         if (k.STRING() != null) return unescape(k.STRING().getText());
-        return String.valueOf(Integer.parseInt(k.INTEGER().getText())); // integer key -> string
+        return String.valueOf(parseIntLiteral(k.INTEGER().getText(), k)); // integer key -> string
     }
 
     private Object evalArray(ArrayLiteralContext arr) {

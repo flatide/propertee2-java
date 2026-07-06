@@ -1,4 +1,4 @@
-# ProperTee Language Specification v0.12.0
+# ProperTee Language Specification v0.13.0
 
 ## Overview
 
@@ -32,6 +32,26 @@ Scripts that don't touch JSON `null` never see it; check for it explicitly (`if 
 - Arithmetic that produces a whole number result displays without a decimal point: `10 / 2` displays as `5`
 - Division always produces a decimal internally: `7 / 2` → `3.5`
 - Whole-number results of other operations display as integers: `1.0 + 2.0` → `3`
+
+#### The integer range (spec v0.13.0)
+
+Integers are **32-bit signed** values: −2,147,483,648 … 2,147,483,647. Like every other type rule
+in ProperTee, leaving the range fails loudly at the point of use — there is no silent wrap-around
+and no silent promotion to a decimal:
+
+- An integer **literal** must fit the range. Literal tokens are unsigned, so the largest literal is
+  `2147483647`; a larger one is a runtime error: `Integer literal out of range: 9999999999`. The
+  most negative integer −2³¹ cannot be written directly (the minus sign is an operator), but it is
+  a perfectly valid value — reach it with arithmetic: `-2147483647 - 1`.
+- Integer **arithmetic** (`+`, `-`, `*`, unary `-`) whose result leaves the range is a runtime
+  error: `Integer overflow`. (`/` always produces a decimal and cannot overflow; `%` cannot
+  overflow.)
+- The built-ins that produce an integer — `FLOOR`, `CEIL`, `ROUND` (from a decimal) and `ABS`
+  (|−2³¹| does not fit) — raise the same `Integer overflow` error when the result does not fit.
+- **Data is unaffected**: `JSON_PARSE` and `TO_NUMBER` keep representing integral values beyond
+  the range as decimals — data conversion is not script arithmetic, and JSON keeps round-tripping.
+  (Runtime note: `Interpreter.parseIntLiteral` / `Math.*Exact` in `numeric`; `Builtins.intResult`
+  for FLOOR/CEIL/ROUND; fixtures 107–110.)
 
 ### Truthiness
 
@@ -466,7 +486,7 @@ A function call `NAME(...)` resolves in this order (specified since spec v0.11.0
 2. A script-defined function named `NAME`.
 3. Built-in functions and host-registered external functions.
 
-A script-defined function therefore **shadows** any same-named built-in or external function — and a spec release adding new built-ins can never change what an existing script's calls resolve to. Within step 3, `FAIL` and `UNWRAP` cannot be replaced by host-registered externals (the built-ins win); an external registered under another catalog built-in's name replaces that built-in. Registering externals under the names `PRINT` or `SLEEP` is implementation-defined — avoid it. (Runtime note: this runtime's full dispatch order is ignored functions → script functions → `PRINT`/`SLEEP`/`FAIL`/`UNWRAP` → host externals → builtin catalog.)
+A script-defined function therefore **shadows** any same-named built-in or external function — and a spec release adding new built-ins can never change what an existing script's calls resolve to. Within step 3, an external registered under a catalog built-in's name replaces that built-in. The **interpreter-dispatched names** — `PRINT`, `SLEEP`, `FAIL`, `UNWRAP` — cannot be replaced at all: registering an external under one of them is a **host-API error** at registration time (spec v0.13.0; previously `PRINT`/`SLEEP` were implementation-defined and a `FAIL`/`UNWRAP` registration was silently ignored). (Runtime note: `Engine.requireReplaceableName`, enforced in `Engine.register*`, `Interpreter.addRawBuiltin`/`addBlockingExternal`, and the v1 façade's `BuiltinFunctions.register*`; the full dispatch order is ignored functions → script functions → `PRINT`/`SLEEP`/`FAIL`/`UNWRAP` → host externals → builtin catalog.)
 
 Since spec v0.12.0 a script cannot define an all-uppercase function name at all (see [Reserved Function Names](#reserved-function-names)), so a script function can never collide with a built-in in the first place; the order above still governs the residual case of host-registered externals with non-reserved names.
 
@@ -1126,7 +1146,7 @@ x = SHELL("echo hello")   // Runtime error: 'SHELL' is not available in this env
 
 Both built-in and external functions can be ignored. The check applies to normal function calls and to function calls inside multi block `thread` spawns.
 
-**Two enforcement points.** The restrictions above are enforced at **runtime**: the error is raised only when the forbidden construct is reached or the forbidden function is called, so a forbidden construct sitting in an untaken branch is not detected by running the script. For sandboxing, implementations additionally provide an **opt-in static validation pass** (a host API — `Engine.validate(source)` in the reference runtime, `interpreter.validate(tree)` in propertee-java, `visitor.validate(tree)` in propertee-js): it scans the whole parse tree — dead branches included — and returns one `line L:C: 'X' is not available in this environment` entry per hidden-keyword construct and ignored-function call, so a host can reject a script before executing it. The static pass is conservative and has no false negatives for these two restriction types; the runtime checks stay in place as a backstop. Default behavior is unchanged — hosts choose when to validate. (Runtime note: `interp/Validator`, added in 0.9.0; syntax errors throw `Parsing.SyntaxException` as usual.)
+**Two enforcement points.** The restrictions above are enforced at **runtime**: the error is raised only when the forbidden construct is reached or the forbidden function is called, so a forbidden construct sitting in an untaken branch is not detected by running the script. When the forbidden call happens **inside a `multi` worker** — including a blocked function named directly in a `thread` spawn (`thread a: blocked_fn()`) — it fails **that worker only**, exactly like any other worker runtime error: a `[THREAD ERROR]` line plus a `{status:"error"}` Result in the collection, and the run continues (spec v0.13.0; this runtime already behaved this way — fixture 111 pins it). For sandboxing, implementations additionally provide an **opt-in static validation pass** (a host API — `Engine.validate(source)` in the reference runtime, `interpreter.validate(tree)` in propertee-java, `visitor.validate(tree)` in propertee-js): it scans the whole parse tree — dead branches included — and returns one `line L:C: 'X' is not available in this environment` entry per hidden-keyword construct and ignored-function call, so a host can reject a script before executing it. The static pass is conservative and has no false negatives for these two restriction types; the runtime checks stay in place as a backstop. Default behavior is unchanged — hosts choose when to validate. (Runtime note: `interp/Validator`, added in 0.9.0; syntax errors throw `Parsing.SyntaxException` as usual.)
 
 ## Comments
 
@@ -1208,12 +1228,26 @@ Common error conditions:
 | `UNWRAP` on a non-Result | UNWRAP() requires a Result |
 | `FAIL` without a message | FAIL() requires a message argument |
 | All-uppercase function definition | Cannot define function 'X': all-uppercase names are reserved for built-in and host functions |
+| Integer literal too large | Integer literal out of range: 9999999999 |
+| Integer arithmetic overflow (`+` `-` `*`, unary `-`, `FLOOR`/`CEIL`/`ROUND`/`ABS`) | Integer overflow |
 
 ---
 
 ## Changelog
 
 > Entries below `spec v0.7.0` use the **v1-runtime version numbers** this copy inherited (v1.0.0, v0.9.0, ... are propertee-java releases, not spec versions). New entries follow the spec versioning of the canonical `flatide/ProperTee` LANGUAGE.md.
+
+### spec v0.13.0 — the edges pinned: integer envelope, spawn containment, dispatch names
+
+Grown from the v1.0-readiness review (ProperTee `docs/design-draft-v1.0-gate.md`): the corners the
+fixture suite never covered diverged three ways across the runtimes, now specified. **Breaking in
+those corners only.** Integers are pinned to 32-bit signed — out-of-range literals and overflowing
+`+`/`-`/`*`/unary `-` (and integer-producing `FLOOR`/`CEIL`/`ROUND`/`ABS`) are runtime errors
+(this runtime previously wrapped/clamped silently, and an oversized literal even escaped as a raw
+`NumberFormatException`); data conversion (`JSON_PARSE`/`TO_NUMBER`) still promotes to decimals. A
+blocked function reached via `thread` spawn fails that worker only (this runtime already
+conformed; fixture 111 pins it). Registering externals named `PRINT`/`SLEEP`/`FAIL`/`UNWRAP` is a
+host-API error. Fixtures 107–111; shipped in 0.10.0.
 
 ### spec v0.12.0 — the all-uppercase function namespace is reserved
 

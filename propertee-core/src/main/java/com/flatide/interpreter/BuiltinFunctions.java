@@ -56,14 +56,15 @@ public class BuiltinFunctions {
     /** Register an extra host builtin whose return value is used as-is (no Result wrapper). Runs on the
      *  cooperative baton — only for cheap, non-blocking work (e.g. STREAM_FILE returning a descriptor). */
     public void register(String name, BuiltinFunction fn) {
-        custom.put(name, fn);
+        // Interpreter-dispatched names are a registration-time error (spec v0.13.0), as in v1 1.6.0.
+        custom.put(com.flatide.propertee2.interp.Engine.requireReplaceableName(name), fn);
     }
 
     /** Register a host builtin that may block (image/network/disk work). It runs OFF the baton and its
      *  return value becomes Result.ok(value) / a thrown exception becomes Result.error(message). Prefer
      *  this over {@link #register} for anything that does real I/O or heavy CPU (e.g. THUMBNAIL). */
     public void registerBlocking(String name, BuiltinFunction fn) {
-        blocking.put(name, fn);
+        blocking.put(com.flatide.propertee2.interp.Engine.requireReplaceableName(name), fn);
     }
 
     /** Release host resources (e.g. the TaskRunner's process pool). Called by the host after a run. */
