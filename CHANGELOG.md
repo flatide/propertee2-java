@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0
+
+**Spec v0.15.0 — CONTAINS checks array membership.** Additive, non-breaking. `CONTAINS` now
+accepts an array as its first argument and returns whether the second argument is an element —
+`CONTAINS([1, 2, 3], 2)` → `true`. Membership uses the language's `==` (`Values.valuesEqual`), so
+it is by value and deep for objects/arrays (`CONTAINS([{"a":1}], {"a":1})` → `true`) and strict
+across types (`CONTAINS([1, 2], "2")` → `false`). The existing string-substring form is unchanged;
+the built-in dispatches on the first argument's type (`Builtins.CONTAINS`). Fixture 116 →
+**113 fixtures / 301 tests green**.
+
 ## 0.11.0
 
 **Spec v0.14.0 — the number model & load-time rejection pinned** (ProperTee

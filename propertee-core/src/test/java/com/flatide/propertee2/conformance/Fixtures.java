@@ -63,7 +63,9 @@ public final class Fixtures {
             // spec v0.14.0: load-time rejection of blocked constructs + ECMA display + nominal
             // number identity + SUM fail-loud overflow (design-draft-v1.0-gate.md items 2 & 4)
             "112_load_reject_dead_branch", "113_number_display", "114_number_identity",
-            "115_error_sum_overflow");
+            "115_error_sum_overflow",
+            // spec v0.15.0: CONTAINS extended to array membership
+            "116_array_contains");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

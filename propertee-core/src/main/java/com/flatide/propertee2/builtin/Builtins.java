@@ -230,7 +230,16 @@ public final class Builtins {
     }
 
     private static void registerStringMatching(Builtins b) {
-        b.register("CONTAINS",    Kind.PURE, args -> { Pair p = str2("CONTAINS", args); return p.left.contains(p.right); });
+        b.register("CONTAINS", Kind.PURE, args -> {
+            Object coll = arg("CONTAINS", args, 0);
+            Object needle = arg("CONTAINS", args, 1);
+            if (coll instanceof List<?> list) {                          // array membership: any element == needle (deep, like ==)
+                for (Object e : list) if (Values.valuesEqual(e, needle)) return true;
+                return false;
+            }
+            if (coll instanceof String s) return s.contains(string("CONTAINS", needle));  // string substring (unchanged)
+            throw new TeeError("CONTAINS() requires a string or array as its first argument");
+        });
         b.register("STARTS_WITH", Kind.PURE, args -> { Pair p = str2("STARTS_WITH", args); return p.left.startsWith(p.right); });
         b.register("ENDS_WITH",   Kind.PURE, args -> { Pair p = str2("ENDS_WITH", args); return p.left.endsWith(p.right); });
         b.register("MATCHES", Kind.PURE, args -> {
