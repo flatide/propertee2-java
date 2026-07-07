@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.11.0
+
+**Spec v0.14.0 — the number model & load-time rejection pinned** (ProperTee
+`docs/design-draft-v1.0-gate.md`, the last open v1.0-gate item — item 4, plus a revision of item
+2; tracked locally). The final corner the fixtures never covered. Breaking only in those corners —
+all previously-covered behavior is byte-identical.
+
+- **Integer vs decimal is nominal (provenance-based)**: a number's kind is fixed where it is
+  produced, not by whether its value is whole. `2.0 * 1500000000` is the decimal `3000000000`
+  (never overflows) while `2 * 1500000000` overflows; `JSON_PARSE`/`TO_NUMBER` of a `.`/`e`/`E`
+  token is a decimal even when whole. This runtime **already conformed** (nominal typing, lexical
+  data entry) — no identity code changed; the reference is the canonical model here. `SUM` over
+  integers now joins the overflow rule (`Builtins.SUM`: was a silent `int` wrap, now a widened
+  accumulator that raises `Integer overflow`).
+- **Display is ECMA-262 `Number::toString`** (`TeeFormat.formatDouble` rewritten): shortest
+  round-trip digits, plain form in `[1e-6, 1e21)`, exponential (`1e+21`, `1e-7`) outside — uniform
+  across PRINT/TO_STRING/JSON_FORMAT. Everyday bands (`0.0001`, epoch-ms, `6000000000`) now render
+  plain instead of leaking Java scientific notation (`1.0E-4`, `1.50000005E7`). Significant digits
+  come from JDK 25 `Double.toString` (shortest for all normal + realistic values), reformatted to
+  ECMA placement; the near-`Double.MIN_VALUE` subnormal zone is implementation-defined.
+- **Blocked constructs are rejected at load** (`Engine.run` gains a pre-run `Validator.firstViolation`
+  gate, wired only when restrictions are configured): a script naming any hidden keyword or ignored
+  function — anywhere, dead branches and `thread` spawns included — does not run at all; refused
+  before the first statement, on the first violation in document order. Same error string/position
+  as the old runtime check (fixtures 73/74 byte-identical), so this replaces the v0.13.0
+  worker-containment behavior. The `Engine.validate` host API (issue #9) still returns all
+  violations. The v1 façade exposes no hiding, so it is unaffected.
+- Fixtures: 111 rewritten (blocked `thread` spawn now rejects at load); 112 (dead-branch load
+  reject), 113 (ECMA display bands), 114 (nominal identity), 115 (SUM overflow) added →
+  **112 fixtures / 299 tests green**. TeeBox composite-build suite green (187) on the new display.
+
 ## 0.10.0
 
 **Spec v0.13.0 — the edges pinned** (ProperTee `docs/design-draft-v1.0-gate.md`, the

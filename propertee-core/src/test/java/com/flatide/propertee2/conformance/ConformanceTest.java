@@ -17,13 +17,13 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Semantic conformance: run each fixture through the {@link Engine} and diff stdout against
- * {@code .expected} (design §10.1 PE). All 108 fixtures pass — including multi/thread/monitor and the
+ * {@code .expected} (design §10.1 PE). All 112 fixtures pass — including multi/thread/monitor and the
  * host tail, with the documented host injections (-p properties, ENV/file via the default platform,
  * external functions, hidden keywords / ignored functions) configured per fixture below.
  */
 class ConformanceTest {
 
-    /** All 108 fixtures now pass; nothing is deferred. */
+    /** All 112 fixtures now pass; nothing is deferred. */
     static final Set<String> PENDING = Set.of();
 
     /** Host-injected built-in properties (the {@code -p} flag) for fixtures that need them. */
@@ -96,6 +96,7 @@ class ConformanceTest {
             case "73_keyword_ignore" -> e.setHiddenKeywords(Set.of("if"));
             case "74_function_ignore" -> e.setIgnoredFunctions(Set.of("SHELL"));
             case "111_thread_ignored_function" -> e.setIgnoredFunctions(Set.of("blocked_fn"));
+            case "112_load_reject_dead_branch" -> e.setIgnoredFunctions(Set.of("SHELL"));
             default -> { }
         }
         return e;
@@ -107,7 +108,7 @@ class ConformanceTest {
 
     @Test
     void allFixturesCovered() {
-        assertEquals(108, allFixtures().size());
-        assertEquals(108, Fixtures.ALL.size());
+        assertEquals(112, allFixtures().size());
+        assertEquals(112, Fixtures.ALL.size());
     }
 }

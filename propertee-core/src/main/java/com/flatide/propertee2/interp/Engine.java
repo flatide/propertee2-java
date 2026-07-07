@@ -133,6 +133,14 @@ public final class Engine {
     public void run(String source, Map<String, Object> props, PlatformProvider platform,
                     Interpreter.Sink out, Interpreter.Sink err) {
         ProperTeeParser.RootContext root = Parsing.parse(source);
+        // Load-time rejection (spec v0.14.0): a script that names any blocked construct — hidden
+        // keyword or ignored function, dead branches included — does not run at all. Refuse before
+        // executing a single statement, failing on the first violation in document order (the runtime
+        // checks stay as unreachable backstops). Skip the scan entirely when nothing is restricted.
+        if (!hiddenKeywords.isEmpty() || !ignoredFunctions.isEmpty()) {
+            TeeError blocked = Validator.firstViolation(root, hiddenKeywords, ignoredFunctions);
+            if (blocked != null) throw blocked;
+        }
         Coop coop = new Coop();
         Interpreter interp = new Interpreter(out, props, coop, platform,
                 externals, hiddenKeywords, ignoredFunctions, taskRunner);

@@ -130,12 +130,16 @@ public final class Builtins {
         b.register("SUM", Kind.PURE, args -> {
             boolean allInt = true;
             double d = 0;
-            int i = 0;
+            long i = 0;                         // widen the integer path so overflow is detected, not wrapped
             for (Object a : args) {
                 number("SUM", a);
                 if (a instanceof Integer n) { i += n; d += n; } else { allInt = false; d += (Double) a; }
             }
-            return allInt ? (Object) i : (Object) d;
+            if (allInt) {
+                if (i < Integer.MIN_VALUE || i > Integer.MAX_VALUE) throw new TeeError("Integer overflow");  // spec v0.14.0, fail-loud like +/*
+                return (Object) (int) i;
+            }
+            return (Object) d;
         });
         b.register("MAX", Kind.PURE, args -> minMax("MAX", args, true));
         b.register("MIN", Kind.PURE, args -> minMax("MIN", args, false));

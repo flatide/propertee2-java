@@ -36,8 +36,11 @@ class ValidatorTest {
         assertEquals(List.of(
                 "line 5:4: 'multi' is not available in this environment",
                 "line 6:17: 'SHELL' is not available in this environment"), violations);
-        // Backstop unchanged: the same script still runs (the safe branch is taken at runtime).
-        assertEquals("ok\n", engine.run(DEAD_BRANCH));
+        // spec v0.14.0: running the script is now REFUSED at load — the dead-branch violation
+        // rejects the whole run before the "ok" branch executes, failing on the first violation
+        // in document order (multi at 5:4). "ok" never prints (validate() still lists them all).
+        assertEquals("Runtime error: Runtime Error at line 5:4: 'multi' is not available in this environment\n",
+                engine.run(DEAD_BRANCH));
     }
 
     @Test

@@ -64,16 +64,51 @@ public final class TeeFormat {
     }
 
     /**
-     * Number display: integers as-is; doubles drop a trailing {@code .0} when whole
-     * ({@code 10/2 → 5}, {@code 1.0+2.0 → 3}) but keep full precision otherwise
-     * ({@code 10/3 → 3.3333333333333335}).
+     * Number display: ECMA-262 {@code Number::toString} (spec v0.14.0). Whole doubles drop the
+     * fraction ({@code 10/2 → 5}, {@code 1.0+2.0 → 3}); fractional values keep shortest
+     * round-trip digits ({@code 10/3 → 3.3333333333333335}); magnitudes in {@code [1e-6, 1e21)}
+     * render plain ({@code 0.0001}, {@code 15000000.5}, {@code 6000000000}), outside that band
+     * exponential ({@code 1e+21}, {@code 1e-7}). Uniform across PRINT / TO_STRING / JSON_FORMAT.
+     *
+     * <p>The significant digits come from {@link Double#toString} (shortest round-tripping on the
+     * reference's JDK 25); only the placement/exponent is reformatted to ECMA rules. A handful of
+     * values near {@link Double#MIN_VALUE} where the platform's {@code Double.toString} is not the
+     * absolute shortest ({@code 5e-324} vs {@code 4.9E-324}) are implementation-defined and outside
+     * the conformance envelope (design-draft-v1.0-gate.md §4).
      */
     public static String formatDouble(double d) {
-        if (!Double.isInfinite(d) && !Double.isNaN(d)
-                && d == Math.floor(d) && Math.abs(d) < 1e15) {
-            return Long.toString((long) d);
-        }
-        return Double.toString(d);
+        if (Double.isNaN(d)) return "NaN";                                  // unreachable in ProperTee
+        if (Double.isInfinite(d)) return d > 0 ? "Infinity" : "-Infinity";  //   (division by zero errors)
+        if (d == 0.0) return "0";                                          // covers +0.0 and -0.0 (ECMA String(-0) == "0")
+        return d < 0 ? "-" + ecma(-d) : ecma(d);
+    }
+
+    /** ECMA-262 Number::toString rendering of a finite {@code d > 0}. */
+    private static String ecma(double d) {
+        // Decompose Double.toString(d) into shortest significant digits `s` (k of them) and the
+        // ECMA exponent `n` such that value = s × 10^(n-k). Double.toString always yields a mantissa
+        // with a decimal point, optionally an 'E' exponent (e.g. "6.0E9", "0.001", "1.50000005E7").
+        String js = Double.toString(d);
+        int exp = 0;
+        int ei = js.indexOf('E');
+        if (ei >= 0) { exp = Integer.parseInt(js.substring(ei + 1)); js = js.substring(0, ei); }
+        int dot = js.indexOf('.');
+        String digits = js.substring(0, dot) + js.substring(dot + 1);
+        int pointExp = exp - (js.length() - dot - 1);   // value = digits × 10^pointExp
+        int start = 0;
+        while (start < digits.length() - 1 && digits.charAt(start) == '0') start++;   // leading zeros: value-neutral
+        int end = digits.length();
+        while (end - start > 1 && digits.charAt(end - 1) == '0') { end--; pointExp++; } // trailing zeros: bump exponent
+        String s = digits.substring(start, end);
+        int k = s.length();
+        int n = pointExp + k;
+
+        if (k <= n && n <= 21) return s + "0".repeat(n - k);                 // integer, no point:  6000000000
+        if (0 < n && n <= 21)  return s.substring(0, n) + "." + s.substring(n); // point inside:      15000000.5
+        if (-6 < n && n <= 0)  return "0." + "0".repeat(-n) + s;             // leading zeros:      0.0001
+        String mant = k == 1 ? s : s.charAt(0) + "." + s.substring(1);       // exponential:        1e+21 / 1e-7
+        int e = n - 1;
+        return mant + "e" + (e >= 0 ? "+" : "-") + Math.abs(e);
     }
 
     // ---- json (JSON_FORMAT) ----------------------------------------------

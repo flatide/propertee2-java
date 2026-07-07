@@ -57,9 +57,13 @@ public final class Fixtures {
             "103_fail_thread",
             // spec v0.12.0: reserved all-uppercase namespace (104 retired with it)
             "105_error_reserved_function_name", "106_function_name_case",
-            // spec v0.13.0: the integer envelope + blocked-spawn worker containment
+            // spec v0.13.0: the integer envelope (111 rewritten under v0.14.0 — see below)
             "107_integer_limits", "108_error_integer_overflow", "109_error_integer_literal",
-            "110_error_integer_overflow_builtin", "111_thread_ignored_function");
+            "110_error_integer_overflow_builtin", "111_thread_ignored_function",
+            // spec v0.14.0: load-time rejection of blocked constructs + ECMA display + nominal
+            // number identity + SUM fail-loud overflow (design-draft-v1.0-gate.md items 2 & 4)
+            "112_load_reject_dead_branch", "113_number_display", "114_number_identity",
+            "115_error_sum_overflow");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

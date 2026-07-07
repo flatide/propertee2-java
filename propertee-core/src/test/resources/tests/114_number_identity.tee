@@ -1,0 +1,9 @@
+// spec v0.14.0: nominal (provenance-based) identity — the overflow rule applies only to
+// integer-lineage arithmetic; a decimal (incl. whole decimals and / results) never overflows.
+PRINT(2.0 * 1500000000)
+PRINT((10 / 2) * 1000000000)
+PRINT(UNWRAP(JSON_PARSE("2.0")) * 1500000000)
+PRINT(2 + 3.0)
+PRINT(SUM(2000000000, 2000000000.0))
+PRINT(TYPE_OF(1.5 + 1.5))
+PRINT(3 == 1.5 + 1.5)
