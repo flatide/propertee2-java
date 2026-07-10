@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13.0
+
+**Host API — enumerate the callable function names.** No language/spec change (same class of
+release as 0.9.0's `validate`). Hosts that lint scripts before running them need the runtime's
+name set: all-uppercase names are reserved for built-ins/host functions (spec v0.12.0), so an
+ALL-CAPS call outside this set can never be a script function and is guaranteed to fail at call
+time — a zero-false-positive typo check. First consumer: TeeBox 1.13.0's editor pre-check
+("unknown function 'SHEL' (did you mean 'SHELL'?)").
+
+- `Builtins.names()` — snapshot of the registered catalog names.
+- Façade `BuiltinFunctions.knownFunctionNames()` — the interpreter-dispatched names + the full
+  catalog (incl. host-gated/blocking — ENV, file I/O, HTTP, SHELL) + the host builtins registered
+  on the instance. The set is wiring-independent (a bare catalog is enumerated).
+- `Engine.INTERPRETER_DISPATCHED_NAMES` — extracted as the single source for
+  `requireReplaceableName` and the façade (was an inline string chain).
+
+Additive, non-breaking. **113 fixtures / 302 tests green** (+`FacadeTest.knownFunctionNames…`).
+
 ## 0.12.0
 
 **Spec v0.15.0 — CONTAINS checks array membership.** Additive, non-breaking. `CONTAINS` now
