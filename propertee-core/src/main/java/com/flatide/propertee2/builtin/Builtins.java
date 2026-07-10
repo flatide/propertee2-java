@@ -56,6 +56,9 @@ public final class Builtins {
 
     public boolean has(String name) { return registry.containsKey(name); }
 
+    /** Snapshot of the registered builtin names (for host-side validation/linting). */
+    public java.util.Set<String> names() { return java.util.Set.copyOf(registry.keySet()); }
+
     public Kind kindOf(String name) {
         Entry e = registry.get(name);
         return e == null ? null : e.kind();

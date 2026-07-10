@@ -59,13 +59,16 @@ public final class Engine {
         return this;
     }
 
+    /** Names dispatched by the interpreter itself (positioned errors), not via the builtin catalog. */
+    public static final Set<String> INTERPRETER_DISPATCHED_NAMES = Set.of("PRINT", "SLEEP", "FAIL", "UNWRAP");
+
     /**
      * Interpreter-dispatched names cannot be replaced by externals — registering one is a host-API
      * error (spec v0.13.0; previously PRINT/SLEEP were implementation-defined and FAIL/UNWRAP were
      * silently ignored).
      */
     public static String requireReplaceableName(String name) {
-        if ("PRINT".equals(name) || "SLEEP".equals(name) || "FAIL".equals(name) || "UNWRAP".equals(name)) {
+        if (INTERPRETER_DISPATCHED_NAMES.contains(name)) {
             throw new IllegalArgumentException("Cannot register an external function named '" + name
                     + "': interpreter-dispatched names (PRINT, SLEEP, FAIL, UNWRAP) cannot be replaced");
         }

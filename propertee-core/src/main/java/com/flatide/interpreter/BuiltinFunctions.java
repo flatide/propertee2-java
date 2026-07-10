@@ -67,6 +67,25 @@ public class BuiltinFunctions {
         blocking.put(com.flatide.propertee2.interp.Engine.requireReplaceableName(name), fn);
     }
 
+    /**
+     * Every function name a run configured with this object can call: the interpreter-dispatched
+     * names (PRINT/SLEEP/FAIL/UNWRAP), the full engine catalog (incl. host-gated/blocking — ENV,
+     * file I/O, HTTP, SHELL), and the host builtins registered on this instance. Lets a host lint
+     * scripts for unknown ALL-CAPS calls before running them: all-uppercase names are reserved for
+     * builtins/host functions (spec v0.12.0), so an unknown one can never be a script function and
+     * is guaranteed to fail at call time.
+     */
+    public java.util.Set<String> knownFunctionNames() {
+        java.util.Set<String> names = new java.util.TreeSet<>();
+        names.addAll(com.flatide.propertee2.interp.Engine.INTERPRETER_DISPATCHED_NAMES);
+        // The name set is independent of the actual host wiring, so enumerate a bare catalog.
+        names.addAll(com.flatide.propertee2.builtin.Builtins
+                .standard((com.flatide.propertee2.host.PlatformProvider) null).names());
+        names.addAll(custom.keySet());
+        names.addAll(blocking.keySet());
+        return names;
+    }
+
     /** Release host resources (e.g. the TaskRunner's process pool). Called by the host after a run. */
     public void shutdown() {
         if (taskRunner != null) taskRunner.shutdown();

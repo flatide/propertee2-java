@@ -126,6 +126,23 @@ class FacadeTest {
         assertEquals(42, result);
     }
 
+    @Test void knownFunctionNamesCoverDispatchCatalogAndHostRegistrations() {
+        BuiltinFunctions.PrintFunction sink = args -> {};
+        BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);
+        builtins.register("STREAM_FILE", args -> null);
+        builtins.registerBlocking("THUMBNAIL", args -> null);
+
+        java.util.Set<String> names = builtins.knownFunctionNames();
+        // Interpreter-dispatched names (not in the catalog).
+        assertEquals(true, names.containsAll(java.util.Set.of("PRINT", "SLEEP", "FAIL", "UNWRAP")));
+        // Catalog: pure, host-gated, and blocking builtins are all callable names.
+        assertEquals(true, names.containsAll(java.util.Set.of("SUM", "CONTAINS", "JSON_PARSE", "ENV", "SHELL", "HTTP_GET")));
+        // Host registrations on this instance.
+        assertEquals(true, names.containsAll(java.util.Set.of("STREAM_FILE", "THUMBNAIL")));
+        // A typo is not a known name.
+        assertEquals(false, names.contains("PRIN"));
+    }
+
     @Test void blockingHostBuiltinIsResultWrappedOffBaton() {
         java.util.List<String> out = new ArrayList<>();
         BuiltinFunctions.PrintFunction sink = a -> out.add(join(a));
