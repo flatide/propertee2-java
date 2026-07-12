@@ -24,8 +24,14 @@ ProperTee `docs/design-draft-monitor-watchdog.md`; mildly breaking (details ther
   reporting, no setup-locals. `Mode.MONITOR` special cases in `Interpreter.lookupVar`/`assign`
   deleted; `ExecContext.injected` removed.
 
-Fixture 32 rewritten (global-write error), 117–118 added (iteration locals/loops/function calls;
-capture under suspension) → **115 fixtures / 306 tests green, deterministic.**
+Fixture 32 rewritten (global-write error), 117–120 added (iteration locals/loops/function calls;
+capture under suspension; nested `::g.x` member-write guard with the global left untouched; fresh
+scope per iteration) → **117 fixtures / 310 tests green, deterministic.** 119/120 came out of a
+post-ship review (which also caught js-side holes — see ProperTee
+`docs/design-draft-monitor-watchdog.md` §Post-ship review findings); the same review flagged the
+local `docs/LANGUAGE.md` copy as contradicting the shipped semantics, so it is now content-synced
+through v0.14.0–v0.16.0 (nominal number identity, ECMA display, load-time rejection, CONTAINS,
+monitor watchdog — it had silently lagged at v0.13.0).
 
 ## 0.13.0
 

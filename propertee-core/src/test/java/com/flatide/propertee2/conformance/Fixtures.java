@@ -68,7 +68,8 @@ public final class Fixtures {
             "116_array_contains",
             // spec v0.16.0: monitor = watchdog thread (32 rewritten — worker purity, iteration
             // locals, per-iteration captured result snapshot)
-            "117_monitor_watchdog_locals", "118_monitor_captures_snapshot");
+            "117_monitor_watchdog_locals", "118_monitor_captures_snapshot",
+            "119_error_monitor_global_member", "120_monitor_fresh_scope");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

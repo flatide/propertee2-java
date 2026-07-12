@@ -1,4 +1,4 @@
-# ProperTee Language Specification v0.13.0
+# ProperTee Language Specification v0.16.0
 
 ## Overview
 
@@ -32,6 +32,29 @@ Scripts that don't touch JSON `null` never see it; check for it explicitly (`if 
 - Arithmetic that produces a whole number result displays without a decimal point: `10 / 2` displays as `5`
 - Division always produces a decimal internally: `7 / 2` → `3.5`
 - Whole-number results of other operations display as integers: `1.0 + 2.0` → `3`
+
+#### Integer vs decimal is nominal (spec v0.14.0)
+
+Whether a number is an **integer** or a **decimal** is fixed *where the value is produced* — by the
+operation's structure, not by whether the runtime value happens to be whole. A decimal that lands on
+a whole value (`1.5 + 1.5`) stays a decimal; it never turns back into an integer.
+
+- **Integers** come from: integer literals; integer-with-integer `+`, `-`, `*`, `%`, and unary `-`
+  (overflow-checked, below); and integer-producing built-ins (`LEN`, `FLOOR`, `CEIL`, `ROUND`,
+  `ABS` of an integer, and the like).
+- **Decimals** come from: decimal literals (including whole ones like `3.0`); any `/`; any operation
+  with a decimal operand (`2 + 3.0` → decimal `5`); decimal-producing built-ins (`RANDOM`, …); and
+  data whose text carries a fraction or exponent — `JSON_PARSE`/`TO_NUMBER` of a token containing
+  `.`, `e`, or `E`, or of an integer literal outside the 32-bit range.
+
+The only places this distinction is observable are the **integer-overflow rule** (next section) and
+**display of extreme magnitudes** (§Output Formatting): whether an expression *can* overflow is
+decided by its structure, never by the data flowing through it, so `2.0 * 1500000000` is the plain
+decimal `3000000000` while `2 * 1500000000` (both integers) overflows. Everything else treats the two
+alike — `TYPE_OF` is `"number"` for both, `2 == 2.0` is `true`, and a whole value displays the same
+either way. Where an **integer is required** (indexing, dynamic keys, integer built-in arguments) a
+whole decimal is accepted by coercion; a non-whole decimal is an error, as before. (Runtime note:
+this maps directly onto the `Integer`/`Double` boxing in `value/Values` — the kind is the box.)
 
 #### The integer range (spec v0.13.0)
 
@@ -482,7 +505,7 @@ end
 
 A function call `NAME(...)` resolves in this order (specified since spec v0.11.0):
 
-1. If the host has blocked `NAME` (ignored functions), the call is a runtime error: `'NAME' is not available in this environment`.
+1. If the host has blocked `NAME` (ignored functions), the call is invalid — its mere presence refuses the whole script at load (spec v0.14.0): `'NAME' is not available in this environment`. See [Host Environment Restrictions](#host-environment-restrictions).
 2. A script-defined function named `NAME`.
 3. Built-in functions and host-registered external functions.
 
@@ -705,13 +728,13 @@ This guarantees no data races — threads never see each other's modifications.
 4. The result collection is pre-built with `"running"` entries at spawn time
 5. Threads execute cooperatively, interleaving at statement boundaries
 6. As each thread completes, its result entry is updated in-place to `"done"` or `"error"`
-7. The monitor clause can read the live result collection during execution
+7. The monitor watchdog observes the result collection through a captured snapshot taken at the start of each of its iterations (spec v0.16.0)
 8. All threads must complete before execution continues past `end`
 9. The result collection is assigned to `resultVar` after **all** threads finish
 
 ### Monitor Clause
 
-An optional `monitor` clause runs code periodically while threads execute:
+An optional `monitor` clause attaches a **watchdog thread** to the multi block — a thread the runtime spawns and manages automatically alongside the workers (spec v0.16.0):
 
 ```
 multi result do
@@ -722,12 +745,12 @@ monitor 100
 end
 ```
 
-- The number after `monitor` is the interval in milliseconds
-- Monitor code is **read-only** — variable assignment inside a monitor is a runtime error
-- Monitor can call built-in functions (e.g., `PRINT`)
-- Monitor can read the result collection variable to check thread status (e.g., `result.key.status`)
-- Monitor can read global variables (via `::` prefix) but **cannot** access setup phase locals — the monitor runs in its own scope containing only globals and the result variable
-- Monitor runs one final time after all threads complete
+- The number after `monitor` is the watchdog's **sleep interval** in milliseconds: the watchdog repeatedly sleeps for the interval, then runs its body once. The body's own execution (and any suspension inside it) adds to the cycle — this is a sleep *between* iterations, not a fixed-rate timer.
+- Once every worker has finished, the watchdog runs the body **one final time** and ends; the multi block completes after that final iteration. The final run is guaranteed — the watchdog always observes the finished collection at least once, even if an earlier iteration failed. (*When* the final run starts — immediately on the last worker's completion, or at the watchdog's next wake-up — is implementation timing; the spec promises only that it runs. This runtime runs it when the in-flight sleep expires.)
+- The watchdog follows the **same purity rules as worker threads**: globals are a read-only snapshot (`::` reads work; a `::` write is the same runtime error as in a worker), and plain names are locals. It cannot see setup-phase locals.
+- Each iteration runs like a function invocation, in a **fresh local scope** — locals do not carry over between iterations. Local assignment, loops, and function calls are all allowed in the body.
+- The iteration's scope starts with one binding: the result collection variable, holding a **captured snapshot** (deep copy) of the collection taken as the iteration starts.
+- If an iteration fails, the error is reported (`[MONITOR ERROR] ...`), remaining mid-run iterations are skipped, and the final iteration still runs.
 
 ```
 multi result do
@@ -737,7 +760,7 @@ monitor 100
 end
 ```
 
-**How the monitor accesses `result`:** In the code above, the monitor body references `result` even though `result` is only assigned after all threads finish (at `end`). This works because the scheduler **injects** the live result collection into the monitor's scope under the `resultVar` name at each monitor tick. The monitor does not read the final assigned variable — it reads a live, in-place-updated map that the scheduler maintains as threads complete. This is why the monitor can see `"running"` entries transition to `"done"` in real time, even though the `result = ...` assignment hasn't happened yet.
+**How the watchdog sees `result`:** In the code above, the monitor body references `result` even though `result` is only assigned after all threads finish (at `end`). Each watchdog iteration starts by **capturing** the in-progress result collection — a deep-copied snapshot bound under the `resultVar` name in the iteration's scope. The capture is consistent for the whole iteration, even if the body suspends (e.g. `SLEEP`, a blocking call — legal in this runtime) while workers keep completing; the next iteration takes a fresh capture, which is how the watchdog sees `"running"` entries become `"done"` across iterations. The guaranteed final iteration captures the finished collection. (Before spec v0.16.0 the monitor read a live view instead and could not assign at all — see the changelog. Runtime note: the watchdog is literally a fiber — `Interpreter.runThreads` spawns it like a worker, looping `coop.sleep(interval)` → body.)
 
 ### Sequential Multi Blocks
 
@@ -838,7 +861,7 @@ The single-argument form `RANDOM(max)` was **removed in spec v0.7.0** — its ex
 | `SPLIT(s, delimiter)` | Split string into array. Preserves trailing empty strings. |
 | `JOIN(arr, [separator])` | Join array elements into string. Default separator is `""`. |
 | `CHARS(s)` | Split string into array of single characters |
-| `CONTAINS(s, sub)` | Returns `true` if `s` contains `sub` |
+| `CONTAINS(s, sub)` | Returns `true` if string `s` contains substring `sub`. Also accepts an array as the first argument — see [Array Functions](#array-functions). |
 | `STARTS_WITH(s, prefix)` | Returns `true` if `s` starts with `prefix` |
 | `ENDS_WITH(s, suffix)` | Returns `true` if `s` ends with `suffix` |
 | `MATCHES(s, pattern)` | Returns `true` if regex `pattern` matches anywhere in `s` |
@@ -858,6 +881,7 @@ The single-argument form `RANDOM(max)` was **removed in spec v0.7.0** — its ex
 | `SORT_BY(arr, key)` | Returns new array of objects sorted ascending by the given key. |
 | `SORT_BY_DESC(arr, key)` | Returns new array of objects sorted descending by the given key. |
 | `REVERSE(arr)` | Returns new array with elements in reverse order. No type restriction. |
+| `CONTAINS(arr, item)` | Returns `true` if `item` is an element of `arr` (spec v0.15.0). Elements are compared with `==` — so it is by value and deep for objects/arrays (`CONTAINS([{"a":1}], {"a":1})` → `true`), and strict across types (`CONTAINS([1,2], "2")` → `false`). Same built-in as the string-substring `CONTAINS` above, dispatched on the first argument's type (`Builtins.CONTAINS`). |
 
 ### Object Functions
 
@@ -1125,28 +1149,30 @@ visitor.setHiddenKeywords(["multi", "loop"]);
 visitor.setIgnoredFunctions(["SHELL"]);
 ```
 
-**Hidden keywords** produce a runtime error when the corresponding statement is encountered:
+**Hidden keywords** make a script that uses the statement refuse to run:
 
 ```
 // With "if" hidden:
 x = 10
-if x == 10 then    // Runtime error: 'if' is not available in this environment
+if x == 10 then    // 'if' is not available in this environment — the whole script is refused
     PRINT(x)
 end
 ```
 
 Keywords that can be hidden: `if`, `loop`, `function`, `multi`, `thread`, `debug`. Hiding `if` covers the whole `if`/`elseif`/`else` statement.
 
-**Ignored functions** produce a runtime error when called:
+**Ignored functions** make a script that calls the function refuse to run:
 
 ```
 // With "SHELL" ignored:
-x = SHELL("echo hello")   // Runtime error: 'SHELL' is not available in this environment
+x = SHELL("echo hello")   // 'SHELL' is not available in this environment — the whole script is refused
 ```
 
 Both built-in and external functions can be ignored. The check applies to normal function calls and to function calls inside multi block `thread` spawns.
 
-**Two enforcement points.** The restrictions above are enforced at **runtime**: the error is raised only when the forbidden construct is reached or the forbidden function is called, so a forbidden construct sitting in an untaken branch is not detected by running the script. When the forbidden call happens **inside a `multi` worker** — including a blocked function named directly in a `thread` spawn (`thread a: blocked_fn()`) — it fails **that worker only**, exactly like any other worker runtime error: a `[THREAD ERROR]` line plus a `{status:"error"}` Result in the collection, and the run continues (spec v0.13.0; this runtime already behaved this way — fixture 111 pins it). For sandboxing, implementations additionally provide an **opt-in static validation pass** (a host API — `Engine.validate(source)` in the reference runtime, `interpreter.validate(tree)` in propertee-java, `visitor.validate(tree)` in propertee-js): it scans the whole parse tree — dead branches included — and returns one `line L:C: 'X' is not available in this environment` entry per hidden-keyword construct and ignored-function call, so a host can reject a script before executing it. The static pass is conservative and has no false negatives for these two restriction types; the runtime checks stay in place as a backstop. Default behavior is unchanged — hosts choose when to validate. (Runtime note: `interp/Validator`, added in 0.9.0; syntax errors throw `Parsing.SyntaxException` as usual.)
+**Load-time rejection (spec v0.14.0).** A script that names *any* blocked construct — a hidden keyword or an ignored-function call, **anywhere in the source, dead branches included** — does not run at all. The run is refused **before the first statement executes**, failing on the **first violation in document order** with `Runtime Error at line L:C: 'X' is not available in this environment`. Nothing before the offending construct runs — no output, no side effects — so in the examples above `x = 10` never executes. Because the check scans the whole tree, a blocked construct in an untaken branch (`if false then SHELL(...) end`) still refuses the script, and a blocked function reached only through a `thread` spawn (`thread a: blocked_fn()`) is rejected at load rather than inside the worker (this supersedes the spec v0.13.0 worker-containment behavior — the worker is never reached). The language has no indirect calls (call sites are literal names) and its keywords are static, so this scan is exact. (Runtime note: `Engine.run` gates on `Validator.firstViolation` before the Coop scheduler starts, only when restrictions are configured; the v1-compat façade exposes no hiding, so it is unaffected.)
+
+The same scan is also exposed as a **host API** that returns *all* violations at once — `Engine.validate(source)` in the reference runtime, `interpreter.validate(tree)` in propertee-java, `visitor.validate(tree)` in propertee-js — each yielding one `line L:C: 'X' is not available in this environment` entry per hidden-keyword construct and ignored-function call, for hosts that want to inspect a script (e.g. report every problem in an editor) without running it. (Runtime note: `interp/Validator`, added in 0.9.0; syntax errors throw `Parsing.SyntaxException` as usual.)
 
 ## Comments
 
@@ -1188,6 +1214,26 @@ When values are printed or displayed:
 
 Strings inside arrays and objects are displayed with single quotes. Top-level strings printed via `PRINT` have no quotes.
 
+### Number display (spec v0.14.0)
+
+Numbers render by **ECMA-262 `Number::toString`**, uniformly across `PRINT`, `TO_STRING`,
+`JSON_FORMAT`, and rendering inside arrays/objects. In practice:
+
+- The **shortest decimal digits** that round-trip back to the same value — `10 / 3` →
+  `3.3333333333333335`, `0.1 + 0.2` → `0.30000000000000004`. A whole value shows no fraction
+  (`5`, not `5.0`), which is why the rows above hold.
+- **Plain** (non-exponential) form for magnitudes in the range `[1e-6, 1e21)`: `0.0001`,
+  `15000000.5`, `6000000000`, `123456789012345680000`. This keeps the everyday bands — timestamps,
+  small rates, ids — readable, and the output is valid JSON.
+- **Exponential** form outside that range, written `e+`/`e-` with no superfluous mantissa point:
+  `1e+21`, `1e-7`, `1e+300`.
+
+> Significant digits are the *shortest round-tripping* decimal for the value. A few values at the
+> very edge of the subnormal range (near `5e-324`) are where a host platform's own shortest-digit
+> routine may differ by one digit; those are implementation-defined and outside the conformance
+> suite. No value an ordinary program produces is affected. (Runtime note: `TeeFormat.formatDouble`
+> reformats JDK `Double.toString` digits into the ECMA layout.)
+
 ## Runtime Errors
 
 ProperTee reports errors with line and column information:
@@ -1212,9 +1258,8 @@ Common error conditions:
 | Missing property | Property 'x' does not exist |
 | Array out of bounds | Array index out of bounds |
 | Loop limit exceeded | Loop exceeded maximum iterations (1000) |
-| Global write in multi block | Cannot assign to global variable '::x' inside multi block |
+| Global write in multi block (worker or monitor watchdog) | Cannot assign to global variable '::x' inside multi block |
 | Global without `::` in local scope | Variable 'x' is not defined in local scope. Use ::x to access the global variable |
-| Assignment in monitor | Cannot assign variables in monitor block (read-only) |
 | thread outside multi | thread can only be used inside multi blocks |
 | Duplicate result key | Duplicate result key 'x' in multi block |
 | Too many arguments | Function 'foo' expects 2 argument(s), but 3 were provided |
@@ -1229,13 +1274,57 @@ Common error conditions:
 | `FAIL` without a message | FAIL() requires a message argument |
 | All-uppercase function definition | Cannot define function 'X': all-uppercase names are reserved for built-in and host functions |
 | Integer literal too large | Integer literal out of range: 9999999999 |
-| Integer arithmetic overflow (`+` `-` `*`, unary `-`, `FLOOR`/`CEIL`/`ROUND`/`ABS`) | Integer overflow |
+| Integer arithmetic overflow (`+` `-` `*`, unary `-`, `FLOOR`/`CEIL`/`ROUND`/`ABS`, `SUM`) | Integer overflow |
+| Blocked construct present (hidden keyword / ignored function, anywhere) | 'X' is not available in this environment |
 
 ---
 
 ## Changelog
 
 > Entries below `spec v0.7.0` use the **v1-runtime version numbers** this copy inherited (v1.0.0, v0.9.0, ... are propertee-java releases, not spec versions). New entries follow the spec versioning of the canonical `flatide/ProperTee` LANGUAGE.md.
+
+### spec v0.16.0 — the monitor is a watchdog thread
+
+The `monitor` clause is re-specified as what its name suggests: a **watchdog thread** the runtime
+spawns and manages automatically alongside the workers (see [Monitor Clause](#monitor-clause)).
+`monitor 500` means the watchdog **sleeps 500 ms between iterations** (fixed-delay, like a thread
+running `SLEEP` in a loop) — not "poll every 500 ms"; this runtime's fiber loop already did exactly
+that, so the spec now describes the implementation. Each iteration runs like a function invocation
+in a fresh local scope (local assignment, loops, and function calls are now allowed — previously
+*any* assignment was a runtime error), follows worker purity (`::` writes raise the worker error;
+the bare-name global fallthrough is removed), and binds a **deep-copied capture** of the result
+collection instead of a live view. Unchanged: sleep-first cadence, the guaranteed final iteration,
+`[MONITOR ERROR]` reporting (a failing iteration stops mid-run iterations; the final one still
+runs), and the no-setup-locals rule. Mildly breaking (error-relying and bare-global-read corners
+only). Fixture 32 rewritten, 117–120 added; shipped in 0.14.0. Decision record: ProperTee
+`docs/design-draft-monitor-watchdog.md`.
+
+### spec v0.15.0 — CONTAINS checks array membership
+
+Additive, non-breaking. `CONTAINS` now also accepts an **array** as its first argument and
+returns `true` when the second argument is an element of it — `CONTAINS([1, 2, 3], 2)` → `true`.
+Membership uses `==` (`Values.valuesEqual`), so it is by value and deep for objects/arrays and
+strict across types. The existing string-substring form is unchanged; the built-in dispatches on
+the first argument's type. Fixture 116; shipped in 0.12.0.
+
+### spec v0.14.0 — the number model & load-time rejection pinned (the last v1.0-gate item)
+
+Closes the final open corner of the v1.0-readiness review (ProperTee `docs/design-draft-v1.0-gate.md`
+item 4, plus a revision of item 2). **Breaking only in corners no fixture-covered script reaches.**
+
+- **Integer vs decimal is nominal (provenance-based)**: a number's kind is fixed where it is
+  produced, not by whether its value is whole (see [Integer vs decimal is nominal](#integer-vs-decimal-is-nominal-spec-v0140)).
+  This runtime already conformed — nominal typing is the `Integer`/`Double` box; no identity code
+  changed. `SUM` over integers joins the overflow rule (`Builtins.SUM`, widened accumulator).
+- **Display is ECMA-262 `Number::toString`**, uniform across `PRINT`/`TO_STRING`/`JSON_FORMAT`
+  (see [Number display](#number-display-spec-v0140); `TeeFormat.formatDouble` rewritten).
+- **Blocked constructs are rejected at load** (revises v0.13.0 item 2): a script naming any hidden
+  keyword or ignored function — anywhere, dead branches and `thread` spawns included — does not run
+  at all; it is refused before the first statement, on the first violation in document order
+  (`Engine.run` pre-run gate via `Validator.firstViolation`). This replaces both the per-call
+  runtime error and the v0.13.0 worker-containment behavior.
+
+Fixtures 111 rewritten, 112–115 added; shipped in 0.11.0.
 
 ### spec v0.13.0 — the edges pinned: integer envelope, spawn containment, dispatch names
 
