@@ -1,6 +1,6 @@
 package com.flatide.propertee2.interp;
 
-import com.flatide.parser.ProperTeeParser.*;
+import com.flatide.propertee2.parser.ProperTeeParser.*;
 import com.flatide.propertee2.value.TeeError;
 
 import org.antlr.v4.runtime.ParserRuleContext;

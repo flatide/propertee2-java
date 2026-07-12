@@ -1,7 +1,7 @@
-package com.flatide.core;
+package com.flatide.propertee2.core;
 
-import com.flatide.parser.ProperTeeLexer;
-import com.flatide.parser.ProperTeeParser;
+import com.flatide.propertee2.parser.ProperTeeLexer;
+import com.flatide.propertee2.parser.ProperTeeParser;
 
 import org.antlr.v4.runtime.ANTLRInputStream;
 import org.antlr.v4.runtime.BaseErrorListener;

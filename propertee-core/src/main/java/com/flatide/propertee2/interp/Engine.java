@@ -4,7 +4,7 @@ import com.flatide.propertee2.Parsing;
 import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.host.DefaultPlatformProvider;
 import com.flatide.propertee2.host.PlatformProvider;
-import com.flatide.parser.ProperTeeParser;
+import com.flatide.propertee2.parser.ProperTeeParser;
 import com.flatide.propertee2.value.TeeError;
 
 import java.util.LinkedHashMap;
@@ -28,11 +28,11 @@ public final class Engine {
     private final Map<String, ExternalFunction> externals = new LinkedHashMap<>();
     private Set<String> hiddenKeywords = Set.of();
     private Set<String> ignoredFunctions = Set.of();
-    private com.flatide.task.TaskRunner taskRunner = new com.flatide.task.UnsupportedTaskRunner();
+    private com.flatide.propertee2.task.TaskRunner taskRunner = new com.flatide.propertee2.task.UnsupportedTaskRunner();
 
-    /** Host process executor for SHELL (the v1 com.flatide.task contract). Default: none (SHELL errors). */
-    public Engine setTaskRunner(com.flatide.task.TaskRunner taskRunner) {
-        this.taskRunner = taskRunner != null ? taskRunner : new com.flatide.task.UnsupportedTaskRunner();
+    /** Host process executor for SHELL (the v1 com.flatide.propertee2.task contract). Default: none (SHELL errors). */
+    public Engine setTaskRunner(com.flatide.propertee2.task.TaskRunner taskRunner) {
+        this.taskRunner = taskRunner != null ? taskRunner : new com.flatide.propertee2.task.UnsupportedTaskRunner();
         return this;
     }
 

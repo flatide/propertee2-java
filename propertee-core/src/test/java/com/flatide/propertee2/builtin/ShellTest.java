@@ -3,16 +3,16 @@ package com.flatide.propertee2.builtin;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.flatide.propertee2.interp.Engine;
-import com.flatide.task.Task;
-import com.flatide.task.TaskObservation;
-import com.flatide.task.TaskRequest;
-import com.flatide.task.TaskRunner;
+import com.flatide.propertee2.task.Task;
+import com.flatide.propertee2.task.TaskObservation;
+import com.flatide.propertee2.task.TaskRequest;
+import com.flatide.propertee2.task.TaskRunner;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
-/** SHELL routes through the host TaskRunner (com.flatide.task contract); default = unsupported. */
+/** SHELL routes through the host TaskRunner (com.flatide.propertee2.task contract); default = unsupported. */
 class ShellTest {
 
     /** Minimal in-memory TaskRunner: one finished task with fixed output + exit code. */

@@ -1,9 +1,9 @@
-package com.flatide.scheduler;
+package com.flatide.propertee2.scheduler;
 
-import com.flatide.interpreter.ProperTeeInterpreter;
+import com.flatide.propertee2.interpreter.ProperTeeInterpreter;
 
 /**
- * v1 API surface (com.flatide.scheduler.Scheduler). v1's scheduler drove the stepper; propertee2 owns
+ * v1 API surface (com.flatide.propertee2.scheduler.Scheduler). v1's scheduler drove the stepper; propertee2 owns
  * cooperative scheduling inside the engine, so this façade simply hands the run to the interpreter and
  * relays the result. The optional {@link SchedulerListener} receives logical-thread lifecycle events.
  */

@@ -1,4 +1,4 @@
-package com.flatide.interpreter;
+package com.flatide.propertee2.interpreter;
 
 import com.flatide.propertee2.host.PlatformProvider.DirEntry;
 import com.flatide.propertee2.host.PlatformProvider.FileStat;
@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Bridges a v1 {@link com.flatide.platform.PlatformProvider} (what TeeBox supplies) to the engine's
+ * Bridges a v1 {@link com.flatide.propertee2.platform.PlatformProvider} (what TeeBox supplies) to the engine's
  * {@code com.flatide.propertee2.host.PlatformProvider} so the ENV / file-I/O builtins use the host's
  * platform. Two impedance mismatches are handled here:
  * <ul>
@@ -25,9 +25,9 @@ import java.util.Map;
  */
 final class PlatformAdapter implements com.flatide.propertee2.host.PlatformProvider {
 
-    private final com.flatide.platform.PlatformProvider v1;
+    private final com.flatide.propertee2.platform.PlatformProvider v1;
 
-    PlatformAdapter(com.flatide.platform.PlatformProvider v1) { this.v1 = v1; }
+    PlatformAdapter(com.flatide.propertee2.platform.PlatformProvider v1) { this.v1 = v1; }
 
     // env / fileExists never signal I/O failure in v1 (return a value), so they pass through untranslated.
     @Override public String env(String name) { return v1.getEnv(name); }
@@ -44,7 +44,7 @@ final class PlatformAdapter implements com.flatide.propertee2.host.PlatformProvi
 
     @Override public FileStat fileInfo(String path) throws IOException {
         return io(() -> {
-            com.flatide.platform.PlatformProvider.FileInfo fi = v1.fileInfo(path);
+            com.flatide.propertee2.platform.PlatformProvider.FileInfo fi = v1.fileInfo(path);
             return new FileStat(fi.type, fi.size, fi.modified);
         });
     }
@@ -52,7 +52,7 @@ final class PlatformAdapter implements com.flatide.propertee2.host.PlatformProvi
     @Override public List<DirEntry> listDir(String path) throws IOException {
         return io(() -> {
             List<DirEntry> out = new ArrayList<>();
-            for (com.flatide.platform.PlatformProvider.FileEntry e : v1.listDir(path)) {
+            for (com.flatide.propertee2.platform.PlatformProvider.FileEntry e : v1.listDir(path)) {
                 out.add(new DirEntry(e.name, e.type, e.size));
             }
             return out;
@@ -63,7 +63,7 @@ final class PlatformAdapter implements com.flatide.propertee2.host.PlatformProvi
     public com.flatide.propertee2.host.PlatformProvider.HttpResponse httpRequest(
             String method, String url, Map<String, String> headers, String body, int timeoutMs) throws IOException {
         return io(() -> {
-            com.flatide.platform.PlatformProvider.HttpResponse r =
+            com.flatide.propertee2.platform.PlatformProvider.HttpResponse r =
                     v1.httpRequest(method, url, headers, body, timeoutMs);
             Map<String, String> outHeaders = new LinkedHashMap<>();
             if (r.headers != null) outHeaders.putAll(r.headers);

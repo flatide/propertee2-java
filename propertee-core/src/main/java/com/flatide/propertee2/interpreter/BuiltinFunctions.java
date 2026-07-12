@@ -1,14 +1,14 @@
-package com.flatide.interpreter;
+package com.flatide.propertee2.interpreter;
 
-import com.flatide.platform.PlatformProvider;
-import com.flatide.task.TaskRunner;
+import com.flatide.propertee2.platform.PlatformProvider;
+import com.flatide.propertee2.task.TaskRunner;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * v1 API surface (com.flatide.interpreter.BuiltinFunctions) over the propertee2 engine.
+ * v1 API surface (com.flatide.propertee2.interpreter.BuiltinFunctions) over the propertee2 engine.
  *
  * <p>In v1 this class both held the builtin catalog and ran it. In propertee2 the catalog lives in the
  * engine ({@code com.flatide.propertee2.builtin.Builtins}); this façade is the <em>configuration</em> a

@@ -1,4 +1,4 @@
-package com.flatide.platform;
+package com.flatide.propertee2.platform;
 
 import java.util.List;
 import java.util.Map;

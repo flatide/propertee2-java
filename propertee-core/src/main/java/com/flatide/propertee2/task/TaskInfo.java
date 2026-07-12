@@ -1,8 +1,8 @@
-package com.flatide.task;
+package com.flatide.propertee2.task;
 
 import java.util.List;
 
-// Ported verbatim from propertee-java v1.0.0 (com.flatide.task) — host-task API reused as-is (design §7).
+// Ported verbatim from propertee-java v1.0.0 (com.flatide.propertee2.task) — host-task API reused as-is (design §7).
 public class TaskInfo {
     public String taskId;
     public String runId;

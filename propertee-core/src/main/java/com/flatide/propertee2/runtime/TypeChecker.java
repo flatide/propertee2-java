@@ -1,4 +1,4 @@
-package com.flatide.runtime;
+package com.flatide.propertee2.runtime;
 
 import com.flatide.propertee2.value.JsonParser;
 import com.flatide.propertee2.value.TeeFormat;
@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * v1 API surface ({@code com.flatide.runtime.TypeChecker}) over this runtime's value model.
+ * v1 API surface ({@code com.flatide.propertee2.runtime.TypeChecker}) over this runtime's value model.
  * Behavior is the same v1 value semantics — display formatting, deep-copy and type predicates all
  * delegate to {@code Values}/{@code TeeFormat}/{@code JsonParser}, which are validated byte-for-byte
  * against the conformance fixtures. Provided so hosts written against v1 (e.g. TeeBox) compile and

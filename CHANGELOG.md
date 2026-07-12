@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.15.0
+
+**Namespace cleanup — everything lives under `com.flatide.propertee2` now.** Host-API breaking,
+no language/spec change (the 118 fixtures are byte-identical). The v1-API compatibility layer had
+kept v1's original package names directly under `com.flatide` (`com.flatide.{core, interpreter,
+platform, runtime, scheduler, task}` + the ANTLR-generated `com.flatide.parser`) — deliberate in
+R1 so TeeBox could migrate without code changes, but bad namespace hygiene once the migration was
+done. All of them moved to `com.flatide.propertee2.*`; the Maven coordinates are unchanged
+(`com.flatide:propertee-core`).
+
+- Ecosystem decision (user): v1 (propertee-java) takes `com.flatide.propertee.*` (shipped as its
+  1.7.0), this runtime takes `com.flatide.propertee2.*`, and TeeBox follows this runtime only
+  (import-only change, TeeBox 1.14.0).
+- Migration for hosts: replace `import com.flatide.X` with `import com.flatide.propertee2.X` for
+  the seven compat packages — mechanical; class names, behavior, and the exception surface
+  (`com.flatide.propertee2.runtime.ProperTeeError`) are otherwise identical.
+
+**118 fixtures / 312 tests green; TeeBox 202 green after the import sweep.**
+
 ## 0.14.0
 
 **Spec v0.16.0 — the monitor is a watchdog thread.** The `monitor` clause is re-specified as an

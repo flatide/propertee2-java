@@ -1,18 +1,18 @@
-package com.flatide.interpreter;
+package com.flatide.propertee2.interpreter;
 
-import com.flatide.parser.ProperTeeParser;
+import com.flatide.propertee2.parser.ProperTeeParser;
 import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.host.DefaultPlatformProvider;
 import com.flatide.propertee2.interp.Interpreter;
 import com.flatide.propertee2.value.Values;
-import com.flatide.scheduler.SchedulerListener;
-import com.flatide.task.UnsupportedTaskRunner;
+import com.flatide.propertee2.scheduler.SchedulerListener;
+import com.flatide.propertee2.task.UnsupportedTaskRunner;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * v1 API surface (com.flatide.interpreter.ProperTeeInterpreter) over the propertee2 cooperative engine.
+ * v1 API surface (com.flatide.propertee2.interpreter.ProperTeeInterpreter) over the propertee2 cooperative engine.
  *
  * <p>v1's interpreter was a stepper visitor driven by the scheduler; propertee2 replaces that with a
  * recursive tree-walk over single-baton virtual-thread coroutines. This façade keeps v1's host-facing
@@ -51,7 +51,7 @@ public class ProperTeeInterpreter {
     }
 
     /**
-     * Run the program on the cooperative engine. Called by {@link com.flatide.scheduler.Scheduler#run}.
+     * Run the program on the cooperative engine. Called by {@link com.flatide.propertee2.scheduler.Scheduler#run}.
      * A runtime error propagates (as in v1) for the host to catch. The listener receives logical-thread
      * lifecycle events: the program's main thread plus each {@code multi} worker (created/completed/error).
      */
@@ -66,7 +66,7 @@ public class ProperTeeInterpreter {
         com.flatide.propertee2.host.PlatformProvider platform = builtins.platform != null
                 ? new PlatformAdapter(builtins.platform)
                 : new DefaultPlatformProvider();
-        com.flatide.task.TaskRunner taskRunner = builtins.taskRunner != null
+        com.flatide.propertee2.task.TaskRunner taskRunner = builtins.taskRunner != null
                 ? builtins.taskRunner
                 : new UnsupportedTaskRunner();
 
@@ -87,26 +87,26 @@ public class ProperTeeInterpreter {
         // keyed by the worker's result-key name — so a host that observes a run sees alpha/beta/... threads.
         if (listener != null) {
             interp.setThreadObserver(new Interpreter.ThreadObserver() {
-                private final java.util.Map<Integer, com.flatide.scheduler.ThreadContext> ctxs =
+                private final java.util.Map<Integer, com.flatide.propertee2.scheduler.ThreadContext> ctxs =
                         new java.util.concurrent.ConcurrentHashMap<>();
 
                 @Override public void created(int id, String name, Integer parentId, String resultKeyName) {
-                    com.flatide.scheduler.ThreadContext tc = new com.flatide.scheduler.ThreadContext();
+                    com.flatide.propertee2.scheduler.ThreadContext tc = new com.flatide.propertee2.scheduler.ThreadContext();
                     tc.id = id; tc.name = name; tc.parentId = parentId; tc.resultKeyName = resultKeyName;
-                    tc.inThreadContext = true; tc.state = com.flatide.scheduler.ThreadState.RUNNING;
+                    tc.inThreadContext = true; tc.state = com.flatide.propertee2.scheduler.ThreadState.RUNNING;
                     ctxs.put(id, tc);
                     listener.onThreadCreated(tc);
                 }
                 @Override public void completed(int id, Object result) {
-                    com.flatide.scheduler.ThreadContext tc = ctxs.remove(id);   // free the worker context
-                    if (tc == null) tc = new com.flatide.scheduler.ThreadContext();
-                    tc.state = com.flatide.scheduler.ThreadState.COMPLETED; tc.result = result;
+                    com.flatide.propertee2.scheduler.ThreadContext tc = ctxs.remove(id);   // free the worker context
+                    if (tc == null) tc = new com.flatide.propertee2.scheduler.ThreadContext();
+                    tc.state = com.flatide.propertee2.scheduler.ThreadState.COMPLETED; tc.result = result;
                     listener.onThreadCompleted(tc);
                 }
                 @Override public void error(int id, Throwable err) {
-                    com.flatide.scheduler.ThreadContext tc = ctxs.remove(id);   // free the worker context
-                    if (tc == null) tc = new com.flatide.scheduler.ThreadContext();
-                    tc.state = com.flatide.scheduler.ThreadState.ERROR; tc.error = err;
+                    com.flatide.propertee2.scheduler.ThreadContext tc = ctxs.remove(id);   // free the worker context
+                    if (tc == null) tc = new com.flatide.propertee2.scheduler.ThreadContext();
+                    tc.state = com.flatide.propertee2.scheduler.ThreadState.ERROR; tc.error = err;
                     listener.onThreadError(tc);
                 }
             });
@@ -116,10 +116,10 @@ public class ProperTeeInterpreter {
 
         // Register the program's root logical thread with the host listener so it can observe the run
         // (the run-detail "threads"); fire created before the run so a poller sees it during execution.
-        com.flatide.scheduler.ThreadContext main = new com.flatide.scheduler.ThreadContext();
+        com.flatide.propertee2.scheduler.ThreadContext main = new com.flatide.propertee2.scheduler.ThreadContext();
         main.id = 0;
         main.name = "main";
-        main.state = com.flatide.scheduler.ThreadState.RUNNING;
+        main.state = com.flatide.propertee2.scheduler.ThreadState.RUNNING;
         if (listener != null) listener.onThreadCreated(main);
 
         try {
@@ -128,14 +128,14 @@ public class ProperTeeInterpreter {
             // v1 host contract: the position lives in the exception MESSAGE (v1's createError baked
             // "Runtime Error at line L:C: <msg>" in; hosts store e.getMessage() as errorMessage).
             // TeeError keeps it separate, so convert at the façade boundary (fidelity gap until 0.9.1).
-            com.flatide.runtime.ProperTeeError hostError =
-                    new com.flatide.runtime.ProperTeeError(e.positioned());
-            main.state = com.flatide.scheduler.ThreadState.ERROR;
+            com.flatide.propertee2.runtime.ProperTeeError hostError =
+                    new com.flatide.propertee2.runtime.ProperTeeError(e.positioned());
+            main.state = com.flatide.propertee2.scheduler.ThreadState.ERROR;
             main.error = hostError;
             if (listener != null) listener.onThreadError(main);
             throw hostError;
         } catch (Throwable t) {
-            main.state = com.flatide.scheduler.ThreadState.ERROR;
+            main.state = com.flatide.propertee2.scheduler.ThreadState.ERROR;
             main.error = t;
             if (listener != null) listener.onThreadError(main);
             throw t;
@@ -146,7 +146,7 @@ public class ProperTeeInterpreter {
         this.variables.clear();
         this.variables.putAll(interp.globals());                 // expose final globals so the host reads `result`
 
-        main.state = com.flatide.scheduler.ThreadState.COMPLETED;
+        main.state = com.flatide.propertee2.scheduler.ThreadState.COMPLETED;
         main.result = stepper.result;
         if (listener != null) listener.onThreadCompleted(main);
         return stepper.result;

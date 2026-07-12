@@ -1,9 +1,9 @@
-package com.flatide.task;
+package com.flatide.propertee2.task;
 
 import java.util.Map;
 
 /**
- * Ported verbatim from propertee-java v1.0.0 (com.flatide.task) — host-task API reused as-is (design §7).
+ * Ported verbatim from propertee-java v1.0.0 (com.flatide.propertee2.task) — host-task API reused as-is (design §7).
  *
  * Lightweight process execution interface for the ProperTee eval/runtime.
  * Handles process execution, waiting, killing, and output capture.

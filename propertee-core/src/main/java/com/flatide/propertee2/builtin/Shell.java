@@ -4,10 +4,10 @@ import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeFormat;
 import com.flatide.propertee2.value.Values;
-import com.flatide.task.Task;
-import com.flatide.task.TaskObservation;
-import com.flatide.task.TaskRequest;
-import com.flatide.task.TaskRunner;
+import com.flatide.propertee2.task.Task;
+import com.flatide.propertee2.task.TaskObservation;
+import com.flatide.propertee2.task.TaskRequest;
+import com.flatide.propertee2.task.TaskRunner;
 
 import java.io.File;
 import java.util.List;

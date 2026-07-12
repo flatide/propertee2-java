@@ -5,7 +5,7 @@ import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.coop.Fiber;
 import com.flatide.propertee2.coop.Scheduler;
 import com.flatide.propertee2.host.PlatformProvider;
-import com.flatide.parser.ProperTeeParser.*;
+import com.flatide.propertee2.parser.ProperTeeParser.*;
 import com.flatide.propertee2.value.JsonNull;
 import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
@@ -56,19 +56,19 @@ public final class Interpreter {
 
     /** Façade-friendly constructor: no host externals / hidden keywords (custom builtins go via addRawBuiltin). */
     public Interpreter(Sink out, Map<String, Object> props, Coop coop, PlatformProvider platform,
-                       com.flatide.task.TaskRunner taskRunner, String runId) {
+                       com.flatide.propertee2.task.TaskRunner taskRunner, String runId) {
         this(out, props, coop, platform, new LinkedHashMap<>(), Set.of(), Set.of(), taskRunner, runId);
     }
 
     public Interpreter(Sink out, Map<String, Object> props, Coop coop, PlatformProvider platform,
                        Map<String, ExternalFunction> externals, Set<String> hiddenKeywords,
-                       Set<String> ignoredFunctions, com.flatide.task.TaskRunner taskRunner) {
+                       Set<String> ignoredFunctions, com.flatide.propertee2.task.TaskRunner taskRunner) {
         this(out, props, coop, platform, externals, hiddenKeywords, ignoredFunctions, taskRunner, null);
     }
 
     public Interpreter(Sink out, Map<String, Object> props, Coop coop, PlatformProvider platform,
                        Map<String, ExternalFunction> externals, Set<String> hiddenKeywords,
-                       Set<String> ignoredFunctions, com.flatide.task.TaskRunner taskRunner, String runId) {
+                       Set<String> ignoredFunctions, com.flatide.propertee2.task.TaskRunner taskRunner, String runId) {
         this.out = out;
         this.err = out;   // single merged channel unless the host separates them (Engine.run buffers both in order)
         this.coop = coop;
@@ -103,7 +103,7 @@ public final class Interpreter {
         }
     }
 
-    // ---- Façade hooks (used by the v1-compat com.flatide.interpreter layer) -----------------------
+    // ---- Façade hooks (used by the v1-compat com.flatide.propertee2.interpreter layer) -----------------------
 
     /** The program's top-level globals — a host may inject before {@link #run} and read after (e.g. `result`). */
     public Map<String, Object> globals() { return globals; }

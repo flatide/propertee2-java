@@ -1,12 +1,12 @@
-package com.flatide.interpreter;
+package com.flatide.propertee2.interpreter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.flatide.core.ScriptParser;
-import com.flatide.parser.ProperTeeParser;
-import com.flatide.platform.DefaultPlatformProvider;
-import com.flatide.scheduler.Scheduler;
+import com.flatide.propertee2.core.ScriptParser;
+import com.flatide.propertee2.parser.ProperTeeParser;
+import com.flatide.propertee2.platform.DefaultPlatformProvider;
+import com.flatide.propertee2.scheduler.Scheduler;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;

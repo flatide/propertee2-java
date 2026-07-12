@@ -97,16 +97,16 @@ public final class Builtins {
 
     /** Pure catalog + host-gated/blocking builtins; SHELL has no process execution (UnsupportedTaskRunner). */
     public static Builtins standard(PlatformProvider platform) {
-        return standard(platform, new com.flatide.task.UnsupportedTaskRunner(), null);
+        return standard(platform, new com.flatide.propertee2.task.UnsupportedTaskRunner(), null);
     }
 
     /** Pure catalog + host-gated/blocking builtins backed by a {@link PlatformProvider} and host TaskRunner (§3.1). */
-    public static Builtins standard(PlatformProvider platform, com.flatide.task.TaskRunner taskRunner) {
+    public static Builtins standard(PlatformProvider platform, com.flatide.propertee2.task.TaskRunner taskRunner) {
         return standard(platform, taskRunner, null);
     }
 
     /** As above, with a run id so SHELL tags each TaskRequest (lets a host group spawned tasks by run). */
-    public static Builtins standard(PlatformProvider platform, com.flatide.task.TaskRunner taskRunner, String runId) {
+    public static Builtins standard(PlatformProvider platform, com.flatide.propertee2.task.TaskRunner taskRunner, String runId) {
         Builtins b = standard();
         registerEnv(b, platform);
         registerFileIO(b, platform);
@@ -619,8 +619,8 @@ public final class Builtins {
     // ---- Shell (executes via a host TaskRunner; default UnsupportedTaskRunner — 72/78/80) ----
 
     private static void registerShell(Builtins b, PlatformProvider platform,
-                                      com.flatide.task.TaskRunner taskRunner, String runId) {
-        // SHELL runs a process through the host TaskRunner (the v1 com.flatide.task contract). With the
+                                      com.flatide.propertee2.task.TaskRunner taskRunner, String runId) {
+        // SHELL runs a process through the host TaskRunner (the v1 com.flatide.propertee2.task contract). With the
         // default UnsupportedTaskRunner this surfaces as Result.error("...requires a host-provided TaskRunner...").
         Shell shell = new Shell(taskRunner, runId);
         b.register("SHELL", Kind.BLOCKING, shell::run);

@@ -1,12 +1,12 @@
-package com.flatide.interpreter;
+package com.flatide.propertee2.interpreter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.flatide.core.ScriptParser;
-import com.flatide.parser.ProperTeeParser;
-import com.flatide.scheduler.Scheduler;
+import com.flatide.propertee2.core.ScriptParser;
+import com.flatide.propertee2.parser.ProperTeeParser;
+import com.flatide.propertee2.scheduler.Scheduler;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -61,8 +61,8 @@ class FacadeTest {
         ProperTeeInterpreter visitor =
                 new ProperTeeInterpreter(new LinkedHashMap<>(), sink, sink, 1000, "error", builtins);
 
-        com.flatide.runtime.ProperTeeError e =
-                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.runtime.ProperTeeError.class,
+        com.flatide.propertee2.runtime.ProperTeeError e =
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
                         () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
         assertEquals("Runtime Error at line 2:0: upstream unreachable: giving up", e.getMessage());
     }
