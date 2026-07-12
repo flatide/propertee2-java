@@ -1,0 +1,13 @@
+// Test: the monitor observes a per-iteration capture of the results — not a live view
+function slow() do
+    SLEEP(100)
+    return "x"
+end
+
+multi result do
+    thread s: slow()
+monitor 30
+    before = result.s.status
+    SLEEP(120)
+    PRINT(before + " -> " + result.s.status)
+end

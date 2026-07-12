@@ -65,7 +65,10 @@ public final class Fixtures {
             "112_load_reject_dead_branch", "113_number_display", "114_number_identity",
             "115_error_sum_overflow",
             // spec v0.15.0: CONTAINS extended to array membership
-            "116_array_contains");
+            "116_array_contains",
+            // spec v0.16.0: monitor = watchdog thread (32 rewritten — worker purity, iteration
+            // locals, per-iteration captured result snapshot)
+            "117_monitor_watchdog_locals", "118_monitor_captures_snapshot");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

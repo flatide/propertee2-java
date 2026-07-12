@@ -13,8 +13,9 @@ import java.util.Map;
  *       globals; plain top-level vars read/write globals.</li>
  *   <li>{@code WORKER} — a {@code multi} thread body: {@code globalsView} is a READ-ONLY snapshot;
  *       {@code ::} reads it, {@code ::}-writes are an error (purity); plain vars are local.</li>
- *   <li>{@code MONITOR} — a monitor tick: read-only, with the live result collection injected under
- *       the result-var name; any assignment is an error.</li>
+ *   <li>{@code MONITOR} — one watchdog iteration (spec v0.16.0): same purity as WORKER; each
+ *       iteration runs in a fresh base frame holding a deep-copied capture of the result
+ *       collection under the result-var name (the caller pushes it before executing the body).</li>
  * </ul>
  */
 final class ExecContext {
@@ -23,25 +24,23 @@ final class ExecContext {
 
     final Mode mode;
     final Map<String, Object> globalsView;            // live globals (NORMAL) or snapshot (WORKER/MONITOR)
-    final Map<String, Object> injected;               // MONITOR: {resultVarName -> live collection}; else null
     final Deque<Map<String, Object>> frames = new ArrayDeque<>();      // local call frames
     final Deque<MultiBuilder> setupBuilders = new ArrayDeque<>();      // active multi setup phases
 
-    private ExecContext(Mode mode, Map<String, Object> globalsView, Map<String, Object> injected) {
+    private ExecContext(Mode mode, Map<String, Object> globalsView) {
         this.mode = mode;
         this.globalsView = globalsView;
-        this.injected = injected;
     }
 
     static ExecContext normal(Map<String, Object> globals) {
-        return new ExecContext(Mode.NORMAL, globals, null);
+        return new ExecContext(Mode.NORMAL, globals);
     }
 
     static ExecContext worker(Map<String, Object> snapshot) {
-        return new ExecContext(Mode.WORKER, snapshot, null);
+        return new ExecContext(Mode.WORKER, snapshot);
     }
 
-    static ExecContext monitor(Map<String, Object> snapshot, Map<String, Object> injected) {
-        return new ExecContext(Mode.MONITOR, snapshot, injected);
+    static ExecContext monitor(Map<String, Object> snapshot) {
+        return new ExecContext(Mode.MONITOR, snapshot);
     }
 }

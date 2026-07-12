@@ -277,16 +277,24 @@ public final class Interpreter {
             String resultVarName = m.resultVar != null ? m.resultVar.getText() : null;
             s.spawn("monitor", () -> {
                 try {
-                    Map<String, Object> injected = new LinkedHashMap<>();
-                    if (resultVarName != null) injected.put(resultVarName, collection);
-                    Runnable tick = () -> ScopedValue.where(CTX, ExecContext.monitor(snapshot, injected)).run(() -> {
-                        try {
-                            execBlock(mc.block());
-                        } catch (TeeError e) {
-                            err.line("[MONITOR ERROR] " + e.positioned());
-                            throw e;
-                        }
-                    });
+                    // The watchdog thread (spec v0.16.0): each iteration runs like a function
+                    // invocation — a fresh base frame seeded with a deep-copied CAPTURE of the
+                    // result collection (a consistent snapshot even if the body suspends), same
+                    // globals purity as workers.
+                    Runnable tick = () -> {
+                        ExecContext mctx = ExecContext.monitor(snapshot);
+                        Map<String, Object> iterScope = new LinkedHashMap<>();
+                        if (resultVarName != null) iterScope.put(resultVarName, Values.deepCopy(collection));
+                        mctx.frames.push(iterScope);
+                        ScopedValue.where(CTX, mctx).run(() -> {
+                            try {
+                                execBlock(mc.block());
+                            } catch (TeeError e) {
+                                err.line("[MONITOR ERROR] " + e.positioned());
+                                throw e;
+                            }
+                        });
+                    };
                     runMonitor(interval, remaining, tick);
                 } finally {
                     signalParent.run();   // always release the parent, even if a monitor tick threw
@@ -472,10 +480,9 @@ public final class Interpreter {
 
     private void assign(LvalueContext lv, Object value) {
         ExecContext c = ec();
-        if (c.mode == ExecContext.Mode.MONITOR) {
-            throw err("Cannot assign variables in monitor block (read-only)", lv);
-        }
-        if (c.mode == ExecContext.Mode.WORKER && rootLvalue(lv) instanceof GlobalVarLValueContext g) {
+        // Workers and the monitor watchdog share the same purity rule (spec v0.16.0): globals are
+        // a read-only snapshot; plain names are local (the monitor's locals live one iteration).
+        if (c.mode != ExecContext.Mode.NORMAL && rootLvalue(lv) instanceof GlobalVarLValueContext g) {
             throw err("Cannot assign to global variable '::" + g.ID().getText() + "' inside multi block."
                     + " Functions in multi blocks can only read global variables (via ::)"
                     + " and write to local variables.", g);
@@ -740,13 +747,6 @@ public final class Interpreter {
 
     private Object lookupVar(String name, ParserRuleContext ctx) {
         ExecContext c = ec();
-        if (c.mode == ExecContext.Mode.MONITOR) {
-            // monitor scope: injected result var, then globals (snapshot), then built-in properties
-            if (c.injected != null && c.injected.containsKey(name)) return c.injected.get(name);
-            if (c.globalsView.containsKey(name)) return c.globalsView.get(name);
-            if (builtinProps.containsKey(name)) return builtinProps.get(name);
-            throw err("Variable '" + name + "' is not defined", ctx);
-        }
         if (!c.frames.isEmpty()) {
             Map<String, Object> frame = frameContaining(name);   // innermost-first across nested calls
             if (frame != null) return frame.get(name);
