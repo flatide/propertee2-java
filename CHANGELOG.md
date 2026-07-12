@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.14.0
+
+**Spec v0.16.0 — the monitor is a watchdog thread.** The `monitor` clause is re-specified as an
+automatically spawned **watchdog thread**: `monitor 500` sleeps 500 ms *between* iterations
+(fixed-delay — which this runtime's fiber loop already did), follows the same purity rules as
+worker threads, and observes the run through **captured snapshots**. Analyzed and adopted in
+ProperTee `docs/design-draft-monitor-watchdog.md`; mildly breaking (details there).
+
+- **Iteration scope**: each iteration now runs like a function invocation in a fresh local frame —
+  local assignment, loops, and function calls work in the body (previously *any* assignment was a
+  runtime error, and a latent bug hid function locals/params from bodies called out of a monitor).
+  Locals do not carry over between iterations (persistent locals were considered and rejected —
+  no init idiom exists; see the draft).
+- **Worker purity**: `::` writes raise the same error as in a worker; the dedicated
+  "read-only monitor" error is retired. Bare names are locals; the undocumented bare-name
+  fallthrough to globals is removed (globals are read via `::`, as documented).
+- **Capture, not live view**: the result-collection variable binds a `Values.deepCopy` snapshot
+  taken as the iteration starts — consistent across suspension, mutation-proof; the next
+  iteration captures fresh (running→done stays visible across iterations, fixture 56
+  byte-identical).
+- **Unchanged**: sleep-first fixed-delay cadence, guaranteed final iteration, `[MONITOR ERROR]`
+  reporting, no setup-locals. `Mode.MONITOR` special cases in `Interpreter.lookupVar`/`assign`
+  deleted; `ExecContext.injected` removed.
+
+Fixture 32 rewritten (global-write error), 117–118 added (iteration locals/loops/function calls;
+capture under suspension) → **115 fixtures / 306 tests green, deterministic.**
+
 ## 0.13.0
 
 **Host API — enumerate the callable function names.** No language/spec change (same class of
