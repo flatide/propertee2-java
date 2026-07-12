@@ -213,7 +213,13 @@ public final class Interpreter {
         requireKeyword("multi", m.getStart());
         ExecContext c = ec();
 
-        // 1. setup phase: isolated scope, collect thread statements
+        // 1. read-only global snapshot all threads share (design §4, thread purity), taken at
+        //    multi ENTRY — before the setup phase — matching v1/js and the spec: a :: write in
+        //    setup updates the real globals but is invisible to the workers/watchdog (fixture 121)
+        @SuppressWarnings("unchecked")
+        Map<String, Object> snapshot = (Map<String, Object>) Values.deepCopy(c.globalsView);
+
+        // 2. setup phase: isolated scope, collect thread statements
         MultiBuilder builder = new MultiBuilder();
         c.frames.push(new LinkedHashMap<>());
         c.setupBuilders.push(builder);
@@ -223,10 +229,6 @@ public final class Interpreter {
             c.setupBuilders.pop();
             c.frames.pop();
         }
-
-        // 2. read-only global snapshot all threads share (design §4, thread purity)
-        @SuppressWarnings("unchecked")
-        Map<String, Object> snapshot = (Map<String, Object>) Values.deepCopy(c.globalsView);
 
         // 3. pre-build the result collection with "running" entries, in spawn order
         Map<String, Object> collection = new LinkedHashMap<>();

@@ -69,7 +69,9 @@ public final class Fixtures {
             // spec v0.16.0: monitor = watchdog thread (32 rewritten — worker purity, iteration
             // locals, per-iteration captured result snapshot)
             "117_monitor_watchdog_locals", "118_monitor_captures_snapshot",
-            "119_error_monitor_global_member", "120_monitor_fresh_scope");
+            "119_error_monitor_global_member", "120_monitor_fresh_scope",
+            // snapshot-at-multi-entry restored to v1/js/spec semantics (post-ship review round 2)
+            "121_multi_setup_global_write");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

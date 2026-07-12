@@ -723,7 +723,7 @@ This guarantees no data races — threads never see each other's modifications.
 ### Semantics
 
 1. The multi block body executes as a setup phase in an isolated scope (like a function), collecting `thread` calls
-2. A snapshot of global variables is taken at `multi` entry — all threads see this snapshot
+2. A snapshot of global variables is taken at `multi` entry, **before the setup phase runs** — all threads (and the monitor watchdog) see this snapshot. A `::` write in the setup phase updates the real globals (visible after the block) but is **not** visible to the threads
 3. All spawned functions launch concurrently after setup completes
 4. The result collection is pre-built with `"running"` entries at spawn time
 5. Threads execute cooperatively, interleaving at statement boundaries
@@ -1296,8 +1296,11 @@ the bare-name global fallthrough is removed), and binds a **deep-copied capture*
 collection instead of a live view. Unchanged: sleep-first cadence, the guaranteed final iteration,
 `[MONITOR ERROR]` reporting (a failing iteration stops mid-run iterations; the final one still
 runs), and the no-setup-locals rule. Mildly breaking (error-relying and bare-global-read corners
-only). Fixture 32 rewritten, 117–120 added; shipped in 0.14.0. Decision record: ProperTee
-`docs/design-draft-monitor-watchdog.md`.
+only). The batch also **pins the snapshot's timing** at `multi` entry, before the setup phase —
+the spec always said so and v1/js conformed, but this runtime had silently drifted to
+snapshotting after setup (a setup-phase `::` write was visible to its workers); restored in
+0.14.0 (`Interpreter.execMulti`), fixture 121. Fixture 32 rewritten, 117–121 added; shipped in
+0.14.0. Decision record: ProperTee `docs/design-draft-monitor-watchdog.md`.
 
 ### spec v0.15.0 — CONTAINS checks array membership
 

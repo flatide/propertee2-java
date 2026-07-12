@@ -17,13 +17,13 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Semantic conformance: run each fixture through the {@link Engine} and diff stdout against
- * {@code .expected} (design §10.1 PE). All 117 fixtures pass — including multi/thread/monitor and the
+ * {@code .expected} (design §10.1 PE). All 118 fixtures pass — including multi/thread/monitor and the
  * host tail, with the documented host injections (-p properties, ENV/file via the default platform,
  * external functions, hidden keywords / ignored functions) configured per fixture below.
  */
 class ConformanceTest {
 
-    /** All 117 fixtures now pass; nothing is deferred. */
+    /** All 118 fixtures now pass; nothing is deferred. */
     static final Set<String> PENDING = Set.of();
 
     /** Host-injected built-in properties (the {@code -p} flag) for fixtures that need them. */
@@ -108,7 +108,7 @@ class ConformanceTest {
 
     @Test
     void allFixturesCovered() {
-        assertEquals(117, allFixtures().size());
-        assertEquals(117, Fixtures.ALL.size());
+        assertEquals(118, allFixtures().size());
+        assertEquals(118, Fixtures.ALL.size());
     }
 }
