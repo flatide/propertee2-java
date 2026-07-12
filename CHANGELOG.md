@@ -12,7 +12,7 @@ done. All of them moved to `com.flatide.propertee2.*`; the Maven coordinates are
 
 - Ecosystem decision (user): v1 (propertee-java) takes `com.flatide.propertee.*` (shipped as its
   1.7.0), this runtime takes `com.flatide.propertee2.*`, and TeeBox follows this runtime only
-  (import-only change, TeeBox 1.14.0).
+  (import-only change, TeeBox 1.15.0).
 - Migration for hosts: replace `import com.flatide.X` with `import com.flatide.propertee2.X` for
   the seven compat packages — mechanical; class names, behavior, and the exception surface
   (`com.flatide.propertee2.runtime.ProperTeeError`) are otherwise identical.

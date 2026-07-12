@@ -4,11 +4,11 @@
 
 Two Gradle modules on a JDK 25 toolchain (see `CLAUDE.md` for the full map and status):
 
-- `propertee-core/`: the engine — ANTLR grammar, `value/` model, `coop/` cooperative runtime, `interp/` recursive interpreter, `builtin/` catalog, plus the v1-API compat layer (`com.flatide.{core,interpreter,platform,runtime,scheduler,task}`) that TeeBox consumes.
+- `propertee-core/`: the engine — ANTLR grammar, `value/` model, `coop/` cooperative runtime, `interp/` recursive interpreter, `builtin/` catalog, plus the v1-API compat layer (`com.flatide.propertee2.{core,interpreter,platform,runtime,scheduler,task}` — renamed from the bare `com.flatide.*` in 0.15.0) that TeeBox consumes.
 - `propertee-cli/`: the `propertee2` command (fat jar via `./gradlew dist`).
-- `propertee-core/grammar/ProperTee.g4`: ANTLR4 grammar copied from v1; treat as compatibility-critical. The visitor is generated into `com.flatide.parser` (the v1 package).
+- `propertee-core/grammar/ProperTee.g4`: ANTLR4 grammar copied from v1; treat as compatibility-critical. The visitor is generated into `com.flatide.propertee2.parser` (since 0.15.0; it carried the v1 name `com.flatide.parser` before).
 - `docs/`: canonical design and semantic contracts. Read `java25-vthread-runtime-design-ko.md`, `value-model-and-builtins.md`, and `conformance-tests.md` before runtime work.
-- `propertee-core/src/test/resources/tests/`: 84 `.tee` inputs paired with 84 `.expected` outputs for v1 semantic conformance.
+- `propertee-core/src/test/resources/tests/`: `.tee` inputs paired with `.expected` outputs for semantic conformance (118 pairs as of 0.15.0 — the authoritative list is `conformance/Fixtures.java`; the count grows with spec batches).
 - `spike/`: throwaway cooperative-runtime prototype that proved the scheduling model (historical; `spike/run.sh`).
 
 ## Build, Test, and Development Commands
