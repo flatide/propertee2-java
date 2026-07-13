@@ -16,7 +16,7 @@ Two Gradle modules on a JDK 25 toolchain (see `CLAUDE.md` for the full map and s
 ```bash
 ./gradlew build                 # compile + all tests, both modules (no preview flags)
 ./gradlew :propertee-core:test  # engine tests only
-./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # all 84 fixtures
+./gradlew test --tests 'com.flatide.propertee2.conformance.ConformanceTest'   # the full fixture suite (count: conformance/Fixtures.java)
 ./gradlew dist                  # -> dist/propertee2-<version>.jar (run with java -jar, JDK 25)
 ```
 
