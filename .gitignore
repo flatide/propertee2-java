@@ -26,3 +26,7 @@ gradle-app.setting
 # Logs / temp
 *.log
 *.tmp
+
+# Local agent guidance (untracked by user decision, 2026-07-16)
+CLAUDE.md
+AGENTS.md
