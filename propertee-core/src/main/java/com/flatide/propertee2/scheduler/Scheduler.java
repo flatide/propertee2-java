@@ -24,4 +24,12 @@ public class Scheduler {
     public Object run(ProperTeeInterpreter.RootStepper mainStepper) {
         return visitor.execute(mainStepper, listener);
     }
+
+    /**
+     * Cooperatively abort the running program — see {@link ProperTeeInterpreter#abort()}.
+     * Thread-safe; the aborted {@link #run} throws {@code ProperTeeAborted}.
+     */
+    public void abort() {
+        visitor.abort();
+    }
 }

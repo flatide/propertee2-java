@@ -33,6 +33,7 @@ public class ProperTeeInterpreter {
     private final Map<String, Object> properties;
     private final int maxIterations;
     private final String iterationLimitBehavior;
+    private final Coop coop = new Coop();      // per-interpreter runtime; a field so abort() has a target
 
     public ProperTeeInterpreter(Map<String, Object> properties,
                                 BuiltinFunctions.PrintFunction stdout,
@@ -48,6 +49,17 @@ public class ProperTeeInterpreter {
 
     public RootStepper createRootStepper(ProperTeeParser.RootContext tree) {
         return new RootStepper(tree);
+    }
+
+    /**
+     * Cooperatively abort the current run (or, if called before {@link #execute}, the coming one —
+     * the request is latched). Thread-safe, callable from any thread. The aborted {@code execute}
+     * throws {@link com.flatide.propertee2.runtime.ProperTeeAborted} — distinguishable from a script
+     * error ({@link com.flatide.propertee2.runtime.ProperTeeError}). One interpreter = one logical
+     * run: an aborted interpreter aborts any later {@code execute} immediately.
+     */
+    public void abort() {
+        coop.abort();
     }
 
     /**
@@ -70,7 +82,6 @@ public class ProperTeeInterpreter {
                 ? builtins.taskRunner
                 : new UnsupportedTaskRunner();
 
-        Coop coop = new Coop();
         Interpreter interp = new Interpreter(sink, properties, coop, platform, taskRunner, builtins.runId);
         interp.setErrorSink(errSink);
         interp.setLoopLimit(maxIterations);
@@ -134,6 +145,15 @@ public class ProperTeeInterpreter {
             main.error = hostError;
             if (listener != null) listener.onThreadError(main);
             throw hostError;
+        } catch (com.flatide.propertee2.coop.AbortError e) {
+            // Host-initiated cancel: surface as ProperTeeAborted (NOT a ProperTeeError) so the host
+            // can record CANCELLED rather than FAILED; the main thread still reaches a terminal state.
+            com.flatide.propertee2.runtime.ProperTeeAborted aborted =
+                    new com.flatide.propertee2.runtime.ProperTeeAborted();
+            main.state = com.flatide.propertee2.scheduler.ThreadState.ERROR;
+            main.error = aborted;
+            if (listener != null) listener.onThreadError(main);
+            throw aborted;
         } catch (Throwable t) {
             main.state = com.flatide.propertee2.scheduler.ThreadState.ERROR;
             main.error = t;

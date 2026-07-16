@@ -1,6 +1,7 @@
 package com.flatide.propertee2.interp;
 
 import com.flatide.propertee2.builtin.Builtins;
+import com.flatide.propertee2.coop.AbortError;
 import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.coop.Fiber;
 import com.flatide.propertee2.coop.Scheduler;
@@ -260,6 +261,12 @@ public final class Interpreter {
                     Object r = invokeNamed(p.funcName(), p.args(), p.call());
                     collection.put(p.key(), Result.ok(r));
                     if (threadObserver != null) threadObserver.completed(tid, r);
+                } catch (AbortError e) {
+                    // Host abort, not a script error: no [THREAD ERROR], no result entry (the run is
+                    // unwinding), but the observer must still see a terminal state — otherwise a
+                    // cancelled run's thread list shows this worker as running forever.
+                    if (threadObserver != null) threadObserver.error(tid, e);
+                    throw e;
                 } catch (RuntimeException e) {
                     // TeeError, or a stray control-flow signal / other failure: never leave the entry "running"
                     String pos = failureText(e);
@@ -325,6 +332,7 @@ public final class Interpreter {
                 }
             }
         }
+        coop.checkpoint();   // an aborted run skips the guaranteed final tick (abort = stop everything now)
         try {
             tick.run();                          // final tick, once, after all workers are done
         } catch (RuntimeException ignored) {
@@ -442,6 +450,7 @@ public final class Interpreter {
 
     /** Run a loop body; returns true if a {@code break} was hit. */
     private boolean runBody(BlockContext body) {
+        coop.checkpoint();   // per-iteration abort/fairness point — an empty body never reaches a statement yield
         try {
             execBlock(body);
         } catch (Signals.Break b) {

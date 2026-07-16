@@ -1,26 +1,26 @@
 # ProperTee2 for Java (Java 25 · virtual-thread runtime)
 
-`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다 — v1과 동일한 스펙 v0.6.0을 거쳐, 스펙 v0.7.0(조건 불리언 엄격화, `and`/`or` 단축 평가, `RANDOM` 단일 인자 폐지, `SLICE` count 규약, `LEN` 엄격화), v0.8.0(일급 `null` — 암묵적 null 없이 JSON 무손실 왕복), v0.9.0(`elseif`), v0.10.0(Result 승격 — `FAIL`/`UNWRAP`/`OK`/`ERR`/`IS_RESULT`와 genuine-Result 브랜드), v0.11.0(함수 이름 해석 확정), 현재는 **스펙 v0.12.0**(전부-대문자 함수 네임스페이스 예약 — ALL-CAPS는 언제나 빌트인/호스트 보장; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
+`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다 — v1과 동일한 스펙 v0.6.0을 거쳐, 스펙 v0.7.0(조건 불리언 엄격화, `and`/`or` 단축 평가, `RANDOM` 단일 인자 폐지, `SLICE` count 규약, `LEN` 엄격화), v0.8.0(일급 `null` — 암묵적 null 없이 JSON 무손실 왕복), v0.9.0(`elseif`), v0.10.0(Result 승격 — `FAIL`/`UNWRAP`/`OK`/`ERR`/`IS_RESULT`와 genuine-Result 브랜드), v0.11.0(함수 이름 해석 확정), v0.12.0(전부-대문자 함수 네임스페이스 예약), v0.13.0(32-bit 정수 envelope·spawn 격리·디스패치 이름 예약), v0.14.0(명목적 숫자 정체성·ECMA-262 표시·로드-시점 거부), v0.15.0(`CONTAINS` 배열 멤버십)을 거쳐, 현재는 **스펙 v0.16.0**(monitor = watchdog 스레드; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
 
 - **베이스라인:** Java 25 LTS, **stable API만** (virtual threads + `ScopedValue`). `StructuredTaskScope`는 25에서도 preview라 회피 — `multi`는 hand-roll. **preview 의존 0.**
-- **상태:** **conformance 스위트 103/103 통과** (byte-for-byte, deterministic). 0.9.0 — **호스트 제약 정적 검증 패스** 추가(`Engine.validate`, ProperTee #9; 언어 변경 없음).
+- **상태:** **conformance 스위트 118/118 통과** (byte-for-byte, deterministic). 호스트 API: `Engine.validate`(0.9.0, ProperTee #9), `knownFunctionNames`(0.13.0), **협조적 run 중단 `abort()` + 캐리어 슬라이스 양보**(0.16.0) — 전부 언어 변경 없음.
 
 ## 빌드 / 테스트
 
 JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.java.installations.paths`에 JDK 25 home 등록). 두 모듈로 구성된다: **`propertee-core`**(엔진 — TeeBox가 의존), **`propertee-cli`**(`propertee2` 커맨드).
 
 ```bash
-./gradlew build     # 두 모듈 컴파일 + 전체 테스트(conformance 103 fixture 포함)
+./gradlew build     # 두 모듈 컴파일 + 전체 테스트(conformance 118 fixture 포함)
 ```
 
 ## 실행 (CLI)
 
 ```bash
-./gradlew dist                                  # → dist/propertee2-0.15.0.jar (self-contained fat jar)
-java -jar dist/propertee2-0.15.0.jar script.tee
+./gradlew dist                                  # → dist/propertee2-0.16.0.jar (self-contained fat jar)
+java -jar dist/propertee2-0.16.0.jar script.tee
 
 # 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
-java -jar dist/propertee2-0.15.0.jar -p '{"width":100,"height":200}' script.tee
+java -jar dist/propertee2-0.16.0.jar -p '{"width":100,"height":200}' script.tee
 ```
 
 > 런타임에 **JDK 25**가 필요하다. 개발 중에는 `./gradlew :propertee-cli:run --args="script.tee"`도 가능.
@@ -39,6 +39,8 @@ String out = new Engine()
 ```
 
 호스트 통합: built-in 프로퍼티(`-p`/`_PROPS`), `ENV`·파일 I/O(`DefaultPlatformProvider`), 외부 함수 등록(기본 `registerExternal`/`registerExternalAsync`은 **baton 반납=`Coop.blocking` 경유**, non-blocking 보장 시 `registerPure`), 키워드/함수 숨김(`setHiddenKeywords`/`setIgnoredFunctions`). 외부 함수 인자·반환은 deep-copy로 격리된다.
+
+**run 중단(0.16.0):** v1-API façade로 실행하는 호스트(TeeBox처럼 `ProperTeeInterpreter`+`scheduler.Scheduler` 사용)는 다른 스레드에서 `visitor.abort()`(또는 `scheduler.abort()`)를 호출해 실행 중인 run을 협조적으로 끝낼 수 있다 — 문장 경계·루프 반복·SLEEP(즉시 기상)·blocking 호출 반환 시점에서 적용되고, 중단된 `execute`는 스크립트 에러(`ProperTeeError`)와 구별되는 `ProperTeeAborted`를 던진다. 같은 체크포인트가 1024회마다 `Thread.yield()`로 캐리어를 양보해, CPU-bound 스크립트가 같은 JVM의 다른 run들을 굶기지 못한다(`-Dpropertee2.coop.slice=N`으로 조정).
 
 ## 동작 모델 (요약)
 

@@ -36,13 +36,61 @@ public final class Scheduler {
                     ? Long.compare(a.wakeNanos, b.wakeNanos)
                     : Integer.compare(a.id, b.id));                 // (wakeTime, id) — deterministic tie-break
 
+    /** Statements/iterations between carrier yields; property read once so it stays fixed per process. */
+    private static final int SLICE = Integer.getInteger("propertee2.coop.slice", 1024);
+
     private Fiber current = null;
     private int lastRunId = -1;
     private int idSeq = 0;
     private int aliveCount = 0;
     private volatile boolean shutdown = false;
+    private volatile boolean aborted = false;
+    private int sliceCount = 0;              // mutated only by the baton holder; handoffs fence it
 
     public Fiber self() { return SELF.isBound() ? SELF.get() : null; }
+
+    // ---- host abort --------------------------------------------------------
+
+    /**
+     * Cooperatively abort the run: every fiber throws {@link AbortError} at its next checkpoint
+     * (statement boundary, loop iteration, sleep wake, blocking re-acquire, children wake).
+     * Thread-safe, callable from OUTSIDE any fiber. Sleeping fibers are force-woken so a long
+     * SLEEP doesn't delay the abort; WAITING parents are woken by their dying children through
+     * the normal signal path; BLOCKED fibers observe the flag when the host call returns.
+     */
+    public void abort() {
+        aborted = true;
+        lock.lock();
+        try {
+            while (!sleepers.isEmpty()) {
+                Fiber f = sleepers.poll();
+                if (f.state == FiberState.SLEEPING) f.state = FiberState.READY;
+            }
+            if (current == null) scheduleNext();
+            timerCond.signalAll();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * On-baton cancellation + carrier-fairness point (called at statement boundaries via
+     * {@code yield_} and at every loop iteration via the interpreter). Never hands off the
+     * baton — the deterministic round-robin is untouched. Every {@code SLICE} calls it
+     * {@code Thread.yield()}s so a compute-bound fiber unmounts its carrier and other runs'
+     * virtual threads get CPU time (JDK vthreads are not time-sliced).
+     */
+    public void checkpoint() {
+        if (aborted) throw new AbortError();
+        if (++sliceCount >= SLICE) {
+            sliceCount = 0;
+            Thread.yield();                     // off-lock by construction; baton retained
+        }
+    }
+
+    private void pollAbort() {
+        if (aborted) throw new AbortError();
+    }
 
     // ---- driver ----------------------------------------------------------
 
@@ -76,6 +124,9 @@ public final class Scheduler {
                         parkUntilRunning(me);       // wait for the baton before any interpreter code
                         try {
                             body.run();
+                        } catch (AbortError ignored) {
+                            // Aborted fibers die quietly (no uncaught-handler noise). The root's abort
+                            // is captured and rethrown to the host by Coop.run's own wrapper first.
                         } finally {
                             complete(me);           // release the baton for the last time
                         }
@@ -96,6 +147,7 @@ public final class Scheduler {
 
     /** Coop.yield — fairness handoff (design §3, seam 3). No-op when no other fiber is READY. */
     public void yield_() {
+        checkpoint();                         // before the alone-shortcut below — a lone busy fiber must still abort
         Fiber me = SELF.get();
         lock.lock();
         try {
@@ -129,6 +181,7 @@ public final class Scheduler {
             lock.unlock();
         }
         parkUntilRunning(me);                       // stack preserved across the sleep — no replay
+        pollAbort();                                // covers both force-woken and naturally-expired sleeps
     }
 
     /**
@@ -164,6 +217,7 @@ public final class Scheduler {
             lock.unlock();
         }
         parkUntilRunning(me);
+        pollAbort();                          // children died of the abort — the parent must not resume normally
     }
 
     /** Wake a WAITING parent (called on-baton by the last finishing child, PD). */
@@ -195,6 +249,7 @@ public final class Scheduler {
             lock.unlock();
         }
         parkUntilRunning(me);
+        pollAbort();                          // abort applies as soon as the blocking host call returns
     }
 
     private void complete(Fiber me) {

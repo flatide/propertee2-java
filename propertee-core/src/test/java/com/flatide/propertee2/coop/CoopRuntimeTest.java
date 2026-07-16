@@ -95,4 +95,78 @@ class CoopRuntimeTest {
                 coop.run("root", () -> coop.blocking(() -> { throw new IllegalStateException("io failed"); })));
         assertTrue(thrown.getMessage().contains("io failed"));
     }
+
+    // ---- host abort (0.16.0) ----------------------------------------------
+
+    /** Aborts the coop from a plain thread after a short delay. */
+    private static void abortSoon(Coop coop) {
+        Thread killer = new Thread(() -> {
+            try { Thread.sleep(50); } catch (InterruptedException ignored) { }
+            coop.abort();
+        });
+        killer.setDaemon(true);
+        killer.start();
+    }
+
+    @Test void abortStopsABusyLoneFiberFromAnotherThread() {
+        Coop coop = new Coop();
+        abortSoon(coop);
+        // A lone spinning fiber never releases the baton — only the checkpoint can end it.
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () ->
+                assertThrows(AbortError.class, () -> coop.run("root", () -> {
+                    while (true) coop.checkpoint();
+                })));
+    }
+
+    @Test void abortWakesASleepingFiberEarly() {
+        Coop coop = new Coop();
+        abortSoon(coop);
+        long t0 = System.nanoTime();
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () ->
+                assertThrows(AbortError.class, () -> coop.run("root", () -> coop.sleep(60_000))));
+        long ms = (System.nanoTime() - t0) / 1_000_000L;
+        assertTrue(ms < 5_000, "a 60s sleep should be force-woken by abort, took " + ms + "ms");
+    }
+
+    @Test void abortDuringBlockingAppliesWhenTheHostCallReturns() throws Exception {
+        Coop coop = new Coop();
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        Thread killer = new Thread(() -> {
+            try { entered.await(); } catch (InterruptedException ignored) { }
+            coop.abort();          // fully applied before the host call is released below
+            release.countDown();
+        });
+        killer.setDaemon(true);
+        killer.start();
+        boolean[] resumedAfterBlocking = new boolean[1];
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () ->
+                assertThrows(AbortError.class, () -> coop.run("root", () -> {
+                    coop.blocking(() -> {
+                        entered.countDown();
+                        try { release.await(); } catch (InterruptedException ignored) { }
+                        return 1;
+                    });
+                    resumedAfterBlocking[0] = true;   // must be unreachable: abort fires at re-acquire
+                })));
+        assertEquals(false, resumedAfterBlocking[0]);
+    }
+
+    @Test void abortBeforeRunIsLatched() {
+        Coop coop = new Coop();
+        coop.abort();                                  // before run() creates its fresh scheduler
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () ->
+                assertThrows(AbortError.class, () -> coop.run("root", coop::checkpoint)));
+    }
+
+    @Test void abortUnwindsSleepingWorkersAndTheWaitingParent() {
+        Coop coop = new Coop();
+        abortSoon(coop);
+        List<Runnable> tasks = new ArrayList<>();
+        for (int i = 0; i < 3; i++) tasks.add(() -> coop.sleep(60_000));
+        // Workers are force-woken and die of AbortError (quietly, in the spawn wrapper); the last one
+        // wakes the WAITING parent, whose own poll then rethrows. Completing at all proves the drain.
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () ->
+                assertThrows(AbortError.class, () -> runParallel(coop, tasks)));
+    }
 }

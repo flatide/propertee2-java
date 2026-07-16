@@ -12,12 +12,29 @@ public final class Coop {
     // A Scheduler is one-shot (it latches `shutdown` and accumulates fiber state), so each run gets
     // a fresh one. This keeps Coop reusable: a second run() — including one that sleeps — works cleanly.
     private volatile Scheduler scheduler = new Scheduler();
+    private volatile boolean abortRequested = false;
 
     public Scheduler scheduler() { return scheduler; }
 
+    /**
+     * Cooperatively abort the current run — or, latched, the next one (an abort issued before
+     * {@code run()} publishes its fresh Scheduler must not be lost). Thread-safe. The run ends
+     * by throwing {@link AbortError} out of {@code run()}. The latch is deliberately permanent:
+     * an aborted Coop aborts every later run immediately (hosts create one Coop per logical run).
+     */
+    public void abort() {
+        abortRequested = true;
+        scheduler.abort();
+    }
+
+    /** On-baton cancellation/fairness checkpoint — see {@link Scheduler#checkpoint()}. */
+    public void checkpoint() { scheduler.checkpoint(); }
+
     /** Run the program body as the root fiber to completion; rethrows whatever the body threw. */
     public void run(String rootName, Runnable body) {
-        scheduler = new Scheduler();
+        Scheduler fresh = new Scheduler();
+        scheduler = fresh;
+        if (abortRequested) fresh.abort();   // volatile publish + re-check closes the abort/run race
         AtomicReference<Throwable> error = new AtomicReference<>();
         scheduler.runToCompletion(rootName, () -> {
             try {

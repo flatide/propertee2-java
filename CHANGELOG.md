@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.16.0
+
+**Cooperative run abort + carrier-slice yield.** Host API only — zero language/spec change (the
+118 fixtures are byte-identical, verified over 5 repeated runs); same release class as 0.9.0's
+`validate` and 0.13.0's `knownFunctionNames`. Motivation: a host (TeeBox) needs to stop a runaway
+run (`infinite` loops whose condition never turns) and to keep one CPU-bound run from starving
+every other run's virtual threads — JDK virtual threads are not time-sliced, so a spinning fiber
+otherwise pins a carrier thread indefinitely.
+
+- **Abort API**: `ProperTeeInterpreter.abort()` / `scheduler.Scheduler.abort()` (the v1-API
+  façade surface TeeBox uses), backed by `Coop.abort()`/`coop.Scheduler.abort()`. Thread-safe,
+  callable from any thread, latched (an abort issued before `execute` starts still applies).
+  The aborted `execute` throws **`runtime.ProperTeeAborted`** — deliberately NOT a
+  `ProperTeeError`, so hosts can record CANCELLED rather than FAILED.
+- **Cooperative checkpoints**: the abort applies at statement boundaries, at every loop
+  iteration (`Interpreter.runBody` — covering empty-body loops, which never reach a statement
+  yield), on sleep wake (sleeping fibers are force-woken so a long `SLEEP` cannot delay the
+  abort), when a `Coop.blocking` host call returns, and when a `multi` parent's children die.
+- **Abort is not a script error**: the signal is `coop.AbortError extends Error`, structurally
+  invisible to the `[THREAD ERROR]` wrap, the monitor tick catches, and the external-function
+  Result wrap (all catch `RuntimeException` only). Aborted workers still reach a terminal
+  thread-observer state (a cancelled run must not leave "running" thread entries in a host's
+  run view), the guaranteed final monitor tick is skipped, and worker/monitor fibers die
+  quietly. Pinned by new `CoopRuntimeTest`/`FacadeTest` cases.
+- **Carrier-slice yield**: the same checkpoint calls `Thread.yield()` every 1024th time
+  (`-Dpropertee2.coop.slice=N`, read once at startup), unmounting a compute-bound fiber so
+  other runs' virtual threads get carrier time. The baton never moves — per-run determinism
+  and the round-robin interleaving are untouched.
+- Known limit (inherent to the cooperative model): a host call that never returns delays the
+  abort until it does. In practice only `SHELL` without a timeout can block indefinitely — a
+  TeeBox-style host kills the run's tasks alongside the abort; the bundled HTTP builtins have
+  30-second connect/read timeouts.
+
+**118 fixtures / 320 tests green.**
+
 ## 0.15.0
 
 **Namespace cleanup — everything lives under `com.flatide.propertee2` now.** Host-API breaking,
