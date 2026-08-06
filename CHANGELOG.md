@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.17.0
+
+**Spec v0.17.0 — plain-text position search: `FIND` / `FIND_FIRST` / `FIND_LAST`** (user feature
+request). Additive, non-breaking. Three literal (non-regex) string-search built-ins reporting
+1-based positions, registered in the PURE catalog (`Builtins.registerStringMatching`):
+
+- `FIND(s, sub)` — array of **all** start positions, ascending, overlapping occurrences
+  included (`FIND("aaa", "aa")` → `[ 1, 2 ]`); no occurrence → `[]`.
+- `FIND_FIRST(s, sub)` / `FIND_LAST(s, sub)` — first/last position, `0` when absent (`0` never
+  collides with a valid position under 1-based indexing). Overlap counting keeps the trio
+  consistent: they are always the first/last element of `FIND`, and `FIND_LAST` agrees with
+  `String.lastIndexOf`.
+- Both arguments must be strings; an empty search string is a runtime error
+  (`FIND() requires a non-empty search string`, positionless catalog form).
+
+Positions are produced by integer arithmetic, so they are nominal integers (spec v0.14.0).
+Fixtures 122 (`122_find_positions`) and 123 (`123_error_find_empty`); conformance is now
+**120 fixtures**, byte-for-byte, deterministic over 5 repeated runs; 325 tests green. Hosts pick
+the new names up automatically through `knownFunctionNames` (0.13.0) — TeeBox's editor lint
+whitelists them with no host change.
+
 ## 0.16.0
 
 **Cooperative run abort + carrier-slice yield.** Host API only — zero language/spec change (the

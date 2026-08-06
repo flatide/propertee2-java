@@ -245,6 +245,25 @@ public final class Builtins {
         });
         b.register("STARTS_WITH", Kind.PURE, args -> { Pair p = str2("STARTS_WITH", args); return p.left.startsWith(p.right); });
         b.register("ENDS_WITH",   Kind.PURE, args -> { Pair p = str2("ENDS_WITH", args); return p.left.endsWith(p.right); });
+        // FIND family (spec v0.17.0) — literal search, 1-based positions. FIND returns ALL
+        // start positions ascending, overlapping included (advance by 1, not match length),
+        // so FIND_FIRST/FIND_LAST are always its first/last element and FIND_LAST agrees
+        // with lastIndexOf. Not found -> [] / 0; empty needles are rejected (every boundary
+        // would "match").
+        b.register("FIND", Kind.PURE, args -> {
+            Pair p = findArgs("FIND", args);
+            List<Object> out = new ArrayList<>();
+            for (int i = p.left.indexOf(p.right); i >= 0; i = p.left.indexOf(p.right, i + 1)) out.add(i + 1);
+            return out;
+        });
+        b.register("FIND_FIRST", Kind.PURE, args -> {
+            Pair p = findArgs("FIND_FIRST", args);
+            return p.left.indexOf(p.right) + 1;
+        });
+        b.register("FIND_LAST", Kind.PURE, args -> {
+            Pair p = findArgs("FIND_LAST", args);
+            return p.left.lastIndexOf(p.right) + 1;
+        });
         b.register("MATCHES", Kind.PURE, args -> {
             Pair p = str2("MATCHES", args);
             return compile("MATCHES", p.right).matcher(p.left).find();
@@ -723,6 +742,12 @@ public final class Builtins {
 
     private static Pair str2(String fn, List<Object> args) {
         return new Pair(string(fn, arg(fn, args, 0)), string(fn, arg(fn, args, 1)));
+    }
+
+    private static Pair findArgs(String fn, List<Object> args) {
+        Pair p = str2(fn, args);
+        if (p.right.isEmpty()) throw new TeeError(fn + "() requires a non-empty search string");
+        return p;
     }
 
     private static Object toNumber(String s) {

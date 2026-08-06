@@ -102,6 +102,29 @@ class BuiltinsTest {
         assertEquals("bbbbbb", call("REPLACE", "aaa", "a", "bb"));
     }
 
+    @Test void findFns() {                                // 122_find_positions, 123_error_find_empty (spec v0.17.0)
+        assertEquals(list(3), call("FIND", "abcd", "c"));
+        assertEquals(list(2, 4), call("FIND", "banana", "an"));
+        assertEquals(list(1, 2), call("FIND", "aaa", "aa"));      // overlapping occurrences included
+        assertEquals(list(1), call("FIND", "abc", "abc"));
+        assertEquals(list(), call("FIND", "abc", "z"));
+        assertEquals(3, call("FIND_FIRST", "abcd", "c"));
+        assertEquals(Integer.class, call("FIND_FIRST", "abcd", "c").getClass());
+        assertEquals(0, call("FIND_FIRST", "abc", "z"));
+        assertEquals(3, call("FIND_LAST", "abcd", "c"));
+        assertEquals(2, call("FIND_LAST", "aaa", "aa"));          // lastIndexOf scans overlapping too
+        assertEquals(0, call("FIND_LAST", "abc", "z"));
+        // exact error messages
+        assertEquals("FIND() requires a non-empty search string",
+                assertThrows(TeeError.class, () -> call("FIND", "abc", "")).getMessage());
+        assertEquals("FIND_FIRST() requires a non-empty search string",
+                assertThrows(TeeError.class, () -> call("FIND_FIRST", "abc", "")).getMessage());
+        assertEquals("FIND_LAST() requires a non-empty search string",
+                assertThrows(TeeError.class, () -> call("FIND_LAST", "abc", "")).getMessage());
+        assertEquals("FIND() requires a string argument",
+                assertThrows(TeeError.class, () -> call("FIND", list(1, 2), 2)).getMessage());
+    }
+
     @Test void arrayFns() {                               // 11_arrays
         assertEquals(list(99, 2, 3, 4, 5), call("PUSH", list(99, 2, 3), 4, 5));
         assertEquals(list(99, 2, 3, 4), call("POP", list(99, 2, 3, 4, 5)));
