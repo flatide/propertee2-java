@@ -47,4 +47,15 @@ class CliTest {
     @Test void printsVersion() throws IOException {
         assertEquals("propertee2 0.1.0\n", runMain(new String[]{"--version"}));
     }
+
+    @Test void shellWorksInScriptMode() throws IOException {
+        // 0.19.0: the CLI wires an in-process SimpleTaskRunner (the bare Engine still errors)
+        Path f = Files.createTempFile("cli", ".tee");
+        Files.writeString(f, "r = SHELL(\"echo from-cli\")\nPRINT(r.ok)\nPRINT(r.value)\n");
+        try {
+            assertEquals("true\nfrom-cli\n", runMain(new String[]{f.toString()}));
+        } finally {
+            Files.deleteIfExists(f);
+        }
+    }
 }

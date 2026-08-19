@@ -2,6 +2,7 @@ package com.flatide.propertee2.cli;
 
 import com.flatide.propertee2.Parsing;
 import com.flatide.propertee2.interp.Engine;
+import com.flatide.propertee2.task.SimpleTaskRunner;
 import com.flatide.propertee2.value.JsonParser;
 import com.flatide.propertee2.value.TeeError;
 
@@ -58,6 +59,10 @@ public final class Main {
             }
             return;
         }
+        run(file, props);
+    }
+
+    private static void run(String file, Map<String, Object> props) {
 
         String source;
         try {
@@ -72,10 +77,15 @@ public final class Main {
             return;
         }
 
+        // SHELL works out of the box (0.19.0, like the v1 CLI): an in-process SimpleTaskRunner
+        // executes commands via /bin/sh -c. The bare Engine keeps its UnsupportedTaskRunner
+        // default — only the CLI wires this.
+        SimpleTaskRunner taskRunner = new SimpleTaskRunner();
         try {
             // Live sinks (like the v1 CLI): program output streams to stdout as it prints; runtime
             // diagnostics ([THREAD ERROR]/[MONITOR ERROR]/loop warnings) go to stderr, as in v1/js.
-            new Engine().run(source, props, System.out::println, System.err::println);
+            new Engine().setTaskRunner(taskRunner)
+                    .run(source, props, System.out::println, System.err::println);
         } catch (Parsing.SyntaxException e) {
             // malformed input: a concise stderr line + nonzero exit (a script *runtime* error is in stdout)
             System.err.println("propertee2: " + file + ": " + e.getMessage());
@@ -83,6 +93,8 @@ public final class Main {
         } catch (TeeError e) {
             // script runtime error: part of normal output (stdout, exit 0) — the conformance contract
             System.out.println("Runtime error: " + e.positioned());
+        } finally {
+            taskRunner.shutdown();
         }
     }
 

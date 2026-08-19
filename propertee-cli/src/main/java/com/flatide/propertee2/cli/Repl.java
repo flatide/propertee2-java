@@ -29,7 +29,19 @@ final class Repl {
 
     static void run(Map<String, Object> props, BufferedReader in, PrintStream out, PrintStream err,
                     boolean interactive, String version) throws IOException {
-        Engine.Session session = new Engine().session(props, out::println, err::println);
+        // SHELL works in the REPL too (0.19.0): the same in-process SimpleTaskRunner as script mode.
+        com.flatide.propertee2.task.SimpleTaskRunner taskRunner = new com.flatide.propertee2.task.SimpleTaskRunner();
+        try {
+            run(props, taskRunner, in, out, err, interactive, version);
+        } finally {
+            taskRunner.shutdown();
+        }
+    }
+
+    private static void run(Map<String, Object> props, com.flatide.propertee2.task.SimpleTaskRunner taskRunner,
+                            BufferedReader in, PrintStream out, PrintStream err,
+                            boolean interactive, String version) throws IOException {
+        Engine.Session session = new Engine().setTaskRunner(taskRunner).session(props, out::println, err::println);
         if (interactive) {
             out.println("propertee2 " + version + " REPL — :help for commands, :exit or Ctrl-D to quit");
         }

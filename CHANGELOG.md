@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.19.0
+
+**SHELL works out of the box in the CLI — `SimpleTaskRunner` ported from v1** (user request;
+host/CLI only — zero language/spec change, the 120 fixtures are byte-identical). The v2 CLI had
+dropped what the v1 CLI always wired: an in-process task runner. `SHELL("...")` under
+`propertee2` (script mode **and** the 0.18.0 REPL) failed with the embedding default
+`SHELL() requires a host-provided TaskRunner in this environment`.
+
+- **`task.SimpleTaskRunner`** (propertee-core; ported from propertee-java 1.7.0, same
+  semantics — the `TaskRunner` javadoc already named it): in-memory, in-process execution via
+  `/bin/sh -c` (Linux/macOS; on a platform without `/bin/sh` the launch failure surfaces as the
+  task's error output). Stdout/stderr captured by daemon drainer threads, capped at 1 MB per
+  stream; `releaseTask` frees state immediately (SHELL calls it after extracting the result);
+  `shutdown` force-kills leftover processes. No persistence/process groups/archival — hosts that
+  need those keep providing their own runner (TeeBox's ManagedTaskEngine is unaffected).
+- **CLI wiring only**: script mode and the REPL create one runner per invocation
+  (`Engine.setTaskRunner`) and shut it down on exit. The bare `Engine` default stays
+  `UnsupportedTaskRunner` — the embedding contract and conformance fixtures 72/78/80 are
+  unchanged.
+- Conformance untouched: **120 fixtures byte-for-byte, deterministic over 5 repeated runs;
+  344 tests green** (real-`/bin/sh` SHELL tests added to `ShellTest`, plus CLI/REPL coverage).
+
 ## 0.18.0
 
 **Interactive REPL + `Engine.Session` snippet API** (user request; host/CLI only — zero

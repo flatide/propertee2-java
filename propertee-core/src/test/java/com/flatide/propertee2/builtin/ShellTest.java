@@ -115,4 +115,52 @@ class ShellTest {
                 """);
         assertEquals("true\nalpha\nbeta\ngamma\n", out);
     }
+
+    // ---- SimpleTaskRunner (0.19.0): the in-process runner the CLI wires — real /bin/sh -c ----
+
+    @Test void simpleTaskRunnerExecutesRealCommands() {
+        com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner();
+        try {
+            String out = new Engine().setTaskRunner(runner).run("""
+                    r = SHELL("echo hello from sh")
+                    PRINT(r.ok)
+                    PRINT(r.value)
+                    f = SHELL("exit 3")
+                    PRINT(f.ok)
+                    PRINT(f.value)
+                    """);
+            assertEquals("true\nhello from sh\nfalse\nTask failed with exitCode 3\n", out);
+        } finally {
+            runner.shutdown();
+        }
+    }
+
+    @Test void simpleTaskRunnerHonorsCwdEnvAndMergesStderr() {
+        com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner();
+        try {
+            String out = new Engine().setTaskRunner(runner).run("""
+                    ctx = SHELL_CTX("/", {"GREETING": "hi-from-env"})
+                    r = SHELL(ctx, "echo $GREETING in $(pwd)")
+                    PRINT(r.value)
+                    e = SHELL("echo to-stderr 1>&2")
+                    PRINT(e.ok)
+                    PRINT(e.value)
+                    """);
+            // mergeErrorToStdout: stderr lands in the combined output, exit 0 -> ok
+            assertEquals("hi-from-env in /\ntrue\nto-stderr\n", out);
+        } finally {
+            runner.shutdown();
+        }
+    }
+
+    @Test void simpleTaskRunnerReleasesTaskStateAfterShell() {
+        com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner();
+        try {
+            new Engine().setTaskRunner(runner).run("r = SHELL(\"echo x\")\n");
+            // SHELL releases the task once the result is extracted; a lightweight runner drops it
+            assertEquals(null, runner.getTask("task-1"));
+        } finally {
+            runner.shutdown();
+        }
+    }
 }

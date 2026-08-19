@@ -70,4 +70,11 @@ class ReplTest {
         Run r = repl("width * 2\n", Map.of("width", 100));
         assertEquals("200\n", r.out());
     }
+
+    @Test void shellWorksOutOfTheBox() throws IOException {
+        // 0.19.0: the CLI wires an in-process SimpleTaskRunner, so SHELL succeeds without a host
+        Run r = repl("r = SHELL(\"echo from-repl\")\nr.value\n");
+        assertEquals("from-repl\n", r.out());
+        assertEquals("", r.err());
+    }
 }
