@@ -1,0 +1,36 @@
+// spec v0.18.0: READ_JSON_FILE — read + JSON-parse a file in one call, Result-wrapped.
+// Uses ::testDir injected as builtin property (like 85_file_io).
+
+// object file -> parsed object in res.value
+WRITE_FILE(::testDir + "/config.json", "{\"name\": \"tee\", \"port\": 8080, \"active\": true, \"tags\": [\"a\", \"b\"], \"extra\": null}\n")
+res = READ_JSON_FILE(::testDir + "/config.json")
+PRINT(res.ok)
+PRINT(res.value.name)
+PRINT(res.value.port)
+PRINT(res.value.active)
+PRINT(res.value.tags.2)
+PRINT(res.value.extra == null)
+PRINT(TYPE_OF(res.value))
+PRINT(IS_RESULT(res))
+
+// multi-line pretty-printed JSON works the same
+WRITE_LINES(::testDir + "/pretty.json", ["{", "    \"a\": 1,", "    \"b\": [2, 3]", "}"])
+res = READ_JSON_FILE(::testDir + "/pretty.json")
+PRINT(res.value.a + res.value.b.2)
+
+// top-level array and scalar are fine (same conversion as JSON_PARSE)
+WRITE_FILE(::testDir + "/arr.json", "[10, 20, 30]")
+PRINT(READ_JSON_FILE(::testDir + "/arr.json").value.3)
+WRITE_FILE(::testDir + "/num.json", "42")
+PRINT(READ_JSON_FILE(::testDir + "/num.json").value)
+
+// invalid JSON -> error Result (the parser's message), not a runtime error
+WRITE_FILE(::testDir + "/broken.json", "{\"a\": ")
+res = READ_JSON_FILE(::testDir + "/broken.json")
+PRINT(res.ok)
+PRINT(res.status)
+
+// missing file -> error Result too; the script keeps running
+res = READ_JSON_FILE(::testDir + "/nope.json")
+PRINT(res.ok)
+PRINT("still running")

@@ -1,0 +1,34 @@
+// spec v0.18.0: READ_FILE (WRITE_FILE's counterpart) + WRITE_JSON_FILE (READ_JSON_FILE's).
+// Uses ::testDir injected as builtin property (like 85/124).
+
+// WRITE_FILE <-> READ_FILE round-trip: the whole file as one string, content-exact
+WRITE_FILE(::testDir + "/note.txt", "line1\nline2\n")
+res = READ_FILE(::testDir + "/note.txt")
+PRINT(res.ok)
+PRINT(res.value == "line1\nline2\n")
+PRINT(LEN(res.value))
+PRINT(IS_RESULT(res))
+
+// WRITE_JSON_FILE: exactly JSON_FORMAT's output + one trailing newline, overwrite
+cfg = {"name": "tee", "ports": [80, 443], "extra": null}
+res = WRITE_JSON_FILE(::testDir + "/cfg.json", cfg)
+PRINT(res.ok)
+PRINT(READ_FILE(::testDir + "/cfg.json").value == JSON_FORMAT(cfg) + "\n")
+
+// the WRITE_JSON_FILE -> READ_JSON_FILE round-trip is lossless (first-class null included)
+back = READ_JSON_FILE(::testDir + "/cfg.json").value
+PRINT(back.name)
+PRINT(back.ports.2)
+PRINT(back.extra == null)
+PRINT(JSON_FORMAT(back) == JSON_FORMAT(cfg))
+
+// non-object values write fine too (arrays, scalars)
+WRITE_JSON_FILE(::testDir + "/arr.json", [1, 2, 3])
+PRINT(READ_JSON_FILE(::testDir + "/arr.json").value.3)
+WRITE_JSON_FILE(::testDir + "/s.json", "text")
+PRINT(READ_JSON_FILE(::testDir + "/s.json").value)
+PRINT(READ_FILE(::testDir + "/s.json").value == "\"text\"\n")
+
+// missing file -> error Result; the script keeps running
+PRINT(READ_FILE(::testDir + "/nope.txt").ok)
+PRINT("done")

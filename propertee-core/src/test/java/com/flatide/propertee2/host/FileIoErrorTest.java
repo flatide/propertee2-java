@@ -33,4 +33,35 @@ class FileIoErrorTest {
             }
         }
     }
+
+    /** READ_JSON_FILE (spec v0.18.0) error corners the fixture can't pin byte-stably. */
+    @Test void readJsonFileErrorsAndBomHandling() throws IOException {
+        Path dir = Files.createTempDirectory("propertee2-readjson-");
+        try {
+            // A leading UTF-8 BOM (Windows editors add one) is ignored — RFC 8259 permits it.
+            Path bom = dir.resolve("bom.json");
+            Files.writeString(bom, "\uFEFF{\"k\": 7}");
+            assertEquals("7\n", new Engine().run(
+                    "PRINT(READ_JSON_FILE(f).value.k)\n", Map.of("f", bom.toString())));
+
+            // Missing file: an error Result whose value is the read failure's message (contains the path).
+            Path missing = dir.resolve("nope.json");
+            String out = new Engine().run(
+                    "res = READ_JSON_FILE(f)\nPRINT(res.ok)\nPRINT(CONTAINS(res.value, \"nope.json\"))\n",
+                    Map.of("f", missing.toString()));
+            assertEquals("false\ntrue\n", out);
+
+            // Invalid JSON: the parser's message, same as JSON_PARSE would report.
+            Path broken = dir.resolve("broken.json");
+            Files.writeString(broken, "{\"a\": }");
+            String parseOut = new Engine().run(
+                    "res = READ_JSON_FILE(f)\nPRINT(res.ok)\nPRINT(STARTS_WITH(res.value, \"Invalid JSON\"))\n",
+                    Map.of("f", broken.toString()));
+            assertEquals("false\ntrue\n", parseOut);
+        } finally {
+            try (Stream<Path> walk = Files.walk(dir)) {
+                walk.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+            }
+        }
+    }
 }

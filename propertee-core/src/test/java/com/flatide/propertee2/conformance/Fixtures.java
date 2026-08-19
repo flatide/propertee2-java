@@ -73,7 +73,9 @@ public final class Fixtures {
             // snapshot-at-multi-entry restored to v1/js/spec semantics (post-ship review round 2)
             "121_multi_setup_global_write",
             // spec v0.17.0: FIND/FIND_FIRST/FIND_LAST literal position search
-            "122_find_positions", "123_error_find_empty");
+            "122_find_positions", "123_error_find_empty",
+            // spec v0.18.0: whole-file & JSON file I/O (host-injected testDir, like 85)
+            "124_read_json_file", "125_read_file_write_json");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

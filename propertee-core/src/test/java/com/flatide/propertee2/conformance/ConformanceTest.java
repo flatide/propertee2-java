@@ -46,7 +46,7 @@ class ConformanceTest {
     @MethodSource("allFixtures")
     void matchesExpected(String name) throws IOException {
         String expected = Fixtures.expected(name);
-        String actual = name.equals("85_file_io")
+        String actual = Set.of("85_file_io", "124_read_json_file", "125_read_file_write_json").contains(name)
                 ? runWithTempDir(name)
                 : engineFor(name).run(Fixtures.source(name), PROPS.getOrDefault(name, Map.of()));
         if (name.equals(NO_TRAILING_NEWLINE_ARTIFACT)) {
@@ -108,7 +108,7 @@ class ConformanceTest {
 
     @Test
     void allFixturesCovered() {
-        assertEquals(120, allFixtures().size());
-        assertEquals(120, Fixtures.ALL.size());
+        assertEquals(122, allFixtures().size());
+        assertEquals(122, Fixtures.ALL.size());
     }
 }

@@ -1,4 +1,4 @@
-# ProperTee Language Specification v0.17.0
+# ProperTee Language Specification v0.18.0
 
 ## Overview
 
@@ -930,8 +930,11 @@ Added in spec v0.10.0. See [Genuine Results, `FAIL`, and `UNWRAP`](#genuine-resu
 | `FILE_EXISTS(path)` | Returns `true` if file or directory exists. |
 | `FILE_INFO(path)` | Returns Result: `ok` with `{type, size, modified}`, `error` if not found. |
 | `READ_LINES(path, [start], [count])` | Read lines from file. `start` is 1-based (default 1). `count` limits lines read. Returns Result with string array. |
+| `READ_FILE(path)` | Read the whole file as one string (spec v0.18.0). Returns Result: `ok` with the file content (UTF-8, content-exact), `error` on a read failure. The counterpart of `WRITE_FILE`; for large files prefer `READ_LINES` windows. |
+| `READ_JSON_FILE(path)` | Read a JSON file and parse it in one call (spec v0.18.0). Returns Result: `ok` with the parsed value (object, array, or scalar — same conversion as `JSON_PARSE`), `error` on a read failure or invalid JSON. A leading UTF-8 BOM is ignored. Replaces the `READ_LINES` + `JOIN` + `JSON_PARSE` idiom. |
 | `WRITE_FILE(path, content)` | Write string to file (overwrite). Returns Result. |
 | `WRITE_LINES(path, lines)` | Write array of strings as lines (each followed by newline). Returns Result. |
+| `WRITE_JSON_FILE(path, value)` | Serialize `value` as JSON — the same output as `JSON_FORMAT` — and write it to the file with a trailing newline, overwriting (spec v0.18.0). Returns Result: `ok` with `{}`. The counterpart of `READ_JSON_FILE`: the round-trip is lossless, first-class `null` included. |
 | `APPEND_FILE(path, content)` | Append string to file. Returns Result. |
 | `MKDIR(path)` | Create directory (including parents). Returns Result. |
 | `LIST_DIR(path)` | List directory entries. Returns Result with array of `{name, type, size}` objects, sorted by name. |
@@ -1285,6 +1288,17 @@ Common error conditions:
 ## Changelog
 
 > Entries below `spec v0.7.0` use the **v1-runtime version numbers** this copy inherited (v1.0.0, v0.9.0, ... are propertee-java releases, not spec versions). New entries follow the spec versioning of the canonical `flatide/ProperTee` LANGUAGE.md.
+
+### spec v0.18.0 — whole-file and JSON file I/O: READ_FILE, READ_JSON_FILE, WRITE_JSON_FILE
+
+Additive, non-breaking. Three File-I/O built-ins completing the group's symmetry, all host-gated
+and Result-returning: `READ_FILE(path)` — the whole file as one string (`WRITE_FILE`'s
+counterpart; content-exact); `READ_JSON_FILE(path)` — read + JSON-parse in one call (same
+conversion as `JSON_PARSE`, first-class `null` included; leading UTF-8 BOM ignored per RFC 8259;
+replaces the `READ_LINES` + `JOIN` + `JSON_PARSE` idiom); `WRITE_JSON_FILE(path, value)` —
+serialize exactly as `JSON_FORMAT` + one trailing newline, overwrite (`READ_JSON_FILE`'s
+counterpart — the round-trip is lossless). Runtime: fixtures 124–125 + `FileIoErrorTest`
+(BOM / missing-file / parse-error corners).
 
 ### spec v0.17.0 — plain-text position search: FIND, FIND_FIRST, FIND_LAST
 

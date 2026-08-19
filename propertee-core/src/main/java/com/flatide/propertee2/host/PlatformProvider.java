@@ -32,6 +32,16 @@ public interface PlatformProvider {
      */
     List<String> readLines(String path, long start, long count) throws IOException;
 
+    /**
+     * Read a whole file as UTF-8 (READ_JSON_FILE, spec v0.18.0). The default composes
+     * {@link #readLines} so existing provider implementations keep working — newline flavor is
+     * normalized to {@code \n}, which is lossless for JSON. Providers with direct file access
+     * should override with a real whole-file read (as {@code DefaultPlatformProvider} does).
+     */
+    default String readFile(String path) throws IOException {
+        return String.join("\n", readLines(path, 1, Long.MAX_VALUE));
+    }
+
     FileStat fileInfo(String path) throws IOException;         // throws if not found
 
     List<DirEntry> listDir(String path) throws IOException;    // sorted by name ascending

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.20.0
+
+**Spec v0.18.0 — whole-file & JSON file I/O: `READ_FILE` / `READ_JSON_FILE` / `WRITE_JSON_FILE`**
+(user feature request; additive, non-breaking — same release class as 0.17.0's FIND family).
+Three builtins completing the File-I/O group's symmetry, all HOST_GATED (off-baton via
+`Coop.blocking`) and Result-returning:
+
+- `READ_FILE(path)` — the counterpart `WRITE_FILE` never had: the whole file as one string
+  (UTF-8, content-exact — no BOM stripping). `ok` with the content, `error` on a read failure.
+  Large files should keep using the windowed `READ_LINES`.
+- `READ_JSON_FILE(path)` — read + JSON-parse in one call, replacing the
+  `JSON_PARSE(JOIN(UNWRAP(READ_LINES(path)), "\n"))` idiom. `ok` with the parsed value (same
+  conversion as `JSON_PARSE`, first-class `null` included); `error` with the I/O failure's or
+  the parser's message — the script keeps running either way. A leading UTF-8 BOM is ignored
+  (RFC 8259 permits it; Windows editors add one — the old idiom choked on it).
+- `WRITE_JSON_FILE(path, value)` — `READ_JSON_FILE`'s counterpart: serialize exactly as
+  `JSON_FORMAT` would and write it (overwrite) with one trailing newline (a POSIX text file).
+  The round-trip through `READ_JSON_FILE` is lossless.
+
+Backed by a new `PlatformProvider.readFile` with a **default implementation** composing
+`readLines` (newlines normalized to `\n` — lossless for JSON), so existing custom providers
+keep working unchanged; `DefaultPlatformProvider` overrides it with a real whole-file
+`Files.readString`. Fixtures 124–125 (temp-dir-injected like 85) + `FileIoErrorTest` corners
+(BOM, missing file, parse error). Conformance is now **122 fixtures**, byte-for-byte,
+deterministic over 5 repeated runs; **349 tests green**. Hosts pick the names up automatically
+through `knownFunctionNames` (0.13.0).
+
 ## 0.19.0
 
 **SHELL works out of the box in the CLI — `SimpleTaskRunner` ported from v1** (user request;

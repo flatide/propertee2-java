@@ -482,6 +482,35 @@ public final class Builtins {
             return Result.ok(Values.emptyObject());
         }));
 
+        // READ_FILE (spec v0.18.0): the whole file as one string — WRITE_FILE's counterpart.
+        // Content-exact (no BOM stripping — fidelity is the point); large files should keep
+        // using the windowed READ_LINES.
+        b.register("READ_FILE", Kind.HOST_GATED, args -> ioResult(() ->
+                Result.ok(platform.readFile(string("READ_FILE", arg("READ_FILE", args, 0))))));
+
+        // WRITE_JSON_FILE (spec v0.18.0): READ_JSON_FILE's counterpart — serialize exactly as
+        // JSON_FORMAT would and write it (overwrite) with a trailing newline (a POSIX text
+        // file). The round-trip through READ_JSON_FILE is lossless, first-class null included.
+        b.register("WRITE_JSON_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
+            String path = string("WRITE_JSON_FILE", arg("WRITE_JSON_FILE", args, 0));
+            platform.writeFile(path, TeeFormat.json(arg("WRITE_JSON_FILE", args, 1)) + "\n");
+            return Result.ok(Values.emptyObject());
+        }));
+
+        // READ_JSON_FILE (spec v0.18.0): read + JSON-parse in one call — replaces the
+        // READ_LINES + JOIN + JSON_PARSE idiom. ok -> the parsed value (same conversion as
+        // JSON_PARSE, first-class null included); error -> the read failure's or the parser's
+        // message. A leading UTF-8 BOM is ignored (RFC 8259 permits it; Windows editors add it).
+        b.register("READ_JSON_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
+            String content = platform.readFile(string("READ_JSON_FILE", arg("READ_JSON_FILE", args, 0)));
+            if (content.startsWith("\uFEFF")) content = content.substring(1);
+            try {
+                return Result.ok(JsonParser.parse(content));
+            } catch (TeeError e) {
+                return Result.error(e.getMessage());
+            }
+        }));
+
         b.register("READ_LINES", Kind.HOST_GATED, args -> {
             String path = string("READ_LINES", arg("READ_LINES", args, 0));
             long start = 1;

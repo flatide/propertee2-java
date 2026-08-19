@@ -58,6 +58,11 @@ public final class DefaultPlatformProvider implements PlatformProvider {
     }
 
     @Override
+    public String readFile(String path) throws IOException {
+        return Files.readString(Path.of(path), StandardCharsets.UTF_8);
+    }
+
+    @Override
     public FileStat fileInfo(String path) throws IOException {
         Path p = Path.of(path);
         if (!Files.exists(p)) throw new NoSuchFileException(path);
