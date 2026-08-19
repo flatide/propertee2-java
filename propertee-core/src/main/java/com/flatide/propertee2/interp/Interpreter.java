@@ -104,6 +104,43 @@ public final class Interpreter {
         }
     }
 
+    /**
+     * REPL support (0.18.0): run one snippet against this interpreter's persistent state — globals
+     * and user functions accumulate across calls. Statement semantics are identical to {@link #run};
+     * the only addition is the return value, for the host to echo: the value of a trailing bare
+     * expression statement, or of a top-level {@code return} — Java {@code null} when the snippet
+     * ends in neither (the ProperTee {@code null} value is {@link com.flatide.propertee2.value.JsonNull#NULL},
+     * so {@code null} is a safe "nothing to echo" sentinel).
+     */
+    public Object runSnippet(RootContext root) {
+        Object[] echo = new Object[1];
+        ScopedValue.where(CTX, ExecContext.normal(globals)).run(() -> echo[0] = execSnippet(root));
+        return echo[0];
+    }
+
+    private Object execSnippet(RootContext root) {
+        try {
+            List<StatementContext> stmts = root.statement();
+            Object last = null;
+            for (int i = 0; i < stmts.size(); i++) {
+                StatementContext s = stmts.get(i);
+                if (i == stmts.size() - 1 && s instanceof ExprStmtContext e) {
+                    last = eval(e.expression());
+                } else {
+                    exec(s);
+                }
+                coop.yield_();
+            }
+            return last;
+        } catch (Signals.Return r) {
+            hasExplicitReturn = true;
+            returnValue = r.value;
+            return r.value;
+        } catch (Signals.Break | Signals.Continue b) {
+            return null;                       // break/continue outside a loop: ignore (as in run)
+        }
+    }
+
     // ---- Façade hooks (used by the v1-compat com.flatide.propertee2.interpreter layer) -----------------------
 
     /** The program's top-level globals — a host may inject before {@link #run} and read after (e.g. `result`). */

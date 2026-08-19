@@ -3,7 +3,7 @@
 `propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다 — v1과 동일한 스펙 v0.6.0을 거쳐, 스펙 v0.7.0(조건 불리언 엄격화, `and`/`or` 단축 평가, `RANDOM` 단일 인자 폐지, `SLICE` count 규약, `LEN` 엄격화), v0.8.0(일급 `null` — 암묵적 null 없이 JSON 무손실 왕복), v0.9.0(`elseif`), v0.10.0(Result 승격 — `FAIL`/`UNWRAP`/`OK`/`ERR`/`IS_RESULT`와 genuine-Result 브랜드), v0.11.0(함수 이름 해석 확정), v0.12.0(전부-대문자 함수 네임스페이스 예약), v0.13.0(32-bit 정수 envelope·spawn 격리·디스패치 이름 예약), v0.14.0(명목적 숫자 정체성·ECMA-262 표시·로드-시점 거부), v0.15.0(`CONTAINS` 배열 멤버십), v0.16.0(monitor = watchdog 스레드)을 거쳐, 현재는 **스펙 v0.17.0**(`FIND`/`FIND_FIRST`/`FIND_LAST` 리터럴 위치 검색; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
 
 - **베이스라인:** Java 25 LTS, **stable API만** (virtual threads + `ScopedValue`). `StructuredTaskScope`는 25에서도 preview라 회피 — `multi`는 hand-roll. **preview 의존 0.**
-- **상태:** **conformance 스위트 120/120 통과** (byte-for-byte, deterministic). 호스트 API: `Engine.validate`(0.9.0, ProperTee #9), `knownFunctionNames`(0.13.0), **협조적 run 중단 `abort()` + 캐리어 슬라이스 양보**(0.16.0) — 전부 언어 변경 없음.
+- **상태:** **conformance 스위트 120/120 통과** (byte-for-byte, deterministic). 호스트 API: `Engine.validate`(0.9.0, ProperTee #9), `knownFunctionNames`(0.13.0), **협조적 run 중단 `abort()` + 캐리어 슬라이스 양보**(0.16.0), **`Engine.Session` 스니펫 평가 + CLI REPL**(0.18.0) — 전부 언어 변경 없음.
 
 ## 빌드 / 테스트
 
@@ -16,14 +16,19 @@ JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.ja
 ## 실행 (CLI)
 
 ```bash
-./gradlew dist                                  # → dist/propertee2-0.17.0.jar (self-contained fat jar)
-java -jar dist/propertee2-0.17.0.jar script.tee
+./gradlew dist                                  # → dist/propertee2-0.18.0.jar (self-contained fat jar)
+java -jar dist/propertee2-0.18.0.jar script.tee
 
 # 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
-java -jar dist/propertee2-0.17.0.jar -p '{"width":100,"height":200}' script.tee
+java -jar dist/propertee2-0.18.0.jar -p '{"width":100,"height":200}' script.tee
+
+# 스크립트 파일 없이 실행하면 인터랙티브 REPL (0.18.0)
+java -jar dist/propertee2-0.18.0.jar
 ```
 
 > 런타임에 **JDK 25**가 필요하다. 개발 중에는 `./gradlew :propertee-cli:run --args="script.tee"`도 가능.
+
+**REPL(0.18.0):** 전역 변수·사용자 함수가 입력 사이에 유지되고, 각 입력은 스크립트와 완전히 동일한 의미론으로 실행된다(`SLEEP`/`multi`/`thread` 포함). 블록(`if`/`loop`/`function` … `end`)이 닫히지 않으면 다음 줄로 계속 입력(`...>` 프롬프트; 빈 줄로 취소), 마지막 맨 표현식의 값은 PRINT 표시형으로 에코된다(`{}`는 에코 안 함). 런타임 에러는 스크립트 모드와 같은 `Runtime error:` 한 줄을 찍고 세션은 계속된다. `:help`/`:exit`. 파이프 입력도 동작한다(`echo 'FIND("abcd","c")' | propertee2` → `[ 3 ]`). 임베딩은 `Engine.session(props, out, err)` → `Session.eval(snippet)`(에코 값 반환, 없으면 Java null).
 
 ## 임베드 (Java 호스트)
 

@@ -14,9 +14,10 @@ import java.nio.file.Path;
 import java.util.Map;
 
 /**
- * Command-line runner: {@code propertee2 [-p <json-object>] <script.tee>}.
- * Reads the script, runs it through the {@link Engine}, and prints its stdout. Host-injected
- * built-in properties are supplied as a JSON object via {@code -p} (LANGUAGE.md §Built-in Properties).
+ * Command-line runner: {@code propertee2 [-p <json-object>] [script.tee]}.
+ * Reads the script, runs it through the {@link Engine}, and prints its stdout; with no script file
+ * it starts the interactive {@link Repl} on stdin. Host-injected built-in properties are supplied
+ * as a JSON object via {@code -p} (LANGUAGE.md §Built-in Properties).
  *
  * <p>Exit codes: 0 = ran (a script runtime error is part of stdout, as the conformance suite expects);
  * 2 = bad command-line usage; 1 = the input file could not be read.
@@ -44,7 +45,19 @@ public final class Main {
                 }
             }
         }
-        if (file == null) { usage(System.err); System.exit(2); }
+        if (file == null) {
+            // No script file: interactive REPL (0.18.0). Prompts only when stdin is a terminal,
+            // so `echo 'PRINT(1)' | propertee2` emits clean output.
+            try {
+                Repl.run(props,
+                        new java.io.BufferedReader(new java.io.InputStreamReader(System.in, StandardCharsets.UTF_8)),
+                        System.out, System.err, System.console() != null, version());
+            } catch (IOException e) {
+                System.err.println("propertee2: " + e.getMessage());
+                System.exit(1);
+            }
+            return;
+        }
 
         String source;
         try {
@@ -94,7 +107,9 @@ public final class Main {
 
     private static void usage(PrintStream out) {
         out.println("""
-                usage: propertee2 [-p <json-object>] <script.tee>
+                usage: propertee2 [-p <json-object>] [script.tee]
+
+                  With no script file, starts an interactive REPL on stdin.
 
                   -p, --props <json>   host-injected built-in properties (a JSON object)
                   -v, --version        print version and exit

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.18.0
+
+**Interactive REPL + `Engine.Session` snippet API** (user request; host/CLI only — zero
+language/spec change, the 120 fixtures are byte-identical; same release class as 0.9.0/0.13.0/0.16.0).
+
+- **CLI**: bare `propertee2` (no script file) now starts a REPL on stdin. Globals and user
+  functions persist across inputs; each input runs with full script semantics (`SLEEP`,
+  `multi`/`thread`, builtins) as its own root fiber on one reusable Coop. An input whose parse
+  fails **at end-of-input** (unclosed `if`/`loop`/`function` block, dangling operator) opens a
+  `...>` continuation until the buffer parses — a blank line abandons it and reports the error.
+  The value of a trailing bare expression (or a top-level `return`) is echoed in `PRINT` display
+  form; the empty object `{}` — the language's "absence" — is not echoed. Script runtime errors
+  print the script-mode `Runtime error:` line and the session continues. `:help`, `:exit`/`:quit`,
+  Ctrl-D. Prompts/banner appear only on a terminal, so piped stdin produces clean output
+  (`echo 'FIND("abcd","c")' | propertee2` → `[ 3 ]`). `-p` props apply to the session.
+- **Host API**: `Engine.session(props[, platform], out, err)` → `Session.eval(snippet)` returns
+  the echo value (Java `null` = nothing to echo — safe because the ProperTee `null` is the
+  `JsonNull.NULL` singleton), `Session.globals()` for host inspection/injection between snippets.
+  Engine restrictions/externals/task runner apply; the load-time rejection gate (spec v0.14.0)
+  runs per snippet. Backed by `Interpreter.runSnippet` (run-identical semantics + echo capture)
+  and `Parsing.SyntaxException.atEof()` (structural incomplete-input signal, no message sniffing).
+- Conformance untouched: **120 fixtures byte-for-byte, deterministic over 5 repeated runs; 339
+  tests green** (`EngineSessionTest` + `ReplTest` added).
+
 ## 0.17.0
 
 **Spec v0.17.0 — plain-text position search: `FIND` / `FIND_FIRST` / `FIND_LAST`** (user feature

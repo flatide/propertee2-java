@@ -29,7 +29,21 @@ public final class Parsing {
 
     /** Thrown on any lexer/parser syntax error. */
     public static final class SyntaxException extends RuntimeException {
-        public SyntaxException(String message) { super(message); }
+        private final boolean atEof;
+
+        public SyntaxException(String message) { this(message, false); }
+
+        public SyntaxException(String message, boolean atEof) {
+            super(message);
+            this.atEof = atEof;
+        }
+
+        /**
+         * True when the offending token was end-of-input — the source stopped mid-construct
+         * (an unclosed {@code if}/{@code loop}/{@code function} block, a dangling operator, an
+         * open paren). A REPL uses this to keep reading lines instead of reporting an error.
+         */
+        public boolean atEof() { return atEof; }
     }
 
     private static final class Throwing extends BaseErrorListener {
@@ -37,7 +51,9 @@ public final class Parsing {
         @Override
         public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol,
                                 int line, int charPositionInLine, String msg, RecognitionException e) {
-            throw new SyntaxException("syntax error at " + line + ":" + charPositionInLine + " - " + msg);
+            boolean atEof = offendingSymbol instanceof org.antlr.v4.runtime.Token t
+                    && t.getType() == org.antlr.v4.runtime.Token.EOF;
+            throw new SyntaxException("syntax error at " + line + ":" + charPositionInLine + " - " + msg, atEof);
         }
     }
 }

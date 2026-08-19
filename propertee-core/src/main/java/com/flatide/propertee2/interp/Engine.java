@@ -150,4 +150,56 @@ public final class Engine {
         interp.setErrorSink(err);
         coop.run("main", () -> interp.run(root));   // the program is the root logical thread
     }
+
+    /** Open a session with the default platform (the CLI REPL's form). */
+    public Session session(Map<String, Object> props, Interpreter.Sink out, Interpreter.Sink err) {
+        return session(props, new DefaultPlatformProvider(), out, err);
+    }
+
+    /** Open an interactive session with explicit host integration. */
+    public Session session(Map<String, Object> props, PlatformProvider platform,
+                           Interpreter.Sink out, Interpreter.Sink err) {
+        return new Session(props, platform, out, err);
+    }
+
+    /**
+     * An interactive session (host API, 0.18.0 — zero language change): one persistent interpreter
+     * whose globals and user functions accumulate across successive {@link #eval} calls. Each
+     * snippet runs as its own root fiber on one reusable {@link Coop}, so {@code SLEEP} /
+     * {@code multi} / {@code thread} inside a snippet behave exactly as in a script. Restrictions,
+     * externals, and the task runner are taken from the owning {@link Engine} at open time; the
+     * load-time rejection gate (spec v0.14.0) applies per snippet.
+     */
+    public final class Session {
+        private final Coop coop = new Coop();
+        private final Interpreter interp;
+
+        private Session(Map<String, Object> props, PlatformProvider platform,
+                        Interpreter.Sink out, Interpreter.Sink err) {
+            interp = new Interpreter(out, props, coop, platform,
+                    externals, hiddenKeywords, ignoredFunctions, taskRunner);
+            interp.setErrorSink(err);
+        }
+
+        /**
+         * Evaluate one snippet. Returns the value to echo — a trailing bare expression statement's
+         * value, or a top-level {@code return}'s — and Java {@code null} when there is nothing to
+         * echo (the ProperTee {@code null} value is the {@code JsonNull.NULL} singleton, never Java
+         * null). Script runtime errors propagate as {@link TeeError}; the session stays usable —
+         * statements that ran before the error keep their effects, like a script that failed midway.
+         */
+        public Object eval(String source) {
+            ProperTeeParser.RootContext root = Parsing.parse(source);
+            if (!hiddenKeywords.isEmpty() || !ignoredFunctions.isEmpty()) {
+                TeeError blocked = Validator.firstViolation(root, hiddenKeywords, ignoredFunctions);
+                if (blocked != null) throw blocked;
+            }
+            Object[] echo = new Object[1];
+            coop.run("repl", () -> echo[0] = interp.runSnippet(root));
+            return echo[0];
+        }
+
+        /** The session's live globals (read/inject between snippets, as with {@code Interpreter.globals()}). */
+        public Map<String, Object> globals() { return interp.globals(); }
+    }
 }
