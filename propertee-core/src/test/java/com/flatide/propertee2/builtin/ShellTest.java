@@ -153,6 +153,40 @@ class ShellTest {
         }
     }
 
+    /**
+     * The case that motivated 0.19.0: SHELL called from multi/thread workers, through the REAL
+     * in-process runner (the stub-runner multi test above can't catch runner-level concurrency
+     * issues). Each worker's Result carries its own command's output, and the three 400 ms sleeps
+     * overlap (SHELL is BLOCKING → Coop.blocking runs the wait off-baton on each worker's own
+     * vthread) — a serializing regression would take 1200 ms+ and trip the elapsed guard.
+     */
+    @Test void simpleTaskRunnerRunsParallelShellsInMultiThreadWorkers() {
+        com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner();
+        try {
+            long start = System.nanoTime();
+            String out = new Engine().setTaskRunner(runner).run("""
+                    function job(name) do
+                        return SHELL("sleep 0.4 && echo done-" + name)
+                    end
+                    multi result do
+                        thread a: job("a")
+                        thread b: job("b")
+                        thread c: job("c")
+                    end
+                    PRINT(result.a.value.ok)
+                    PRINT(result.a.value.value)
+                    PRINT(result.b.value.value)
+                    PRINT(result.c.value.value)
+                    """);
+            long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+            assertEquals("true\ndone-a\ndone-b\ndone-c\n", out);
+            org.junit.jupiter.api.Assertions.assertTrue(elapsedMs < 1100,
+                    "three 400ms SHELLs should overlap, took " + elapsedMs + "ms");
+        } finally {
+            runner.shutdown();
+        }
+    }
+
     @Test void simpleTaskRunnerReleasesTaskStateAfterShell() {
         com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner();
         try {
