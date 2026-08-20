@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.21.0
+
+**Spec v0.19.0 — `multi ... limit K`: a concurrency cap on the multi block** (grew out of a
+worker-pool usability analysis, user-approved; design arc in ProperTee
+`docs/design-draft-multi-limit.md`). Nearly non-breaking: `limit` becomes a reserved word (the
+`elseif` class — scripts using it as an identifier stop parsing; zero occurrences across the
+fixture corpus).
+
+An optional `limit K` clause between the result variable and `do` caps how many workers run
+concurrently. The natural one-thread-per-job worker pool becomes safe and self-balancing —
+previously N jobs on K threads meant a hand-written striping idiom that could not rebalance
+load and put no bound on concurrent `SHELL`/`HTTP` operations:
+
+```
+multi result limit 3 do
+    loop job in ::jobs do
+        thread $(job.name): runJob(job)
+    end
+end
+```
+
+- The limit expression is evaluated once at multi entry, in textual order — before the global
+  snapshot and the setup phase (`MultiLimitTest` pins a `::` write inside the limit expression
+  being visible to workers). It must be a **positive integer** (nominal, spec v0.14.0 — `limit
+  2.0` is an error); zero/negative/decimal/non-number → positioned
+  `multi limit must be a positive integer`. No "0 = unlimited".
+- Setup is unchanged: `thread` statements still capture arguments and pre-register `"running"`
+  entries; only body start is deferred. A waiting worker is externally indistinguishable from a
+  running one — no new Result status, no host-observer change (all workers are announced
+  up front, as before).
+- Admission is deterministic: the first K spawn at multi start; each finishing worker (success
+  or `[THREAD ERROR]`) admits the next **in spawn order**, on-baton
+  (`Interpreter.runThreads` gating; the coop scheduler is unchanged). `K >=` spawn count ≡ no
+  limit; `limit 1` = sequential in spawn order.
+- The monitor watchdog does not consume a slot and observes waiting workers as `"running"`.
+- Abort (0.16.0) composes: a worker dying of `AbortError` still admits the next, which aborts at
+  its own first checkpoint — the chain guarantees every announced worker reaches a terminal
+  observer state and the parent is always released (`FacadeTest` pins it).
+
+Grammar: `parallelStmt : K_MULTI resultVar=ID? (K_LIMIT limitExpr=expression)? K_DO block
+monitorClause? K_END`. Fixtures 126–129 (cap + admission order + `K >= N`, `limit 1`, zero,
+decimal-nominal); conformance is now **126 fixtures**, byte-for-byte, deterministic over 5
+repeated runs; **364 tests green**. The v1 façade needs no change (the clause flows through the
+shared parser); v1 (propertee-java) is out of scope as usual.
+
 ## 0.20.0
 
 **Spec v0.18.0 — whole-file & JSON file I/O: `READ_FILE` / `READ_JSON_FILE` / `WRITE_JSON_FILE`**
