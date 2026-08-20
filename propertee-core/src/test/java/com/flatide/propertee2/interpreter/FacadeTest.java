@@ -237,6 +237,55 @@ class FacadeTest {
                 + created + ", terminal: " + terminal);
     }
 
+    /**
+     * spec v0.19.0 `limit K` + abort: never-admitted pending workers unwind through the admission
+     * chain (each dying worker admits the next, which aborts at its first checkpoint), so every
+     * announced worker still reaches a terminal listener state and the parent is released.
+     */
+    @Test void abortedLimitMultiChainsTerminalStatesThroughPendingWorkers() {
+        List<String> stderrLines = new ArrayList<>();
+        BuiltinFunctions.PrintFunction stdout = args -> {};
+        BuiltinFunctions.PrintFunction stderr = args -> stderrLines.add(join(args));
+        BuiltinFunctions builtins = new BuiltinFunctions(stdout, stderr, "r", null, null);
+
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "function spin() do\n" +
+                "    loop true infinite do\n" +
+                "    end\n" +
+                "    return 1\n" +
+                "end\n" +
+                "multi r limit 1 do\n" +
+                "    thread a: spin()\n" +
+                "    thread b: spin()\n" +
+                "    thread c: spin()\n" +
+                "end\n", new ArrayList<>());
+
+        List<String> created = new ArrayList<>();
+        List<String> terminal = new ArrayList<>();
+        com.flatide.propertee2.scheduler.SchedulerListener listener = new com.flatide.propertee2.scheduler.SchedulerListener() {
+            private String key(com.flatide.propertee2.scheduler.ThreadContext t) {
+                return t.resultKeyName != null ? t.resultKeyName : t.name;
+            }
+            @Override public void onThreadCreated(com.flatide.propertee2.scheduler.ThreadContext t) { created.add(key(t)); }
+            @Override public void onThreadUpdated(com.flatide.propertee2.scheduler.ThreadContext t) { }
+            @Override public void onThreadCompleted(com.flatide.propertee2.scheduler.ThreadContext t) { terminal.add(key(t)); }
+            @Override public void onThreadError(com.flatide.propertee2.scheduler.ThreadContext t) { terminal.add(key(t)); }
+        };
+
+        ProperTeeInterpreter visitor =
+                new ProperTeeInterpreter(new LinkedHashMap<>(), stdout, stderr, 1000, "error", builtins);
+        Scheduler scheduler = new Scheduler(visitor, listener);
+        abortSoon(visitor);
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () ->
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeAborted.class,
+                        () -> scheduler.run(visitor.createRootStepper(tree))));
+
+        assertEquals(List.of(), stderrLines);          // abort is not a script error, even for pending workers
+        assertTrue(created.containsAll(List.of("main", "a", "b", "c")), "created: " + created);
+        assertTrue(terminal.containsAll(created), "pending workers b/c were never admitted before the abort but "
+                + "must still terminate — created: " + created + ", terminal: " + terminal);
+    }
+
     @Test void blockingHostBuiltinIsResultWrappedOffBaton() {
         java.util.List<String> out = new ArrayList<>();
         BuiltinFunctions.PrintFunction sink = a -> out.add(join(a));

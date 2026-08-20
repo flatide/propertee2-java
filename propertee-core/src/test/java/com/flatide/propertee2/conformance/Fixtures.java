@@ -75,7 +75,10 @@ public final class Fixtures {
             // spec v0.17.0: FIND/FIND_FIRST/FIND_LAST literal position search
             "122_find_positions", "123_error_find_empty",
             // spec v0.18.0: whole-file & JSON file I/O (host-injected testDir, like 85)
-            "124_read_json_file", "125_read_file_write_json");
+            "124_read_json_file", "125_read_file_write_json",
+            // spec v0.19.0: multi ... limit K concurrency cap
+            "126_multi_limit_cap", "127_multi_limit_one", "128_error_multi_limit_zero",
+            "129_error_multi_limit_decimal");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

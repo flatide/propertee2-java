@@ -1,0 +1,11 @@
+// spec v0.19.0 + v0.14.0 nominal numbers: 2.0 is a decimal even though its
+// value is whole — not a valid limit. (Same nominal rule as arithmetic.)
+
+function f() do
+    return 1
+end
+
+k = 2.0
+multi r limit k do
+    thread a: f()
+end

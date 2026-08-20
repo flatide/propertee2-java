@@ -251,6 +251,16 @@ public final class Interpreter {
         requireKeyword("multi", m.getStart());
         ExecContext c = ec();
 
+        // 0. optional concurrency cap (spec v0.19.0): evaluated once, in textual order — before
+        //    the snapshot and the setup phase. Nominal typing applies (`limit 2.0` is an error
+        //    even though the value is whole); there is no "0 = unlimited".
+        int limit = Integer.MAX_VALUE;
+        if (m.limitExpr != null) {
+            Object v = eval(m.limitExpr);
+            if (!(v instanceof Integer i) || i <= 0) throw err("multi limit must be a positive integer", m.limitExpr);
+            limit = i;
+        }
+
         // 1. read-only global snapshot all threads share (design §4, thread purity), taken at
         //    multi ENTRY — before the setup phase — matching v1/js and the spec: a :: write in
         //    setup updates the real globals but is invisible to the workers/watchdog (fixture 121)
@@ -273,14 +283,14 @@ public final class Interpreter {
         for (MultiBuilder.Pending p : builder.pending) collection.put(p.key(), Result.running());
 
         // 4. spawn workers (+ optional monitor), wait for all, in-place result updates
-        runThreads(builder.pending, collection, snapshot, m);
+        runThreads(builder.pending, collection, snapshot, m, limit);
 
         // 5. assign the collection to resultVar (current scope) — global at top level, local in a function
         if (m.resultVar != null) currentScope().put(m.resultVar.getText(), collection);
     }
 
     private void runThreads(List<MultiBuilder.Pending> pending, Map<String, Object> collection,
-                            Map<String, Object> snapshot, ParallelStmtContext m) {
+                            Map<String, Object> snapshot, ParallelStmtContext m, int limit) {
         Scheduler s = coop.scheduler();
         Fiber parent = s.self();
         boolean hasMonitor = m.monitorClause() != null;
@@ -288,11 +298,29 @@ public final class Interpreter {
         AtomicInteger parentPending = new AtomicInteger(pending.size() + (hasMonitor ? 1 : 0));    // gate parent resume
         Runnable signalParent = () -> { if (parentPending.decrementAndGet() == 0) s.wake(parent); };
 
-        for (MultiBuilder.Pending p : pending) {
-            int tid = workerIdSeq.incrementAndGet();              // 1, 2, ... (the main thread is the host's id 0)
-            // Announce the worker before it runs so a host observer sees it during execution; its key in the
-            // result collection is the worker's result-key name (a host groups run threads by it).
-            if (threadObserver != null) threadObserver.created(tid, p.funcName(), 0, p.key());
+        // Announce every worker up front, in spawn order — a not-yet-admitted worker under
+        // `limit` is externally indistinguishable from a running one (spec v0.19.0: no new
+        // status), so a host observer sees the full thread list from the start, as before.
+        int[] tids = new int[pending.size()];
+        for (int i = 0; i < pending.size(); i++) {
+            tids[i] = workerIdSeq.incrementAndGet();              // 1, 2, ... (the main thread is the host's id 0)
+            MultiBuilder.Pending p = pending.get(i);
+            if (threadObserver != null) threadObserver.created(tids[i], p.funcName(), 0, p.key());
+        }
+
+        // Admission gate (spec v0.19.0 `limit K`): at most `limit` workers exist concurrently.
+        // The first K spawn below; each finishing worker admits the next in its finally —
+        // on-baton and in spawn order, so admission is deterministic. The chain is also the
+        // run-abort unwind path: a worker dying of AbortError still admits the next, which
+        // aborts at its own first checkpoint, until every announced worker has reached a
+        // terminal state — otherwise the parent would wait on parentPending forever.
+        AtomicInteger nextToAdmit = new AtomicInteger(0);
+        Runnable[] admitNext = new Runnable[1];
+        admitNext[0] = () -> {
+            int i = nextToAdmit.getAndIncrement();
+            if (i >= pending.size()) return;
+            MultiBuilder.Pending p = pending.get(i);
+            int tid = tids[i];
             s.spawn(p.key(), () -> ScopedValue.where(CTX, ExecContext.worker(snapshot)).run(() -> {
                 try {
                     Object r = invokeNamed(p.funcName(), p.args(), p.call());
@@ -312,10 +340,13 @@ public final class Interpreter {
                     if (threadObserver != null) threadObserver.error(tid, e);
                 } finally {
                     remaining.decrementAndGet();
+                    admitNext[0].run();       // free the slot before releasing the parent
                     signalParent.run();
                 }
             }));
-        }
+        };
+        int seats = Math.min(limit, pending.size());
+        for (int i = 0; i < seats; i++) admitNext[0].run();
 
         if (hasMonitor) {
             MonitorClauseContext mc = m.monitorClause();
