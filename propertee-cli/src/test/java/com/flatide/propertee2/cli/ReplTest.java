@@ -77,4 +77,80 @@ class ReplTest {
         assertEquals("from-repl\n", r.out());
         assertEquals("", r.err());
     }
+
+    // ---- the debugger (0.22.0): debug breaks in the REPL / :load / -i -------------------------
+
+    private Run replPreload(String input, String preload) throws IOException {
+        ByteArrayOutputStream outBuf = new ByteArrayOutputStream();
+        ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
+        Repl.run(Map.of(), new BufferedReader(new StringReader(input)),
+                new PrintStream(outBuf, true, StandardCharsets.UTF_8),
+                new PrintStream(errBuf, true, StandardCharsets.UTF_8),
+                false, "test", preload);
+        return new Run(outBuf.toString(StandardCharsets.UTF_8), errBuf.toString(StandardCharsets.UTF_8));
+    }
+
+    private String tempScript(String source) throws IOException {
+        java.nio.file.Path f = java.nio.file.Files.createTempFile("repl-debug", ".tee");
+        f.toFile().deleteOnExit();
+        java.nio.file.Files.writeString(f, source, StandardCharsets.UTF_8);
+        return f.toString();
+    }
+
+    @Test void debugPromptEvaluatesInThePausedFrameAndContinues() throws IOException {
+        // Typed function, then a call that breaks inside it: the prompt reads/writes the local
+        // frame (with multi-line continuation), and :c resumes with the mutation applied.
+        Run r = repl("""
+                function f(a) do
+                    b = a + 1
+                    debug
+                    return b
+                end
+                f(1)
+                b
+                if b == 2 then
+                b = 99
+                end
+                :c
+                """);
+        assertEquals("debug at line 3:4\n2\n99\n", r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void debugQuitAbortsTheRunButKeepsTheSession() throws IOException {
+        String script = tempScript("g = 2\ndebug\ng = 3\n");
+        Run r = repl("g = 1\n:load " + script + "\n:q\ng\n");
+        assertEquals("debug at line 2:0\ndebug: run aborted; session state kept\n2\n", r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void loadRunsAFileIntoTheSession() throws IOException {
+        String script = tempScript("x = 7\nfunction dbl(n) do\n    return n * 2\nend\n");
+        Run r = repl(":load " + script + "\ndbl(x)\n");
+        assertEquals("14\n", r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void varsDumpsThePausedFunctionFrame() throws IOException {
+        String script = tempScript("function f(a) do\n    b = a * 2\n    debug\n    return b\nend\ntop = f(3)\n");
+        Run r = repl(":load " + script + "\n:vars\n:c\ntop\n");
+        assertEquals("debug at line 3:4\na = 3\nb = 6\n6\n", r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void preloadRunsTheScriptThenDropsIntoTheReplWithItsState() throws IOException {
+        // `propertee2 -i script.tee`: the debugger is live during the preload, and the REPL
+        // afterwards shares the script's globals.
+        String script = tempScript("seed = 5\ndebug\nseed = seed + 1\n");
+        Run r = replPreload("seed\n:c\nseed\n", script);
+        assertEquals("debug at line 2:0\n5\n6\n", r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void eofAtTheDebugPromptResumesTheRun() throws IOException {
+        String script = tempScript("debug\nPRINT(\"after\")\n");
+        Run r = replPreload(":load " + script + "\n", null);
+        assertEquals("debug at line 1:0\nafter\n", r.out());
+        assertEquals("", r.err());
+    }
 }

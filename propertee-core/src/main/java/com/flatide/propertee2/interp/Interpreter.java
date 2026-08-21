@@ -1,5 +1,6 @@
 package com.flatide.propertee2.interp;
 
+import com.flatide.propertee2.Parsing;
 import com.flatide.propertee2.builtin.Builtins;
 import com.flatide.propertee2.coop.AbortError;
 import com.flatide.propertee2.coop.Coop;
@@ -446,9 +447,74 @@ public final class Interpreter {
             case ContinueStmtContext c -> throw Signals.Continue.INSTANCE;
             case ReturnStmtContext r   ->
                     throw new Signals.Return(r.expression() != null ? eval(r.expression()) : Values.emptyObject());
-            case DebugStmtContext d    -> requireKeyword("debug", f.getStart()); // else no-op (70_debug_statement)
+            case DebugStmtContext d    -> execDebug(d);
             default -> throw err("unsupported flow statement", f);
         }
+    }
+
+    // ---- debug statement (host API 0.22.0 — spec-defined as "pauses in a debug mode") ---------
+
+    private DebugHandler debugHandler;
+    private boolean inDebugSession;   // root-fiber-confined (the handler only fires in NORMAL mode)
+
+    /** Attach a {@link DebugHandler} — turns {@code debug} from a no-op into a breakpoint. */
+    public void setDebugHandler(DebugHandler handler) { this.debugHandler = handler; }
+
+    private void execDebug(DebugStmtContext d) {
+        requireKeyword("debug", d.getStart());   // hideable, like the other keywords
+        // No handler = normal execution = no-op (70_debug_statement). Workers and the monitor
+        // watchdog stay no-ops too (no stdin from a worker; purity questions deferred), as does
+        // code evaluated FROM a break (a debugger must not re-enter itself).
+        if (debugHandler == null || inDebugSession || ec().mode != ExecContext.Mode.NORMAL) return;
+        inDebugSession = true;
+        try {
+            debugHandler.onBreak(new PausedFrame(d));
+        } finally {
+            inDebugSession = false;
+        }
+    }
+
+    /** The paused scope handed to the handler — evaluates in place on the paused fiber. */
+    private final class PausedFrame implements DebugFrame {
+        private final DebugStmtContext at;
+        PausedFrame(DebugStmtContext at) { this.at = at; }
+
+        @Override public int line() { return at.getStart().getLine(); }
+        @Override public int column() { return at.getStart().getCharPositionInLine(); }
+
+        @Override public Object eval(String source) {
+            RootContext root = Parsing.parse(source);
+            // Deliberately NOT execSnippet: that records top-level `return` into the session's
+            // hasExplicitReturn/returnValue, which belong to the paused snippet, not the debugger.
+            List<StatementContext> stmts = root.statement();
+            Object last = null;
+            try {
+                for (int i = 0; i < stmts.size(); i++) {
+                    StatementContext s = stmts.get(i);
+                    if (i == stmts.size() - 1 && s instanceof ExprStmtContext e) {
+                        last = Interpreter.this.eval(e.expression());
+                    } else {
+                        exec(s);
+                    }
+                }
+            } catch (Signals.Return r) {
+                last = r.value;                    // echo, never unwind the paused script
+            } catch (Signals.Break | Signals.Continue ignored) {
+                // must not leak into the paused script's enclosing loop
+            }
+            return last;
+        }
+
+        @Override public Map<String, Object> locals() {
+            ExecContext c = ec();
+            return c.frames.isEmpty() ? Map.of() : java.util.Collections.unmodifiableMap(c.frames.peek());
+        }
+
+        @Override public Map<String, Object> globals() {
+            return java.util.Collections.unmodifiableMap(ec().globalsView);
+        }
+
+        @Override public void quit() { throw new DebugQuit(); }
     }
 
     private void defineFunction(FunctionDefContext f) {

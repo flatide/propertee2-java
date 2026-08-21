@@ -29,6 +29,7 @@ public final class Main {
     public static void main(String[] args) {
         Map<String, Object> props = Map.of();
         String file = null;
+        boolean interactive = false;
 
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
@@ -39,6 +40,7 @@ public final class Main {
                     if (i + 1 >= args.length) fail("missing JSON object after " + a);
                     props = parseProps(args[++i]);
                 }
+                case "-i", "--interactive" -> interactive = true;
                 default -> {
                     if (a.startsWith("-")) fail("unknown option: " + a);
                     if (file != null) fail("only one input file is allowed");
@@ -46,13 +48,15 @@ public final class Main {
                 }
             }
         }
-        if (file == null) {
-            // No script file: interactive REPL (0.18.0). Prompts only when stdin is a terminal,
-            // so `echo 'PRINT(1)' | propertee2` emits clean output.
+        if (file == null || interactive) {
+            // Interactive REPL (0.18.0): bare `propertee2`, or `-i script.tee` (0.22.0) which runs
+            // the script in the session first — with the debug statement live as a breakpoint —
+            // then drops into the REPL sharing its state, like `python -i`. Prompts only when
+            // stdin is a terminal, so `echo 'PRINT(1)' | propertee2` emits clean output.
             try {
                 Repl.run(props,
                         new java.io.BufferedReader(new java.io.InputStreamReader(System.in, StandardCharsets.UTF_8)),
-                        System.out, System.err, System.console() != null, version());
+                        System.out, System.err, System.console() != null, version(), file);
             } catch (IOException e) {
                 System.err.println("propertee2: " + e.getMessage());
                 System.exit(1);
@@ -119,11 +123,15 @@ public final class Main {
 
     private static void usage(PrintStream out) {
         out.println("""
-                usage: propertee2 [-p <json-object>] [script.tee]
+                usage: propertee2 [-p <json-object>] [-i] [script.tee]
 
-                  With no script file, starts an interactive REPL on stdin.
+                  With no script file, starts an interactive REPL on stdin. In the REPL
+                  (and under -i) a `debug` statement pauses the run and opens a pdb-style
+                  debug> prompt in the paused scope.
 
                   -p, --props <json>   host-injected built-in properties (a JSON object)
+                  -i, --interactive    run the script in a REPL session, then stay in the
+                                       REPL with its state (debug statements break)
                   -v, --version        print version and exit
                   -h, --help           print this help and exit""");
     }

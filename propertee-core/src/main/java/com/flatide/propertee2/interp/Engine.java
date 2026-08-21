@@ -201,5 +201,16 @@ public final class Engine {
 
         /** The session's live globals (read/inject between snippets, as with {@code Interpreter.globals()}). */
         public Map<String, Object> globals() { return interp.globals(); }
+
+        /**
+         * Attach a {@link DebugHandler} (host API, 0.22.0): {@code debug} statements in snippets
+         * become breakpoints — the handler runs on the paused fiber and the snippet resumes when
+         * it returns. {@link DebugFrame#quit()} makes {@link #eval} throw {@link DebugQuit}; the
+         * session survives with all state from before the abort.
+         */
+        public Session setDebugHandler(DebugHandler handler) {
+            interp.setDebugHandler(handler);
+            return this;
+        }
     }
 }
