@@ -9,8 +9,8 @@ Release artifacts. Build the self-contained runnable JAR here with:
 Run it (requires **JDK 25** on PATH / `JAVA_HOME`):
 
 ```bash
-java -jar dist/propertee2-0.1.0.jar path/to/script.tee
-java -jar dist/propertee2-0.1.0.jar -p '{"width":100}' script.tee
+java -jar dist/propertee2.jar path/to/script.tee
+java -jar dist/propertee2.jar -p '{"width":100}' script.tee
 ```
 
 The JAR bundles `propertee-cli` + `propertee-core` + `antlr4-runtime` (Main-Class
