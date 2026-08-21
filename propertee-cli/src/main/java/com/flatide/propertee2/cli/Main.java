@@ -41,6 +41,17 @@ public final class Main {
                     props = parseProps(args[++i]);
                 }
                 case "-i", "--interactive" -> interactive = true;
+                case "--dap" -> {
+                    // Debug Adapter Protocol server on stdio (0.24.0) — spawned by the VS Code
+                    // extension; the script and its options arrive in the DAP launch request.
+                    try {
+                        new Dap(System.in, System.out).run();
+                    } catch (IOException e) {
+                        System.err.println("propertee2: --dap: " + e.getMessage());
+                        System.exit(1);
+                    }
+                    return;
+                }
                 default -> {
                     if (a.startsWith("-")) fail("unknown option: " + a);
                     if (file != null) fail("only one input file is allowed");
@@ -132,6 +143,8 @@ public final class Main {
                   -p, --props <json>   host-injected built-in properties (a JSON object)
                   -i, --interactive    run the script in a REPL session, then stay in the
                                        REPL with its state (debug statements break)
+                  --dap                Debug Adapter Protocol server on stdio (for IDEs;
+                                       the script arrives via the DAP launch request)
                   -v, --version        print version and exit
                   -h, --help           print this help and exit""");
     }
