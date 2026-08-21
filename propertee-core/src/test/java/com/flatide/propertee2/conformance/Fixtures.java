@@ -78,7 +78,9 @@ public final class Fixtures {
             "124_read_json_file", "125_read_file_write_json",
             // spec v0.19.0: multi ... limit K concurrency cap
             "126_multi_limit_cap", "127_multi_limit_one", "128_error_multi_limit_zero",
-            "129_error_multi_limit_decimal");
+            "129_error_multi_limit_decimal",
+            // spec v0.20.0: _ARGS positional invocation arguments (130 harness-injected)
+            "130_args", "131_args_empty");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

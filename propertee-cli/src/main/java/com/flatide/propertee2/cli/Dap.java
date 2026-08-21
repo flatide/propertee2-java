@@ -180,7 +180,9 @@ final class Dap {
 
     private void openSession() {
         Map<String, Object> props = asMap(launchArgs.get("props"));
-        session = new Engine().setTaskRunner(taskRunner).session(props,
+        List<String> scriptArgs = new ArrayList<>();
+        for (Object a : asList(launchArgs.get("args"))) scriptArgs.add(String.valueOf(a));
+        session = new Engine().setTaskRunner(taskRunner).setArgs(scriptArgs).session(props,
                 line -> output("stdout", line + "\n"),
                 line -> output("stderr", line + "\n"));
         if (!Boolean.TRUE.equals(launchArgs.get("noDebug"))) {

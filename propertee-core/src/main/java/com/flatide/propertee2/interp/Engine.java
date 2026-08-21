@@ -36,6 +36,18 @@ public final class Engine {
         return this;
     }
 
+    private List<String> args = List.of();
+
+    /**
+     * Positional invocation arguments for the script (spec v0.20.0): exposed as the {@code _ARGS}
+     * string array. Applies to subsequent {@link #run} calls and {@link #session} openings. An
+     * {@code _ARGS} property injected via props wins (the {@code _PROPS} precedence rule).
+     */
+    public Engine setArgs(List<String> args) {
+        this.args = args == null ? List.of() : List.copyOf(args);
+        return this;
+    }
+
     /**
      * Register an external function (return value -> Result.ok, exception -> Result.error). Runs
      * through Coop.blocking — a host function may block, and the design unifies external registration
@@ -147,6 +159,7 @@ public final class Engine {
         Coop coop = new Coop();
         Interpreter interp = new Interpreter(out, props, coop, platform,
                 externals, hiddenKeywords, ignoredFunctions, taskRunner);
+        interp.setArgs(args);
         interp.setErrorSink(err);
         coop.run("main", () -> interp.run(root));   // the program is the root logical thread
     }
@@ -178,6 +191,7 @@ public final class Engine {
                         Interpreter.Sink out, Interpreter.Sink err) {
             interp = new Interpreter(out, props, coop, platform,
                     externals, hiddenKeywords, ignoredFunctions, taskRunner);
+            interp.setArgs(args);
             interp.setErrorSink(err);
         }
 

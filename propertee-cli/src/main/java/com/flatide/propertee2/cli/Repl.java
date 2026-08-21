@@ -42,24 +42,32 @@ final class Repl {
 
     static void run(Map<String, Object> props, BufferedReader in, PrintStream out, PrintStream err,
                     boolean interactive, String version) throws IOException {
-        run(props, in, out, err, interactive, version, null);
+        run(props, java.util.List.of(), in, out, err, interactive, version, null);
     }
 
     static void run(Map<String, Object> props, BufferedReader in, PrintStream out, PrintStream err,
                     boolean interactive, String version, String preload) throws IOException {
+        run(props, java.util.List.of(), in, out, err, interactive, version, preload);
+    }
+
+    static void run(Map<String, Object> props, java.util.List<String> args,
+                    BufferedReader in, PrintStream out, PrintStream err,
+                    boolean interactive, String version, String preload) throws IOException {
         // SHELL works in the REPL too (0.19.0): the same in-process SimpleTaskRunner as script mode.
         com.flatide.propertee2.task.SimpleTaskRunner taskRunner = new com.flatide.propertee2.task.SimpleTaskRunner();
         try {
-            run(props, taskRunner, in, out, err, interactive, version, preload);
+            run(props, args, taskRunner, in, out, err, interactive, version, preload);
         } finally {
             taskRunner.shutdown();
         }
     }
 
-    private static void run(Map<String, Object> props, com.flatide.propertee2.task.SimpleTaskRunner taskRunner,
+    private static void run(Map<String, Object> props, java.util.List<String> args,
+                            com.flatide.propertee2.task.SimpleTaskRunner taskRunner,
                             BufferedReader in, PrintStream out, PrintStream err,
                             boolean interactive, String version, String preload) throws IOException {
-        Engine.Session session = new Engine().setTaskRunner(taskRunner).session(props, out::println, err::println);
+        Engine.Session session = new Engine().setTaskRunner(taskRunner).setArgs(args)
+                .session(props, out::println, err::println);
         session.setDebugHandler(frame ->
                 debugSession(frame, session.debugBreakpoints(), in, out, err, interactive));
         if (interactive) {

@@ -147,6 +147,20 @@ class ReplTest {
         assertEquals("", r.err());
     }
 
+    @Test void argsFlowIntoThePreloadAndTheSession() throws IOException {
+        // `propertee2 -i script.tee alpha 42` — _ARGS visible in the preload and afterwards
+        String script = tempScript("PRINT(\"from script:\", _ARGS.1)\n");
+        ByteArrayOutputStream outBuf = new ByteArrayOutputStream();
+        ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
+        Repl.run(Map.of(), java.util.List.of("alpha", "42"),
+                new BufferedReader(new StringReader("_ARGS.2\n")),
+                new PrintStream(outBuf, true, StandardCharsets.UTF_8),
+                new PrintStream(errBuf, true, StandardCharsets.UTF_8),
+                false, "test", script);
+        assertEquals("from script: alpha\n42\n", outBuf.toString(StandardCharsets.UTF_8));
+        assertEquals("", errBuf.toString(StandardCharsets.UTF_8));
+    }
+
     @Test void eofAtTheDebugPromptResumesTheRun() throws IOException {
         String script = tempScript("debug\nPRINT(\"after\")\n");
         Run r = replPreload(":load " + script + "\n", null);

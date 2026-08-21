@@ -88,6 +88,23 @@ public final class Interpreter {
                 builtinProps.put("_PROPS", all);
             }
         }
+        // _ARGS (spec v0.20.0): positional invocation arguments as a string array. Never absent —
+        // the empty array is the no-arguments value (no implicit null). A property named _ARGS
+        // supplied by the host wins, the same precedence rule as _PROPS above.
+        argsFromProps = builtinProps.containsKey("_ARGS");
+        if (!argsFromProps) builtinProps.put("_ARGS", new ArrayList<>());
+    }
+
+    private final boolean argsFromProps;
+
+    /**
+     * Host entry for the {@code _ARGS} array (spec v0.20.0): the positional arguments after the
+     * script on the command line (or a host's equivalent), as strings, in order. Ignored when the
+     * host injected an {@code _ARGS} property explicitly (the {@code _PROPS} precedence rule).
+     */
+    public void setArgs(List<String> args) {
+        if (argsFromProps || args == null) return;
+        builtinProps.put("_ARGS", new ArrayList<Object>(args));
     }
 
     public void run(RootContext root) {

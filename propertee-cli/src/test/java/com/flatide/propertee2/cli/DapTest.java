@@ -273,6 +273,17 @@ class DapTest {
         });
     }
 
+    @Test void launchArgsBecomeARGS() throws Exception {
+        String program = tempScript("PRINT(LEN(_ARGS), _ARGS.1, _ARGS.2)\n");
+        assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
+            try (Client c = new Client()) {
+                c.start(program, Map.of("args", List.of("alpha", "42")), null);
+                c.event("terminated");
+                assertEquals(List.of("2 alpha 42\n"), c.stdout);
+            }
+        });
+    }
+
     @Test void runtimeErrorIsNormalOutputWithExitZero() throws Exception {
         String program = tempScript("x = 1 / 0\n");
         assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {

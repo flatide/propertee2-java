@@ -72,6 +72,7 @@ class ConformanceTest {
     private static Engine engineFor(String name) {
         Engine e = new Engine();
         switch (name) {
+            case "130_args" -> e.setArgs(List.of("alpha", "beta", "42"));   // spec v0.20.0 _ARGS
             case "41_result_pattern" -> {
                 e.registerExternal("GET_BALANCE", a -> switch ((String) a.get(0)) {
                     case "alice" -> 3000;
@@ -108,7 +109,7 @@ class ConformanceTest {
 
     @Test
     void allFixturesCovered() {
-        assertEquals(126, allFixtures().size());
-        assertEquals(126, Fixtures.ALL.size());
+        assertEquals(128, allFixtures().size());
+        assertEquals(128, Fixtures.ALL.size());
     }
 }
