@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.23.0
+
+**Debugger phase 2 — stepping, call stack, line breakpoints** (host/CLI only, zero language
+change; completes the pdb feature set on 0.22.0's hook).
+
+Engine:
+
+- A pre-statement hook (`Interpreter.debugStep`, called from `exec` — a single null check when
+  no handler is attached, so conformance behavior and cost are untouched) drives two new break
+  reasons alongside the `debug` statement: **STEP** and **BREAKPOINT** (`DebugFrame.reason()`).
+- `DebugFrame.stepInto()/stepOver()/stepOut()` — pdb's step/next/return, with call depth =
+  the local-frame stack size; any break disarms the pending step (one pause per statement, and
+  stepping onto a `debug` statement yields that break only). A step armed when a run ends does
+  not leak into the next snippet (reset per run).
+- `DebugFrame.callStack()` → `DebugCallSite(function, line, column)` list, outermost first —
+  maintained per-fiber (in `ExecContext`) only while a handler is attached, push/pop balanced
+  by a captured gate.
+- `DebugFrame.statementText()` — the paused statement's source (first line + " …" for blocks),
+  sliced from the ANTLR char stream, so hosts can show *what* is about to run.
+- `Interpreter.debugBreakpoints()` / `Engine.Session.debugBreakpoints()` — a live mutable set
+  of 1-based lines (per-snippet/loaded-file numbering) that break before executing; fires every
+  time the line runs (loop iterations included). Only consulted on the root logical thread in
+  NORMAL context.
+
+CLI (`debug>` prompt): `:n`/`:next`, `:s`/`:step`, `:r`/`:return`, `:w`/`:where` (call chain +
+current statement), `:b [line]` / `:bd [line]` — breakpoints are also settable at the `pt>`
+prompt before a `:load`. Step and breakpoint stops show the statement about to run
+(`at line 7:0: b = inner(a)`); the `debug`-statement banner is unchanged from 0.22.0.
+
+Deferred still: worker/monitor debugging, and real breakpoints in the VS Code extension (needs
+an adapter↔runtime protocol; the engine hook is now sufficient for it).
+
+`DebugHandlerTest` +5 (step over/into/out with call-stack assertions, per-iteration breakpoint,
+statement-text slicing, no step leak across runs) and `ReplTest` +4 piped walks.
+**126 fixtures / 386 tests green, 5× deterministic.**
+
 ## 0.22.0
 
 **pdb-style interactive debugger — `DebugHandler` host API + REPL `debug>` prompt, `:load`,

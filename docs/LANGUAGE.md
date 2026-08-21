@@ -456,12 +456,14 @@ end
 execution pauses at each `debug` statement. In normal execution, `debug` is a
 no-op (does nothing). Can be placed anywhere a statement is valid.
 
-> **Runtime note (0.22.0):** this runtime's CLI REPL — including `:load` and `propertee2 -i
-> script.tee` — is such a debug mode: `debug` opens a pdb-style `debug>` prompt that evaluates
-> in the paused scope (`:c` continues, `:q` aborts the run keeping the session). Hosts get the
-> same via the `DebugHandler`/`DebugFrame` API (`Engine.Session.setDebugHandler`). Plain script
-> mode stays a no-op. Breaks fire only on the main logical thread; `debug` in workers and the
-> monitor watchdog remains a no-op.
+> **Runtime note (0.22.0/0.23.0):** this runtime's CLI REPL — including `:load` and
+> `propertee2 -i script.tee` — is such a debug mode: `debug` opens a pdb-style `debug>` prompt
+> that evaluates in the paused scope (`:c` continues, `:q` aborts the run keeping the session;
+> 0.23.0 adds stepping `:n`/`:s`/`:r`, the `:w` call stack, and line breakpoints `:b [line]` /
+> `:bd`, settable at both prompts). Hosts get the same via the `DebugHandler`/`DebugFrame` API
+> (`Engine.Session.setDebugHandler`, `debugBreakpoints()`). Plain script mode stays a no-op.
+> Breaks fire only on the main logical thread; `debug` in workers and the monitor watchdog
+> remains a no-op.
 
 ## Functions
 
