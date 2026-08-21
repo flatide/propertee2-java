@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.25.0
+
+**Spec v0.20.0 — `_ARGS`: positional invocation arguments** (user design request "CLI 파라메터를
+스크립트에서 참조"; additive, non-breaking — no grammar change, `_ARGS` joins `_PROPS` as the
+second reserved global).
+
+- `_ARGS` is a **string array** of the positional arguments: on the CLI, everything after the
+  script path (`propertee2 deploy.tee prod eu-west 42` — option parsing stops at the file, like
+  python; the old "only one input file" error is gone). 1-based, iterable, and **always
+  present** — the empty array when there are none. Elements stay strings; number entry is
+  explicit (`TO_NUMBER`), consistent with nominal identity (v0.14.0).
+- Deliberately **not** inside `_PROPS`: the documented iterate/dump patterns
+  (`JSON_FORMAT(_PROPS)`, `loop k in KEYS(_PROPS)`) stay pure, and args don't collide with `-p`
+  keys. A caller-supplied property literally named `_ARGS` wins — the same precedence rule as
+  `_PROPS` (`ArgsTest` pins both).
+- Wiring: `Engine.setArgs(List<String>)` (chainable; `Session` inherits it — the `-i` REPL and
+  `:load` share the invocation's args), CLI script mode and REPL preload, and the DAP server's
+  launch `args` — the VS Code launch-config field that existed since 0.5.0 now actually works
+  (extension 0.6.1 documents it).
+- Injection lives next to `_PROPS` in the interpreter (`builtinProps`), so scope behavior is
+  identical: bare at top level, `::_ARGS` in functions/`multi` setup, worker/monitor snapshot
+  reads.
+
+Fixtures 130 (harness-injected; the .expected generated end-to-end through the real CLI with
+real trailing args) and 131 (empty default). **128 fixtures / 400 tests green, 5×
+deterministic.** Ecosystem: spec v0.20.0 (EN + ko + grammar copies), js synced (visitor
+`setArgs` + `pt.js` trailing args + fixtures byte-identical, 122 passed), VS Code extension
+0.6.1 (launch `args` description + README), v1 out of scope.
+
 ## 0.24.0
 
 **`propertee2 --dap` — a Debug Adapter Protocol server on stdio** (host/CLI only, zero language
