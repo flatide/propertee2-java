@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.22.0
+
+**pdb-style interactive debugger — `DebugHandler` host API + REPL `debug>` prompt, `:load`,
+`-i`** (user request "REPL로 파이썬과 같은 디버깅"; host/CLI only, zero language change — the
+spec already defines `debug` as "pauses in a debug mode, no-op in normal execution", so this is
+another debug-mode host, the same release class as 0.18.0's REPL. 126 fixtures byte-identical;
+fixture 70's no-op contract untouched).
+
+Engine (host API):
+
+- `Interpreter.setDebugHandler` / `Engine.Session.setDebugHandler` — with a handler attached,
+  each `debug` statement calls `DebugHandler.onBreak(DebugFrame)` **on the paused fiber, holding
+  the baton**: the whole run freezes (workers, monitor ticks, sleep wakes) until the callback
+  returns — a deliberate, documented exception to the no-blocking-on-baton contract, because a
+  frozen world is what a breakpoint means. Sleep deadlines are absolute, so a long pause wakes
+  overdue sleepers back-to-back on resume, in deadline order.
+- `DebugFrame`: `line()`/`column()`, `eval(source)` — parse + execute **in the paused scope**
+  (the innermost local frame is read and written; `return` echoes without unwinding;
+  `break`/`continue` are swallowed so they cannot leak into the paused script's enclosing loop;
+  a nested `debug` is a no-op — the debugger does not re-enter itself), `locals()`, `globals()`,
+  and `quit()` → throws `DebugQuit` (an `Error`, like `AbortError`, invisible to script-level
+  catches; carries no Coop latch, so an `Engine.Session` survives with all pre-abort state).
+- Scope: breaks fire only on the root logical thread in NORMAL context. `debug` in workers and
+  the monitor watchdog stays a no-op (no stdin from a worker; deferred).
+- Deliberately not `execSnippet`: debugger evaluation keeps its hands off the session's
+  top-level-return state (`hasExplicitReturn`/`returnValue`).
+
+CLI:
+
+- The REPL (bare `propertee2`), `:load <file>` (new — run a script into the session, state
+  accumulates), and `propertee2 -i script.tee` (new — `python -i`: run the script in a REPL
+  session, then stay in the REPL with its state) all attach the debugger: `debug` opens a
+  `debug>` prompt in the paused scope — bare input evaluates there with the same multi-line
+  continuation and echo rules as the REPL; `:c` continues, `:q` aborts the run keeping the
+  session, `:vars`/`:globals` dump state, EOF resumes the run (piped input never hangs).
+- Plain script mode (`propertee2 script.tee`) keeps `debug` a no-op — the spec's "normal
+  execution" contract.
+
+`DebugHandlerTest` (frame eval/mutation, top-level scope, return/break containment, re-entry
+guard, worker/monitor exemption, DebugQuit session survival, error surfacing) + 6 piped
+`ReplTest` scenarios. **126 fixtures / 377 tests green, 5× deterministic.**
+
 ## 0.21.0
 
 **Spec v0.19.0 — `multi ... limit K`: a concurrency cap on the multi block** (grew out of a
