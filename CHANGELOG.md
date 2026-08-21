@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.24.0
+
+**`propertee2 --dap` — a Debug Adapter Protocol server on stdio** (host/CLI only, zero language
+change; the piece that turns the VS Code extension's F5 into a real debugger with breakpoints,
+stepping, stack, variables, and REPL/hover evaluation — closing the "VSIX real breakpoints"
+deferral from 0.22.0/0.23.0).
+
+- `cli/Dap`: framed DAP messages (Content-Length; parsed/serialized with the engine's own
+  `JsonParser`/`TeeFormat.json` — no dependencies). Implements initialize/launch (with `props` →
+  `-p`-style injection and `noDebug` = plain run)/setBreakpoints (live into
+  `Session.debugBreakpoints()`, mid-run updates included)/configurationDone (start when both it
+  and launch have arrived, order-independent)/threads/stackTrace/scopes (Locals + Globals)/
+  variables (display form, flat)/evaluate (paused scope, hover + REPL)/continue/next/stepIn/
+  stepOut/disconnect. Output and runtime errors arrive as `output` events; a script runtime
+  error keeps the exit-0 CLI contract.
+- Threading: the script runs on a daemon thread whose `DebugHandler` blocks on a command queue;
+  since the paused frame is fiber-confined (ScopedValue), every frame access is shipped to that
+  thread as a query and answered via a future. `stopped` reasons: breakpoint (with "debug
+  statement" description for `debug`), step.
+- Deliberate limits, documented: one thread ("main"), flat variables, optimistic breakpoint
+  verification (a line with no statement never fires), no `pause` request (disconnect ends the
+  process). Worker/monitor debugging remains out of scope.
+- `DapTest` drives full sessions over in-memory pipes — the exact VS Code wire: breakpoint hit →
+  stack/variables/evaluate → continue; `debug` statement stop → step; `noDebug`; runtime-error
+  contract. (The test pipe is hand-rolled: `java.io.Piped*Stream` kills the stream when the
+  writing *thread* dies, and the server legitimately writes from two.)
+
+VS Code extension 0.6.0 (ProperTee repo) switches to this server as a `DebugAdapterExecutable`
+— see its README; it requires runtime 0.24.0+.
+
+**126 fixtures / 390 tests green, 5× deterministic.**
+
 ## 0.23.0
 
 **Debugger phase 2 — stepping, call stack, line breakpoints** (host/CLI only, zero language
