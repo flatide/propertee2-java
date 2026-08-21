@@ -212,5 +212,11 @@ public final class Engine {
             interp.setDebugHandler(handler);
             return this;
         }
+
+        /**
+         * Live, mutable set of 1-based lines that break before executing (0.23.0) — line numbers
+         * are each snippet's/loaded file's own. Only consulted while a debug handler is attached.
+         */
+        public java.util.Set<Integer> debugBreakpoints() { return interp.debugBreakpoints(); }
     }
 }

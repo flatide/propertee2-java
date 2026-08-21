@@ -26,6 +26,10 @@ final class ExecContext {
     final Map<String, Object> globalsView;            // live globals (NORMAL) or snapshot (WORKER/MONITOR)
     final Deque<Map<String, Object>> frames = new ArrayDeque<>();      // local call frames
     final Deque<MultiBuilder> setupBuilders = new ArrayDeque<>();      // active multi setup phases
+    final Deque<DebugCallSite> callStack = new ArrayDeque<>();         // debugger :where — outermost first
+                                                                       // (maintained only while a debug
+                                                                       // handler is attached; per-fiber, so
+                                                                       // workers can't corrupt each other's)
 
     private ExecContext(Mode mode, Map<String, Object> globalsView) {
         this.mode = mode;

@@ -153,4 +153,73 @@ class ReplTest {
         assertEquals("debug at line 1:0\nafter\n", r.out());
         assertEquals("", r.err());
     }
+
+    // ---- 0.23.0: stepping, :where, line breakpoints -------------------------------------------
+
+    private static final String STEP_SCRIPT = """
+            function inner(n) do
+                x = n * 2
+                return x
+            end
+            a = 1
+            debug
+            b = inner(a)
+            PRINT(b)
+            """;
+
+    @Test void stepNextThenIntoWalksTheScriptWithWhere() throws IOException {
+        String script = tempScript(STEP_SCRIPT);
+        Run r = repl(":load " + script + "\n:n\n:s\n:vars\n:w\n:c\n");
+        assertEquals("""
+                debug at line 6:0
+                at line 7:0: b = inner(a)
+                at line 2:4: x = n * 2
+                n = 1
+                top level → inner (called at 7:4)
+                at line 2:4: x = n * 2
+                2
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void stepOutReturnsToTheCaller() throws IOException {
+        String script = tempScript(STEP_SCRIPT);
+        Run r = repl(":load " + script + "\n:s\n:s\n:r\n:c\n");
+        // debug@6 -> :s stops at 7, :s enters inner (line 2), :r runs to the caller's next statement
+        assertEquals("""
+                debug at line 6:0
+                at line 7:0: b = inner(a)
+                at line 2:4: x = n * 2
+                at line 8:0: PRINT(b)
+                2
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void breakpointSetBeforeLoadFiresAndDeletes() throws IOException {
+        String script = tempScript("x = 1\nx = x + 1\nPRINT(x)\n");
+        Run r = repl(":b 2\n:load " + script + "\nx\n:c\n:bd 2\n:load " + script + "\n");
+        assertEquals("""
+                breakpoint added at line 2
+                breakpoint at line 2:0: x = x + 1
+                1
+                2
+                breakpoint deleted at line 2
+                2
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void breakpointListAndClearAll() throws IOException {
+        Run r = repl(":b\n:b 5\n:b 3\n:b\n:bd\n:b\n");
+        assertEquals("""
+                (no breakpoints)
+                breakpoint added at line 5
+                breakpoint added at line 3
+                breakpoints: 3, 5
+                all breakpoints deleted
+                (no breakpoints)
+                """, r.out());
+        assertEquals("", r.err());
+    }
 }

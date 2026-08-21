@@ -125,6 +125,102 @@ class DebugHandlerTest {
         assertTrue(out.isEmpty());
     }
 
+    // ---- 0.23.0: stepping, call stack, line breakpoints ---------------------------------------
+
+    private static final String STEP_SRC = """
+            function inner(n) do
+                x = n * 2
+                return x
+            end
+            a = 1
+            debug
+            b = inner(a)
+            c = b + 1
+            PRINT(c)
+            """;
+
+    /** A scripted handler: records (reason, line) per break and replays queued commands. */
+    private static final class Steps implements DebugHandler {
+        final List<String> breaks = new ArrayList<>();
+        final List<java.util.function.Consumer<DebugFrame>> plan = new ArrayList<>();
+        int at = 0;
+        Steps then(java.util.function.Consumer<DebugFrame> cmd) { plan.add(cmd); return this; }
+        @Override public void onBreak(DebugFrame frame) {
+            breaks.add(frame.reason() + "@" + frame.line());
+            if (at < plan.size()) plan.get(at++).accept(frame);
+        }
+    }
+
+    /** :n — pause at the next statement at the same depth; the call inside runs unpaused. */
+    @Test void stepOverSkipsIntoCalledFunctions() {
+        List<String> out = new ArrayList<>();
+        Steps steps = new Steps().then(DebugFrame::stepOver).then(f -> {
+            assertEquals("b = inner(a)", f.statementText());
+            f.stepOver();
+        }).then(f -> { });                                    // line 8: plain continue
+        session(out, steps).eval(STEP_SRC);
+        assertEquals(List.of("DEBUG_STATEMENT@6", "STEP@7", "STEP@8"), steps.breaks);
+        assertEquals(List.of("3"), out);
+    }
+
+    /** :s into the call, :where inside it, :r back out to the caller's next statement. */
+    @Test void stepIntoSeesTheCallStackAndStepOutReturns() {
+        List<String> out = new ArrayList<>();
+        Steps steps = new Steps()
+                .then(DebugFrame::stepInto)                   // debug@6 -> next stmt anywhere
+                .then(DebugFrame::stepInto)                   // 7: b = inner(a) -> into inner
+                .then(f -> {                                  // 2: x = n * 2 (inside inner)
+                    assertEquals(List.of(new DebugCallSite("inner", 7, 4)), f.callStack());
+                    assertEquals(1, f.locals().get("n"));
+                    f.stepOut();
+                })
+                .then(f -> assertEquals(List.of(), f.callStack()));   // 8: back at top level
+        session(out, steps).eval(STEP_SRC);
+        assertEquals(List.of("DEBUG_STATEMENT@6", "STEP@7", "STEP@2", "STEP@8"), steps.breaks);
+        assertEquals(List.of("3"), out);
+    }
+
+    /** A line breakpoint fires each time the line executes — loop iterations included. */
+    @Test void lineBreakpointFiresPerIteration() {
+        List<String> out = new ArrayList<>();
+        List<Object> seenI = new ArrayList<>();
+        Engine.Session s = session(out, f -> seenI.add(f.eval("i")));
+        s.debugBreakpoints().add(6);
+        s.eval("""
+                function bump(n) do
+                    return n + 1
+                end
+                total = 0
+                loop i in [1..3] do
+                    total = total + bump(i)
+                end
+                PRINT(total)
+                """);
+        assertEquals(List.of(1, 2, 3), seenI);
+        assertEquals(List.of("9"), out);
+    }
+
+    /** A block statement pauses before executing as a whole; its text is sliced to one line. */
+    @Test void blockStatementTextIsSliced() {
+        List<String> out = new ArrayList<>();
+        String[] text = new String[1];
+        Steps steps = new Steps().then(DebugFrame::stepOver).then(f -> text[0] = f.statementText());
+        session(out, steps).eval("debug\nloop i in [1..2] do\n    x = i\nend\n");
+        assertEquals(List.of("DEBUG_STATEMENT@1", "STEP@2"), steps.breaks);
+        assertEquals("loop i in [1..2] do …", text[0]);
+    }
+
+    /** A step armed when a run ends must not leak a break into the next snippet. */
+    @Test void armedStepDoesNotLeakIntoTheNextRun() {
+        List<String> out = new ArrayList<>();
+        Steps steps = new Steps().then(DebugFrame::stepOver);   // debug is the last statement
+        Engine.Session s = session(out, steps);
+        s.eval("x = 1\ndebug");
+        s.eval("y = 2\nPRINT(y)");
+        assertEquals(List.of("DEBUG_STATEMENT@2"), steps.breaks, "no STEP break in the second snippet");
+        assertEquals(List.of("2"), out);
+    }
+
     /** Script errors inside eval leave the paused run intact — the handler sees the TeeError. */
     @Test void evalErrorsSurfaceToTheHandlerAndTheRunContinues() {
         List<String> out = new ArrayList<>();

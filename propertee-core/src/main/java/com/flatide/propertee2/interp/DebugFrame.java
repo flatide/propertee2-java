@@ -9,11 +9,47 @@ import java.util.Map;
  */
 public interface DebugFrame {
 
-    /** 1-based line of the {@code debug} statement. */
+    /** Why the run paused (0.23.0 — stepping and line breakpoints joined the debug statement). */
+    enum Reason { DEBUG_STATEMENT, STEP, BREAKPOINT }
+
+    /** What triggered this break. */
+    Reason reason();
+
+    /** 1-based line of the paused statement. */
     int line();
 
-    /** 0-based column of the {@code debug} statement (the position error messages use). */
+    /** 0-based column of the paused statement (the position error messages use). */
     int column();
+
+    /**
+     * The paused statement's source text — the first line of it, with {@code " …"} appended when
+     * the statement spans further (a block statement pauses <i>before</i> executing as a whole).
+     */
+    String statementText();
+
+    /**
+     * The paused run's user-function call stack, outermost call first; empty at top level. Only
+     * calls made while a debug handler was attached are recorded (attach before the run).
+     */
+    java.util.List<DebugCallSite> callStack();
+
+    /**
+     * Resume, pausing again before the next statement — including statements inside functions
+     * the current statement calls (pdb {@code step}).
+     */
+    void stepInto();
+
+    /**
+     * Resume, pausing again before the next statement at the current call depth or shallower —
+     * a call in the current statement runs to completion (pdb {@code next}).
+     */
+    void stepOver();
+
+    /**
+     * Resume, pausing again before the next statement after the current function returns
+     * (pdb {@code return}).
+     */
+    void stepOut();
 
     /**
      * Parse and execute {@code source} in the paused scope — the debugger's read-eval step.

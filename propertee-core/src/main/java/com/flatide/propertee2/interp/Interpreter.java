@@ -91,6 +91,7 @@ public final class Interpreter {
     }
 
     public void run(RootContext root) {
+        resetStepState();
         ScopedValue.where(CTX, ExecContext.normal(globals)).run(() -> execProgram(root));
     }
 
@@ -114,6 +115,7 @@ public final class Interpreter {
      * so {@code null} is a safe "nothing to echo" sentinel).
      */
     public Object runSnippet(RootContext root) {
+        resetStepState();
         Object[] echo = new Object[1];
         ScopedValue.where(CTX, ExecContext.normal(globals)).run(() -> echo[0] = execSnippet(root));
         return echo[0];
@@ -126,6 +128,8 @@ public final class Interpreter {
             for (int i = 0; i < stmts.size(); i++) {
                 StatementContext s = stmts.get(i);
                 if (i == stmts.size() - 1 && s instanceof ExprStmtContext e) {
+                    // bypasses exec() for the echo, so the debugger hook must fire here too
+                    if (debugHandler != null) debugStep(s);
                     last = eval(e.expression());
                 } else {
                     exec(s);
@@ -206,6 +210,7 @@ public final class Interpreter {
     // ====================================================================
 
     private void exec(StatementContext s) {
+        if (debugHandler != null) debugStep(s);   // 0.23.0 stepping/breakpoints; zero cost unarmed
         switch (s) {
             case AssignStmtContext a   -> execAssign(a.assignment());
             case IfStmtContext i       -> execIf(i.ifStatement());
@@ -452,13 +457,55 @@ public final class Interpreter {
         }
     }
 
-    // ---- debug statement (host API 0.22.0 — spec-defined as "pauses in a debug mode") ---------
+    // ---- debug statement + stepping/breakpoints (host API 0.22.0/0.23.0 — the spec defines
+    //      debug as "pauses in a debug mode"; a host with a handler attached IS a debug mode) ----
 
     private DebugHandler debugHandler;
     private boolean inDebugSession;   // root-fiber-confined (the handler only fires in NORMAL mode)
+    private enum StepMode { NONE, IN, OVER, OUT }
+    private StepMode stepMode = StepMode.NONE;
+    private int stepDepth;            // frames.size() when the step was armed
+    private final java.util.Set<Integer> debugBreakLines = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** Attach a {@link DebugHandler} — turns {@code debug} from a no-op into a breakpoint. */
     public void setDebugHandler(DebugHandler handler) { this.debugHandler = handler; }
+
+    /**
+     * Live, mutable set of 1-based source lines that break before executing (0.23.0). Lines are
+     * the current snippet's/loaded file's own numbering. Only consulted while a handler is
+     * attached, on the root logical thread in NORMAL context.
+     */
+    public java.util.Set<Integer> debugBreakpoints() { return debugBreakLines; }
+
+    /** Reset per-run debugger state — a step armed at the end of one run must not leak into the next. */
+    private void resetStepState() { stepMode = StepMode.NONE; }
+
+    /**
+     * The pre-statement hook behind stepping and line breakpoints. {@code debug} statements are
+     * excluded — {@link #execDebug} owns that break (one pause per statement, reason
+     * DEBUG_STATEMENT). Any break disarms the pending step.
+     */
+    private void debugStep(StatementContext s) {
+        if (inDebugSession) return;
+        ExecContext c = ec();
+        if (c.mode != ExecContext.Mode.NORMAL) return;
+        if (s instanceof FlowStmtContext fl && fl.flowControl() instanceof DebugStmtContext) return;
+        boolean bp = !debugBreakLines.isEmpty() && debugBreakLines.contains(s.getStart().getLine());
+        boolean step = switch (stepMode) {
+            case NONE -> false;
+            case IN   -> true;
+            case OVER -> c.frames.size() <= stepDepth;
+            case OUT  -> c.frames.size() < stepDepth;
+        };
+        if (!bp && !step) return;
+        stepMode = StepMode.NONE;
+        inDebugSession = true;
+        try {
+            debugHandler.onBreak(new PausedFrame(s, bp ? DebugFrame.Reason.BREAKPOINT : DebugFrame.Reason.STEP));
+        } finally {
+            inDebugSession = false;
+        }
+    }
 
     private void execDebug(DebugStmtContext d) {
         requireKeyword("debug", d.getStart());   // hideable, like the other keywords
@@ -466,9 +513,10 @@ public final class Interpreter {
         // watchdog stay no-ops too (no stdin from a worker; purity questions deferred), as does
         // code evaluated FROM a break (a debugger must not re-enter itself).
         if (debugHandler == null || inDebugSession || ec().mode != ExecContext.Mode.NORMAL) return;
+        stepMode = StepMode.NONE;                // stepping onto a debug statement = one break
         inDebugSession = true;
         try {
-            debugHandler.onBreak(new PausedFrame(d));
+            debugHandler.onBreak(new PausedFrame(d, DebugFrame.Reason.DEBUG_STATEMENT));
         } finally {
             inDebugSession = false;
         }
@@ -476,11 +524,31 @@ public final class Interpreter {
 
     /** The paused scope handed to the handler — evaluates in place on the paused fiber. */
     private final class PausedFrame implements DebugFrame {
-        private final DebugStmtContext at;
-        PausedFrame(DebugStmtContext at) { this.at = at; }
+        private final org.antlr.v4.runtime.ParserRuleContext at;
+        private final Reason reason;
+        PausedFrame(org.antlr.v4.runtime.ParserRuleContext at, Reason reason) {
+            this.at = at;
+            this.reason = reason;
+        }
 
+        @Override public Reason reason() { return reason; }
         @Override public int line() { return at.getStart().getLine(); }
         @Override public int column() { return at.getStart().getCharPositionInLine(); }
+
+        @Override public String statementText() {
+            String text = at.getStart().getInputStream().getText(new org.antlr.v4.runtime.misc.Interval(
+                    at.getStart().getStartIndex(), at.getStop().getStopIndex()));
+            int nl = text.indexOf('\n');
+            return nl >= 0 ? text.substring(0, nl).stripTrailing() + " …" : text;
+        }
+
+        @Override public List<DebugCallSite> callStack() {
+            return List.copyOf(ec().callStack);   // outermost first (callUser appends at the tail)
+        }
+
+        @Override public void stepInto() { stepMode = StepMode.IN;   stepDepth = ec().frames.size(); }
+        @Override public void stepOver() { stepMode = StepMode.OVER; stepDepth = ec().frames.size(); }
+        @Override public void stepOut()  { stepMode = StepMode.OUT;  stepDepth = ec().frames.size(); }
 
         @Override public Object eval(String source) {
             RootContext root = Parsing.parse(source);
@@ -974,6 +1042,13 @@ public final class Interpreter {
         for (int i = 0; i < fn.params().size(); i++) {
             frame.put(fn.params().get(i), i < args.size() ? Values.deepCopy(args.get(i)) : Values.emptyObject());
         }
+        // Debugger :where support (0.23.0): record the call while a handler is attached. The gate
+        // is captured once so push/pop stay balanced even if the handler changes mid-call.
+        boolean trackCall = debugHandler != null;
+        if (trackCall) {
+            ec().callStack.addLast(new DebugCallSite(fn.name(),
+                    ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()));
+        }
         ec().frames.push(frame);
         try {
             execBlock(fn.body());
@@ -982,6 +1057,7 @@ public final class Interpreter {
             return r.value;
         } finally {
             ec().frames.pop();
+            if (trackCall) ec().callStack.pollLast();
         }
     }
 

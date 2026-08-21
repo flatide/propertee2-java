@@ -59,8 +59,9 @@ final class Repl {
     private static void run(Map<String, Object> props, com.flatide.propertee2.task.SimpleTaskRunner taskRunner,
                             BufferedReader in, PrintStream out, PrintStream err,
                             boolean interactive, String version, String preload) throws IOException {
-        Engine.Session session = new Engine().setTaskRunner(taskRunner).session(props, out::println, err::println)
-                .setDebugHandler(frame -> debugSession(frame, in, out, err, interactive));
+        Engine.Session session = new Engine().setTaskRunner(taskRunner).session(props, out::println, err::println);
+        session.setDebugHandler(frame ->
+                debugSession(frame, session.debugBreakpoints(), in, out, err, interactive));
         if (interactive) {
             out.println("propertee2 " + version + " REPL — :help for commands, :exit or Ctrl-D to quit");
         }
@@ -92,6 +93,8 @@ final class Repl {
                             expression is echoed ({} is not). A debug statement opens the debugger.
                               :help          this help
                               :load <file>   run a script in this session (state accumulates)
+                              :b [line]      list breakpoints / add one (breaks in the debugger)
+                              :bd [line]     delete one breakpoint / all of them
                               :exit, :quit   leave the REPL (Ctrl-D also works)""");
                     continue;
                 }
@@ -104,6 +107,7 @@ final class Repl {
                     }
                     continue;
                 }
+                if (breakpointCommand(trimmed, session.debugBreakpoints(), out, err)) continue;
             }
 
             buffer.append(line).append('\n');
@@ -162,10 +166,16 @@ final class Repl {
      * is frozen while it reads. Bare input evaluates in the paused scope (same continuation rules
      * as the main loop); EOF continues the run, so piped input that ends mid-debug just resumes.
      */
-    private static void debugSession(DebugFrame frame, BufferedReader in, PrintStream out, PrintStream err,
+    private static void debugSession(DebugFrame frame, java.util.Set<Integer> breakpoints,
+                                     BufferedReader in, PrintStream out, PrintStream err,
                                      boolean interactive) {
-        out.println("debug at line " + frame.line() + ":" + frame.column()
-                + (interactive ? " — :c continues, :help for commands" : ""));
+        String position = "line " + frame.line() + ":" + frame.column();
+        switch (frame.reason()) {
+            case DEBUG_STATEMENT -> out.println("debug at " + position
+                    + (interactive ? " — :c continues, :help for commands" : ""));
+            case BREAKPOINT -> out.println("breakpoint at " + position + ": " + frame.statementText());
+            case STEP -> out.println("at " + position + ": " + frame.statementText());
+        }
         StringBuilder buffer = new StringBuilder();
         while (true) {
             if (interactive) {
@@ -186,6 +196,19 @@ final class Repl {
                 switch (trimmed) {
                     case ":c", ":continue" -> { return; }
                     case ":q", ":quit" -> { frame.quit(); return; }
+                    case ":n", ":next" -> { frame.stepOver(); return; }
+                    case ":s", ":step" -> { frame.stepInto(); return; }
+                    case ":r", ":return" -> { frame.stepOut(); return; }
+                    case ":w", ":where" -> {
+                        StringBuilder chain = new StringBuilder("top level");
+                        for (var call : frame.callStack()) {
+                            chain.append(" → ").append(call.function())
+                                 .append(" (called at ").append(call.line()).append(':').append(call.column()).append(')');
+                        }
+                        out.println(chain);
+                        out.println("at " + position + ": " + frame.statementText());
+                        continue;
+                    }
                     case ":vars" -> {
                         dump(out, frame.locals(), "(no locals — top level; use :globals)");
                         continue;
@@ -196,17 +219,25 @@ final class Repl {
                     }
                     case ":help" -> {
                         out.println("""
-                                ProperTee debugger — the run is paused at the debug statement.
+                                ProperTee debugger — the run is paused before the shown statement.
                                 Bare input evaluates in the paused scope: locals and globals are
                                 readable AND assignable; the trailing expression value is echoed.
                                   :c, :continue  resume the run
-                                  :q, :quit      abort the run (the REPL session keeps its state)
+                                  :n, :next      step to the next statement (over calls)
+                                  :s, :step      step into function calls
+                                  :r, :return    run until the current function returns
+                                  :w, :where     call stack and current position
+                                  :b [line]      list breakpoints / add one
+                                  :bd [line]     delete one breakpoint / all of them
                                   :vars          the paused function's parameters and locals
                                   :globals       the global variables
+                                  :q, :quit      abort the run (the REPL session keeps its state)
                                   :help          this help""");
                         continue;
                     }
-                    default -> { }
+                    default -> {
+                        if (breakpointCommand(trimmed, breakpoints, out, err)) continue;
+                    }
                 }
             }
 
@@ -233,6 +264,47 @@ final class Repl {
                 out.println("Runtime error: " + e.positioned());
             }
         }
+    }
+
+    /**
+     * {@code :b [line]} / {@code :bd [line]} — shared by the {@code pt>} prompt (set breakpoints
+     * before a {@code :load}) and the {@code debug>} prompt. Returns true when it consumed the input.
+     */
+    private static boolean breakpointCommand(String trimmed, java.util.Set<Integer> breakpoints,
+                                             PrintStream out, PrintStream err) {
+        if (!trimmed.equals(":b") && !trimmed.equals(":bd")
+                && !trimmed.startsWith(":b ") && !trimmed.startsWith(":bd ")) {
+            return false;
+        }
+        boolean delete = trimmed.startsWith(":bd");
+        String arg = trimmed.substring(delete ? 3 : 2).trim();
+        if (arg.isEmpty()) {
+            if (delete) {
+                breakpoints.clear();
+                out.println("all breakpoints deleted");
+            } else if (breakpoints.isEmpty()) {
+                out.println("(no breakpoints)");
+            } else {
+                out.println("breakpoints: " + breakpoints.stream().sorted()
+                        .map(String::valueOf).reduce((a, b) -> a + ", " + b).orElse(""));
+            }
+            return true;
+        }
+        int lineNo;
+        try {
+            lineNo = Integer.parseInt(arg);
+        } catch (NumberFormatException e) {
+            err.println("propertee2: not a line number: " + arg);
+            return true;
+        }
+        if (delete) {
+            out.println(breakpoints.remove(lineNo)
+                    ? "breakpoint deleted at line " + lineNo : "no breakpoint at line " + lineNo);
+        } else {
+            breakpoints.add(lineNo);
+            out.println("breakpoint added at line " + lineNo);
+        }
+        return true;
     }
 
     private static void dump(PrintStream out, Map<String, Object> vars, String emptyNote) {
