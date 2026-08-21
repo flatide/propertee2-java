@@ -43,10 +43,15 @@ subprojects {
 
 // Assemble the self-contained runnable JAR into dist/ (like v1's dist/), so it can be run with
 //   java -jar dist/propertee2-<version>.jar <script.tee>      (requires JDK 25)
+// A second, version-less copy (dist/propertee2.jar) gives IDE settings, aliases, and scripts —
+// e.g. the VS Code extension's propertee.runtime.args — a stable path that survives releases.
 tasks.register('dist', Copy) {
     group = 'build'
-    description = 'Copy the runnable fat JAR into dist/'
+    description = 'Copy the runnable fat JAR into dist/ (versioned + stable-named propertee2.jar)'
     dependsOn ':propertee-cli:fatJar'
     from { project(':propertee-cli').tasks.named('fatJar').get().archiveFile }
     into layout.projectDirectory.dir('dist')
+    from({ project(':propertee-cli').tasks.named('fatJar').get().archiveFile }) {
+        rename { 'propertee2.jar' }
+    }
 }

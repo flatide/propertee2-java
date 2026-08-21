@@ -16,7 +16,7 @@ JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.ja
 ## 실행 (CLI)
 
 ```bash
-./gradlew dist                                  # → dist/propertee2-0.25.0.jar (self-contained fat jar)
+./gradlew dist                                  # → dist/propertee2-0.25.0.jar + dist/propertee2.jar(안정 경로 사본)
 java -jar dist/propertee2-0.25.0.jar script.tee
 
 # 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
