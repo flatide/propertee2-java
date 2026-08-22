@@ -3,6 +3,7 @@ package com.flatide.propertee2.interpreter;
 import com.flatide.propertee2.parser.ProperTeeParser;
 import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.host.DefaultPlatformProvider;
+import com.flatide.propertee2.interp.DebugHandler;
 import com.flatide.propertee2.interp.Interpreter;
 import com.flatide.propertee2.value.Values;
 import com.flatide.propertee2.scheduler.SchedulerListener;
@@ -34,6 +35,8 @@ public class ProperTeeInterpreter {
     private final int maxIterations;
     private final String iterationLimitBehavior;
     private final Coop coop = new Coop();      // per-interpreter runtime; a field so abort() has a target
+    private DebugHandler debugHandler;
+    private final java.util.Set<Integer> debugBreakLines = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public ProperTeeInterpreter(Map<String, Object> properties,
                                 BuiltinFunctions.PrintFunction stdout,
@@ -63,6 +66,33 @@ public class ProperTeeInterpreter {
     }
 
     /**
+     * Attach a {@link DebugHandler} (host API, 0.26.0) — arms {@code debug} statements, line
+     * breakpoints ({@link #debugBreakpoints()}) and stepping on this interpreter's run, exactly
+     * as on the core engine: root logical thread in NORMAL context only, and the handler runs
+     * <b>on the paused fiber holding the baton</b> (the whole run is frozen — see
+     * {@link DebugHandler}). Attach before {@link #execute}. Because the handler runs on the
+     * script's fiber, all {@link com.flatide.propertee2.interp.DebugFrame} access must happen
+     * inside {@code onBreak}; a host serving remote debug clients relays commands to it via a
+     * queue. {@link com.flatide.propertee2.interp.DebugFrame#quit()} unwinds {@link #execute}
+     * with {@link com.flatide.propertee2.interp.DebugQuit} — deliberately NOT converted to
+     * {@code ProperTeeError}/{@code ProperTeeAborted}, so a host can record an operator-ended
+     * debug run distinctly from a script failure or a cancel.
+     */
+    public void setDebugHandler(DebugHandler handler) {
+        this.debugHandler = handler;
+    }
+
+    /**
+     * Live, mutable set of 1-based source lines that break before executing (only consulted
+     * while a {@link DebugHandler} is attached). The interpreter created by {@link #execute}
+     * adopts this very set, so mutations before or during the run — it is a concurrent set,
+     * safe from any thread, e.g. an HTTP thread while the run is paused — take effect live.
+     */
+    public java.util.Set<Integer> debugBreakpoints() {
+        return debugBreakLines;
+    }
+
+    /**
      * Run the program on the cooperative engine. Called by {@link com.flatide.propertee2.scheduler.Scheduler#run}.
      * A runtime error propagates (as in v1) for the host to catch. The listener receives logical-thread
      * lifecycle events: the program's main thread plus each {@code multi} worker (created/completed/error).
@@ -86,6 +116,8 @@ public class ProperTeeInterpreter {
         interp.setErrorSink(errSink);
         interp.setLoopLimit(maxIterations);
         interp.setLoopLimitWarns("warn".equals(iterationLimitBehavior));
+        interp.setDebugHandler(debugHandler);              // no-op when null (normal execution)
+        interp.setDebugBreakpoints(debugBreakLines);       // share the façade's live set
         for (Map.Entry<String, BuiltinFunctions.BuiltinFunction> e : builtins.custom.entrySet()) {
             final BuiltinFunctions.BuiltinFunction fn = e.getValue();
             interp.addRawBuiltin(e.getKey(), fn::call);          // cheap, on the baton (raw return)
@@ -155,6 +187,7 @@ public class ProperTeeInterpreter {
             if (listener != null) listener.onThreadError(main);
             throw aborted;
         } catch (Throwable t) {
+            // Includes interp.DebugQuit (DebugFrame.quit()) — rethrown raw, per setDebugHandler.
             main.state = com.flatide.propertee2.scheduler.ThreadState.ERROR;
             main.error = t;
             if (listener != null) listener.onThreadError(main);

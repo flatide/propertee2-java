@@ -482,7 +482,7 @@ public final class Interpreter {
     private enum StepMode { NONE, IN, OVER, OUT }
     private StepMode stepMode = StepMode.NONE;
     private int stepDepth;            // frames.size() when the step was armed
-    private final java.util.Set<Integer> debugBreakLines = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private java.util.Set<Integer> debugBreakLines = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** Attach a {@link DebugHandler} — turns {@code debug} from a no-op into a breakpoint. */
     public void setDebugHandler(DebugHandler handler) { this.debugHandler = handler; }
@@ -493,6 +493,15 @@ public final class Interpreter {
      * attached, on the root logical thread in NORMAL context.
      */
     public java.util.Set<Integer> debugBreakpoints() { return debugBreakLines; }
+
+    /**
+     * Adopt a host-owned breakpoint set (must be a concurrent set) in place of the default one
+     * (0.26.0). Lets a host that builds a fresh interpreter per run — e.g. the v1 façade — hand
+     * out one stable set whose mutations, before or mid-run, this interpreter observes live.
+     */
+    public void setDebugBreakpoints(java.util.Set<Integer> lines) {
+        this.debugBreakLines = java.util.Objects.requireNonNull(lines);
+    }
 
     /** Reset per-run debugger state — a step armed at the end of one run must not leak into the next. */
     private void resetStepState() { stepMode = StepMode.NONE; }

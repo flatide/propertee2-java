@@ -461,7 +461,9 @@ no-op (does nothing). Can be placed anywhere a statement is valid.
 > that evaluates in the paused scope (`:c` continues, `:q` aborts the run keeping the session;
 > 0.23.0 adds stepping `:n`/`:s`/`:r`, the `:w` call stack, and line breakpoints `:b [line]` /
 > `:bd`, settable at both prompts). Hosts get the same via the `DebugHandler`/`DebugFrame` API
-> (`Engine.Session.setDebugHandler`, `debugBreakpoints()`). Plain script mode stays a no-op.
+> (`Engine.Session.setDebugHandler`, `debugBreakpoints()`; since 0.26.0 also on the v1-compat
+> façade — `ProperTeeInterpreter.setDebugHandler`/`debugBreakpoints()` — so a façade host like
+> TeeBox can debug-rerun a script). Plain script mode stays a no-op.
 > Breaks fire only on the main logical thread; `debug` in workers and the monitor watchdog
 > remains a no-op.
 

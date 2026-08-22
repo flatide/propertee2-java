@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.26.0
+
+**v1 façade debug hooks** (host API only, zero language change — the same release class as
+0.13.0's `knownFunctionNames`; the prerequisite for TeeBox's failed-run debug re-run). The
+0.22.0/0.23.0 debugger existed only on the core `Interpreter` and `Engine.Session`; a façade
+host (TeeBox drives `ProperTeeInterpreter` + `scheduler.Scheduler`) had no way to reach it,
+because the core interpreter is a local created inside `execute()`.
+
+- `ProperTeeInterpreter.setDebugHandler(DebugHandler)` — arms `debug` statements, line
+  breakpoints, and stepping on the façade run, with engine semantics unchanged (root logical
+  thread in NORMAL context only; the handler runs on the paused fiber holding the baton, so all
+  `DebugFrame` access belongs inside `onBreak` — a host serving remote debug clients relays
+  commands to it via a queue, the `cli/Dap` Query/Resume pattern).
+- `ProperTeeInterpreter.debugBreakpoints()` — a live concurrent set of 1-based lines owned by
+  the façade; the per-run core interpreter **adopts this very set** (new core setter
+  `Interpreter.setDebugBreakpoints`), so pre-run seeding and mid-run mutations from any thread
+  both take effect.
+- `DebugFrame.quit()` unwinds `execute()` with the raw `interp.DebugQuit` — deliberately NOT
+  converted to `ProperTeeError`/`ProperTeeAborted`, so a host can record an operator-ended
+  debug run distinctly from a script failure or a cancel. The main logical thread still reaches
+  a terminal listener state (`FacadeDebugTest` pins all of the above).
+
+**128 fixtures / 405 tests green, 5× deterministic; TeeBox suite green unchanged.**
+
 ## 0.25.0
 
 **Spec v0.20.0 — `_ARGS`: positional invocation arguments** (user design request "CLI 파라메터를
