@@ -142,7 +142,7 @@ final class Dap {
                 case "variables" -> {
                     int ref = args.get("variablesReference") instanceof Integer r ? r : 0;
                     List<?> vars = paused
-                            ? (List<?>) query(f -> renderVars(ref == 1002 ? f.globals() : f.locals()))
+                            ? (List<?>) query(f -> renderScope(f, ref))
                             : List.of();
                     respond(request, map("variables", vars));
                 }
@@ -319,8 +319,27 @@ final class Dap {
                 "source", map("name", Path.of(programPath).getFileName().toString(), "path", programPath));
     }
 
-    private static List<Object> renderVars(Map<String, Object> vars) {
+    /**
+     * Locals (1001) lead with the VS Code-style {@code (return) f} pseudo-variables for the
+     * returns the last step crossed (0.29.0 — {@link DebugFrame#returns()}, empty except right
+     * after a step); Globals (1002) are plain.
+     */
+    private static List<Object> renderScope(DebugFrame f, int ref) {
         List<Object> out = new ArrayList<>();
+        if (ref != 1002) {
+            for (var ret : f.returns()) {
+                out.add(map("name", "(return) " + ret.function(),
+                        "value", TeeFormat.display(ret.value()), "variablesReference", 0));
+            }
+        }
+        return renderVars(out, ref == 1002 ? f.globals() : f.locals());
+    }
+
+    private static List<Object> renderVars(Map<String, Object> vars) {
+        return renderVars(new ArrayList<>(), vars);
+    }
+
+    private static List<Object> renderVars(List<Object> out, Map<String, Object> vars) {
         for (Map.Entry<String, Object> e : vars.entrySet()) {
             out.add(map("name", e.getKey(), "value", TeeFormat.display(e.getValue()), "variablesReference", 0));
         }

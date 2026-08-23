@@ -125,6 +125,26 @@ class FacadeDebugTest {
         assertEquals(List.of("7"), stdoutLines);
     }
 
+    @Test void stepReturnsSurfaceThroughTheFacade() {
+        ProperTeeInterpreter visitor = visitorFor("""
+                function f(n) do
+                    return n + 1
+                end
+                debug
+                x = f(41)
+                PRINT(x)
+                """, frame -> {
+            StringBuilder b = new StringBuilder(frame.reason() + "@" + frame.line());
+            for (var ret : frame.returns()) b.append('[').append(ret.function()).append('=').append(ret.value()).append(']');
+            breaks.add(b.toString());
+            if (frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT || frame.line() == 5) frame.stepOver();
+        });
+        run(visitor, null);
+        assertEquals(List.of("DEBUG_STATEMENT@4", "STEP@5", "STEP@6[f=42]"), breaks,
+                "the crossed return reaches a facade host's frame");
+        assertEquals(List.of("42"), stdoutLines);
+    }
+
     /** quit() must reach the host as DebugQuit — not remapped to ProperTeeError/ProperTeeAborted. */
     @Test void quitUnwindsExecuteAsDebugQuitAndReportsTheMainThreadTerminal() {
         List<ThreadContext> errored = new ArrayList<>();

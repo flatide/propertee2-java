@@ -24,6 +24,17 @@ public interface DebugFrame {
     /** Logical-thread display name ({@code "main"} or the spawned worker function name). */
     default String threadName() { return "main"; }
 
+    /**
+     * Auto-display of function return values (0.29.0): the user-function returns the step that
+     * produced this {@link Reason#STEP} stop crossed, in chronological order. Recorded are only
+     * normal returns on the stepping logical thread that land in the frame the step was armed in
+     * (or shallower) — the calls made from the stepped statement itself, or the function
+     * {@link #stepOut} left — never their nested/recursive inner calls. Values are deep copies
+     * taken at return time. Empty for {@link Reason#DEBUG_STATEMENT} and
+     * {@link Reason#BREAKPOINT} stops, and empty when the step crossed no return.
+     */
+    default java.util.List<DebugReturn> returns() { return java.util.List.of(); }
+
     /** 1-based line of the paused statement. */
     int line();
 

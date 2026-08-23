@@ -467,6 +467,9 @@ no-op (does nothing). Can be placed anywhere a statement is valid.
 > Since 0.28.0/spec v0.22.0, breaks also fire inside `multi` workers. The frame exposes the
 > logical thread id/name; stepping remains on the worker that armed it. The monitor watchdog is
 > deliberately excluded: `debug` in a monitor body remains a no-op.
+> Since 0.29.0 a STEP stop also auto-displays the function returns the step crossed
+> (`DebugFrame.returns()` — the REPL echoes `f returned <value>`, DAP lists `(return) f`
+> pseudo-variables in Locals); a host API only, no language change.
 
 ## Functions
 

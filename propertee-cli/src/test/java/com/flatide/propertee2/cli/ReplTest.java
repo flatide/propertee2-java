@@ -199,11 +199,27 @@ class ReplTest {
     @Test void stepOutReturnsToTheCaller() throws IOException {
         String script = tempScript(STEP_SCRIPT);
         Run r = repl(":load " + script + "\n:s\n:s\n:r\n:c\n");
-        // debug@6 -> :s stops at 7, :s enters inner (line 2), :r runs to the caller's next statement
+        // debug@6 -> :s stops at 7, :s enters inner (line 2), :r runs to the caller's next
+        // statement — echoing what inner returned on the way (0.29.0)
         assertEquals("""
                 debug at line 6:0
                 at line 7:0: b = inner(a)
                 at line 2:4: x = n * 2
+                inner returned 2
+                at line 8:0: PRINT(b)
+                2
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void stepOverAcrossACallEchoesItsReturn() throws IOException {
+        String script = tempScript(STEP_SCRIPT);
+        Run r = repl(":load " + script + "\n:n\n:n\n:c\n");
+        // The second :n runs b = inner(a) to completion; its crossed return is echoed (0.29.0).
+        assertEquals("""
+                debug at line 6:0
+                at line 7:0: b = inner(a)
+                inner returned 2
                 at line 8:0: PRINT(b)
                 2
                 """, r.out());

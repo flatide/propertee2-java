@@ -531,6 +531,9 @@ public final class Interpreter {
     private StepMode stepMode = StepMode.NONE;
     private int stepDepth;            // frames.size() when the step was armed
     private int stepThreadId;         // step stays on the logical thread that armed it
+    private final List<DebugReturn> stepReturns = new java.util.ArrayList<>();   // returns the armed
+                                      // step crossed (0.29.0) — delivered at the STEP stop, cleared
+                                      // on every break/arm/run-end alongside stepMode
     private java.util.Set<Integer> debugBreakLines = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** Attach a {@link DebugHandler} — turns {@code debug} from a no-op into a breakpoint. */
@@ -554,7 +557,23 @@ public final class Interpreter {
     }
 
     /** Reset per-run debugger state — a step armed at the end of one run must not leak into the next. */
-    private void resetStepState() { stepMode = StepMode.NONE; stepThreadId = 0; }
+    private void resetStepState() { stepMode = StepMode.NONE; stepThreadId = 0; stepReturns.clear(); }
+
+    /**
+     * Auto-display of function return values (0.29.0): while a step is armed, record each user
+     * function that returns NORMALLY on the arming logical thread and lands in the armed frame or
+     * shallower — i.e. the calls made from the stepped statement itself (stepOver/stepInto) or the
+     * function being left (stepOut), never their nested/recursive inner calls, so the list stays
+     * small and relevant. Values are deep-copied at return time. Error unwinding records nothing,
+     * and code run from a break ({@link DebugFrame#eval} after arming) is excluded.
+     */
+    private void recordStepReturn(String function, Object value) {
+        if (debugHandler == null || stepMode == StepMode.NONE || inDebugSession) return;
+        ExecContext c = ec();
+        if (c.mode == ExecContext.Mode.MONITOR) return;
+        if (c.threadId != stepThreadId || c.frames.size() > stepDepth) return;
+        stepReturns.add(new DebugReturn(function, Values.deepCopy(value)));
+    }
 
     /**
      * The pre-statement hook behind stepping and line breakpoints. {@code debug} statements are
@@ -575,9 +594,13 @@ public final class Interpreter {
         };
         if (!bp && !step) return;
         stepMode = StepMode.NONE;
+        // Crossed returns belong to a STEP stop only; a breakpoint (all-stop rule) drops them.
+        List<DebugReturn> crossed = !bp && !stepReturns.isEmpty() ? List.copyOf(stepReturns) : List.of();
+        stepReturns.clear();
         inDebugSession = true;
         try {
-            debugHandler.onBreak(new PausedFrame(s, bp ? DebugFrame.Reason.BREAKPOINT : DebugFrame.Reason.STEP));
+            debugHandler.onBreak(new PausedFrame(s,
+                    bp ? DebugFrame.Reason.BREAKPOINT : DebugFrame.Reason.STEP, crossed));
         } finally {
             inDebugSession = false;
         }
@@ -590,9 +613,10 @@ public final class Interpreter {
         // not re-enter the debugger.
         if (debugHandler == null || inDebugSession || ec().mode == ExecContext.Mode.MONITOR) return;
         stepMode = StepMode.NONE;                // stepping onto a debug statement = one break
+        stepReturns.clear();
         inDebugSession = true;
         try {
-            debugHandler.onBreak(new PausedFrame(d, DebugFrame.Reason.DEBUG_STATEMENT));
+            debugHandler.onBreak(new PausedFrame(d, DebugFrame.Reason.DEBUG_STATEMENT, List.of()));
         } finally {
             inDebugSession = false;
         }
@@ -602,12 +626,15 @@ public final class Interpreter {
     private final class PausedFrame implements DebugFrame {
         private final org.antlr.v4.runtime.ParserRuleContext at;
         private final Reason reason;
-        PausedFrame(org.antlr.v4.runtime.ParserRuleContext at, Reason reason) {
+        private final List<DebugReturn> returns;
+        PausedFrame(org.antlr.v4.runtime.ParserRuleContext at, Reason reason, List<DebugReturn> returns) {
             this.at = at;
             this.reason = reason;
+            this.returns = returns;
         }
 
         @Override public Reason reason() { return reason; }
+        @Override public List<DebugReturn> returns() { return returns; }
         @Override public int threadId() { return ec().threadId; }
         @Override public String threadName() { return ec().threadName; }
         @Override public int line() { return at.getStart().getLine(); }
@@ -628,6 +655,7 @@ public final class Interpreter {
             stepMode = mode;
             stepDepth = ec().frames.size();
             stepThreadId = ec().threadId;
+            stepReturns.clear();
         }
 
         @Override public void stepInto() { armStep(StepMode.IN); }
@@ -1135,15 +1163,18 @@ public final class Interpreter {
                     ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()));
         }
         ec().frames.push(frame);
+        Object result;
         try {
             execBlock(fn.body());
-            return Values.emptyObject();          // no explicit return -> {}
+            result = Values.emptyObject();        // no explicit return -> {}
         } catch (Signals.Return r) {
-            return r.value;
+            result = r.value;
         } finally {
-            ec().frames.pop();
+            ec().frames.pop();                    // error unwinding skips the record below
             if (trackCall) ec().callStack.pollLast();
         }
+        recordStepReturn(fn.name(), result);      // after the pop: depth is the caller's
+        return result;
     }
 
     /** SLEEP(ms) — cooperative pause (design §3, seam 1). Releases the baton so other fibers advance. */

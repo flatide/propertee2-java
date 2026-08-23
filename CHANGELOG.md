@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.29.0
+
+**Auto-display of function return values while stepping** (host API only, zero language/spec
+change — the same release class as 0.13.0/0.26.0; user request "디버깅 중 함수의 반환값을 자동으로
+표시할 수 있도록 API 추가").
+
+- `DebugFrame.returns()` → `List<DebugReturn>` (`function` + deep-copied `value`): the
+  user-function returns the step that produced this STEP stop crossed, chronological. Recorded
+  are only normal returns on the stepping logical thread that land in the frame the step was
+  armed in or shallower — the calls made from the stepped statement itself (stepOver/stepInto)
+  or the function stepOut left, never their nested/recursive inner calls, so the list stays
+  small and relevant (GDB `finish` / VS Code step-out semantics). Error unwinding records
+  nothing; DEBUG_STATEMENT/BREAKPOINT stops deliver an empty list (the all-stop rule extends to
+  crossed returns: a breakpoint hit drops them); `eval` from a break never records.
+- CLI REPL `debug>`: a step stop first echoes `f returned <value>` per crossed return.
+- DAP: the Locals scope leads with VS Code-style `(return) f` pseudo-variables right after a
+  step; Globals stay plain. The VS Code extension needs no change.
+- The v1 façade inherits the API automatically (`DebugFrame` is shared); a façade host like
+  TeeBox reads `frame.returns()` in its handler with no new wiring.
+
+**129 conformance fixtures / 425 tests green (both modules), 5× deterministic; dist rebuilt +
+smoke-tested.**
+
 ## 0.28.0
 
 **Spec v0.22.0 — debug inside `multi` workers; monitor remains excluded.** No grammar change and

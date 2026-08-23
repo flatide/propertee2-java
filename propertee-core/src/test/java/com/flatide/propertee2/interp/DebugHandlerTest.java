@@ -208,6 +208,162 @@ class DebugHandlerTest {
         assertEquals(List.of("3 106"), out);
     }
 
+    // ---- 0.29.0: auto-display of crossed function return values -------------------------------
+
+    /** reason@line plus, when present, the crossed returns as [f=v,...] (Java toString values). */
+    private static String fmt(DebugFrame frame) {
+        StringBuilder b = new StringBuilder(frame.reason() + "@" + frame.line());
+        if (!frame.returns().isEmpty()) {
+            b.append(frame.returns().stream()
+                    .map(r -> r.function() + "=" + r.value())
+                    .collect(java.util.stream.Collectors.joining(",", "[", "]")));
+        }
+        return b.toString();
+    }
+
+    /** stepOver shows the returns of calls the stepped statement made — nested calls excluded. */
+    @Test void stepOverShowsReturnsOfCallsMadeByTheSteppedStatementOnly() {
+        List<String> breaks = new ArrayList<>();
+        List<String> out = new ArrayList<>();
+        Engine.Session s = session(out, frame -> {
+            breaks.add(fmt(frame));
+            if (frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT || frame.line() == 9) frame.stepOver();
+        });
+        s.eval("""
+                function g(n) do
+                    return n * 2
+                end
+                function f(n) do
+                    x = g(n)
+                    return x + 1
+                end
+                debug
+                y = f(20)
+                PRINT(y)
+                """);
+        assertEquals(List.of("DEBUG_STATEMENT@8", "STEP@9", "STEP@10[f=41]"), breaks,
+                "f's return surfaces; g's nested return does not");
+        assertEquals(List.of("41"), out);
+    }
+
+    /** stepOut shows the return value of the function being left. */
+    @Test void stepOutShowsTheReturnOfTheFunctionBeingLeft() {
+        List<String> breaks = new ArrayList<>();
+        List<String> out = new ArrayList<>();
+        Engine.Session s = session(out, frame -> {
+            breaks.add(fmt(frame));
+            if (frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT) frame.stepOut();
+        });
+        s.eval("""
+                function f(n) do
+                    debug
+                    return n + 1
+                end
+                z = f(41) + 1
+                PRINT(z)
+                """);
+        assertEquals(List.of("DEBUG_STATEMENT@2", "STEP@6[f=42]"), breaks);
+        assertEquals(List.of("43"), out);
+    }
+
+    /** Stepping across a return statement surfaces that return at the caller-side stop (pdb-like). */
+    @Test void stepIntoAcrossAReturnStatementShowsThatReturn() {
+        List<String> breaks = new ArrayList<>();
+        List<String> out = new ArrayList<>();
+        Engine.Session s = session(out, frame -> {
+            breaks.add(fmt(frame));
+            if (frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT || frame.line() == 3) frame.stepInto();
+        });
+        s.eval("""
+                function f(n) do
+                    debug
+                    return n * 2
+                end
+                y = f(21)
+                PRINT(y)
+                """);
+        assertEquals(List.of("DEBUG_STATEMENT@2", "STEP@3", "STEP@6[f=42]"), breaks);
+        assertEquals(List.of("42"), out);
+    }
+
+    /** The all-stop rule extends to returns: a breakpoint stop drops what the step had crossed. */
+    @Test void breakpointStopDropsCrossedReturns() {
+        List<String> breaks = new ArrayList<>();
+        List<String> out = new ArrayList<>();
+        Engine.Session s = session(out, frame -> {
+            breaks.add(fmt(frame));
+            if (frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT || frame.line() == 5) frame.stepOver();
+        });
+        s.debugBreakpoints().add(6);
+        s.eval("""
+                function f() do
+                    return 7
+                end
+                debug
+                x = f()
+                PRINT(x)
+                """);
+        assertEquals(List.of("DEBUG_STATEMENT@4", "STEP@5", "BREAKPOINT@6"), breaks,
+                "the stop at line 6 is a breakpoint, so f's crossed return is not delivered");
+        assertEquals(List.of("7"), out);
+    }
+
+    /** Returns recorded for a worker's step never include an interleaving sibling's returns. */
+    @Test void workerStepReturnsExcludeSiblingThreads() {
+        List<String> breaks = new ArrayList<>();
+        List<String> out = new ArrayList<>();
+        Engine.Session s = session(out, frame -> {
+            breaks.add(fmt(frame) + "#" + frame.threadId());
+            if (frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT || frame.line() == 7) frame.stepOver();
+        });
+        s.eval("""
+                function inner(n) do
+                    return n + 1
+                end
+                function wa(n) do
+                    x = n
+                    debug
+                    x = inner(x)
+                    return x
+                end
+                function wb(n) do
+                    y = inner(n)
+                    y = inner(y)
+                    y = inner(y)
+                    return y
+                end
+                multi r do
+                    thread a: wa(1)
+                    thread b: wb(100)
+                end
+                PRINT(r.a.value, r.b.value)
+                """);
+        assertEquals(List.of("DEBUG_STATEMENT@6#1", "STEP@7#1", "STEP@8[inner=2]#1"), breaks,
+                "wb's interleaving inner() returns (101/102/103) must not appear");
+        assertEquals(List.of("2 103"), out);
+    }
+
+    /** A function with no explicit return records the language's absence value {}. */
+    @Test void implicitReturnRecordsTheEmptyObject() {
+        List<DebugReturn> lastReturns = new ArrayList<>();
+        List<String> out = new ArrayList<>();
+        Engine.Session s = session(out, frame -> {
+            if (frame.reason() == DebugFrame.Reason.STEP) lastReturns.addAll(frame.returns());
+            if (frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT || frame.line() == 4) frame.stepOver();
+        });
+        s.eval("""
+                function noop() do
+                end
+                debug
+                noop()
+                PRINT("done")
+                """);
+        assertEquals(1, lastReturns.size());
+        assertEquals("noop", lastReturns.get(0).function());
+        assertEquals(new java.util.LinkedHashMap<>(), lastReturns.get(0).value());
+        assertEquals(List.of("done"), out);
+    }
+
     /** quit() aborts the run as DebugQuit; the session keeps pre-abort state and stays usable. */
     @Test void quitAbortsTheRunButTheSessionSurvives() {
         List<String> out = new ArrayList<>();

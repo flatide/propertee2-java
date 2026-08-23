@@ -181,6 +181,9 @@ final class Repl {
         if (frame.threadId() != 0) {
             position += " in worker " + frame.threadId() + " (" + frame.threadName() + ")";
         }
+        for (var ret : frame.returns()) {         // 0.29.0: auto-display crossed return values
+            out.println(ret.function() + " returned " + TeeFormat.display(ret.value()));
+        }
         switch (frame.reason()) {
             case DEBUG_STATEMENT -> out.println("debug at " + position
                     + (interactive ? " — :c continues, :help for commands" : ""));

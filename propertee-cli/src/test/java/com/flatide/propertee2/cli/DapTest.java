@@ -263,6 +263,48 @@ class DapTest {
     }
 
     @SuppressWarnings("unchecked")
+    @Test void stepAcrossACallExposesTheReturnPseudoVariable() throws Exception {
+        String program = tempScript("""
+                function f() do
+                    return 41
+                end
+                debug
+                x = f()
+                PRINT(x + 1)
+                """);
+        assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
+            try (Client c = new Client()) {
+                c.start(program, Map.of(), null);
+                c.event("stopped");                            // the debug statement
+
+                c.request("next", Map.of("threadId", 1));      // -> x = f()
+                c.response("next");
+                c.event("stopped");
+                c.request("next", Map.of("threadId", 1));      // runs f -> PRINT line
+                c.response("next");
+                c.event("stopped");
+
+                c.request("variables", Map.of("variablesReference", 1001));
+                List<Map<String, Object>> locals =
+                        (List<Map<String, Object>>) Client.body(c.response("variables")).get("variables");
+                assertEquals("(return) f", locals.get(0).get("name"));   // VS Code-style, listed first
+                assertEquals("41", locals.get(0).get("value"));
+
+                c.request("variables", Map.of("variablesReference", 1002));
+                List<Map<String, Object>> globals =
+                        (List<Map<String, Object>>) Client.body(c.response("variables")).get("variables");
+                assertTrue(globals.stream().noneMatch(v -> String.valueOf(v.get("name")).startsWith("(return)")),
+                        "the pseudo-variable belongs to Locals only");
+
+                c.request("continue", Map.of("threadId", 1));
+                c.response("continue");
+                c.event("terminated");
+                assertEquals(List.of("42\n"), c.stdout);
+            }
+        });
+    }
+
+    @SuppressWarnings("unchecked")
     @Test void workerDebugStopExposesWorkerThreadAndMonitorDoesNotStop() throws Exception {
         String program = tempScript("""
                 function worker(n) do
