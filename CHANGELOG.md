@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.28.0
+
+**Spec v0.22.0 — debug inside `multi` workers; monitor remains excluded.** No grammar change and
+no normal-run behavior change: without a debug handler, `debug` is still a no-op everywhere.
+
+- Explicit `debug` statements and line breakpoints now stop in worker functions as well as the
+  main logical thread. `DebugFrame.threadId()` / `threadName()` identify the paused worker while
+  preserving its locals, read-only global snapshot, and call stack.
+- `stepInto` / `stepOver` / `stepOut` are scoped to the logical thread that armed the step, so a
+  ready sibling cannot steal the next step stop. An explicit `debug` or breakpoint may still stop
+  any worker, as expected.
+- Monitor iterations deliberately never stop or emit debug callbacks. A worker-side
+  `DebugFrame.quit()` aborts the whole run promptly but only aborts the current Scheduler, so an
+  `Engine.Session` remains reusable just like a main-thread debugger quit.
+- DAP maps core main id 0 to thread 1 and a paused worker id N to DAP thread N+1; the REPL prompt
+  also prints worker identity. The JavaScript scheduler exposes matching worker identity/reason
+  metadata and worker-scoped stepping; its synchronous monitor execution remains uninstrumented.
+- The v1 façade receives the same worker frames without API replacement. The frozen Java 7/8
+  `propertee-java` runtime is intentionally unchanged.
+
+**129 conformance fixtures / 416 Java tests green (both modules), 5× deterministic; 120
+JavaScript fixtures + 4 host-API tests green; TeeBox suite green unchanged.**
+
 ## 0.27.0
 
 **Spec v0.21.0 — monitor thread information and default one-line SHELL progress.** This is mildly

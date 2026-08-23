@@ -68,7 +68,8 @@ public class ProperTeeInterpreter {
     /**
      * Attach a {@link DebugHandler} (host API, 0.26.0) — arms {@code debug} statements, line
      * breakpoints ({@link #debugBreakpoints()}) and stepping on this interpreter's run, exactly
-     * as on the core engine: root logical thread in NORMAL context only, and the handler runs
+     * as on the core engine: main logical thread and {@code multi} workers (never monitor
+     * iterations), and the handler runs
      * <b>on the paused fiber holding the baton</b> (the whole run is frozen — see
      * {@link DebugHandler}). Attach before {@link #execute}. Because the handler runs on the
      * script's fiber, all {@link com.flatide.propertee2.interp.DebugFrame} access must happen

@@ -15,6 +15,15 @@ public interface DebugFrame {
     /** What triggered this break. */
     Reason reason();
 
+    /**
+     * ProperTee logical-thread id: {@code 0} for the main thread and a positive id for a
+     * {@code multi} worker. Monitor iterations never produce a frame.
+     */
+    default int threadId() { return 0; }
+
+    /** Logical-thread display name ({@code "main"} or the spawned worker function name). */
+    default String threadName() { return "main"; }
+
     /** 1-based line of the paused statement. */
     int line();
 

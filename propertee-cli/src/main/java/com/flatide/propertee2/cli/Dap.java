@@ -39,11 +39,12 @@ import java.util.function.Function;
  * {@link Query} and answered through a future. Resume commands ({@link Resume}) end the break,
  * arming a step first when asked.
  *
- * <p>Kept minimal by design: one thread ("main"), flat variables (values in display form),
- * breakpoints verified optimistically (a line with no statement simply never fires), no pause
- * request (a running script is interrupted only by disconnect, which ends the process — the
- * adapter owns it). {@code noDebug} runs without a handler: breakpoints and {@code debug}
- * statements are no-ops, exactly like plain script mode.
+ * <p>Kept minimal by design: the main logical thread plus the currently paused {@code multi}
+ * worker are exposed through DAP (monitor iterations never stop), flat variables (values in
+ * display form), breakpoints verified optimistically (a line with no statement simply never
+ * fires), no pause request (a running script is interrupted only by disconnect, which ends the
+ * process — the adapter owns it). {@code noDebug} runs without a handler: breakpoints and
+ * {@code debug} statements are no-ops, exactly like plain script mode.
  */
 final class Dap {
 
@@ -63,6 +64,8 @@ final class Dap {
     private final List<Integer> pendingBreakpoints = new ArrayList<>();
     private boolean launched, configured, started;
     private volatile boolean paused;
+    private volatile int pausedThreadId = 1;       // DAP ids are 1-based; core main id 0 maps to 1
+    private volatile String pausedThreadName = "main";
     private volatile boolean exitAfterReply;
 
     Dap(InputStream in, OutputStream out) {
@@ -126,9 +129,11 @@ final class Dap {
                     respond(request, map());
                     maybeStart();
                 }
-                case "threads" -> respond(request, map("threads", List.of(map("id", 1, "name", "main"))));
+                case "threads" -> respond(request, map("threads", dapThreads()));
                 case "stackTrace" -> {
-                    List<?> frames = paused ? (List<?>) query(this::buildStack) : List.of();
+                    int requested = args.get("threadId") instanceof Integer id ? id : 0;
+                    List<?> frames = paused && (requested == 0 || requested == pausedThreadId)
+                            ? (List<?>) query(this::buildStack) : List.of();
                     respond(request, map("stackFrames", frames, "totalFrames", frames.size()));
                 }
                 case "scopes" -> respond(request, map("scopes", List.of(
@@ -233,13 +238,15 @@ final class Dap {
     // ---- the break (script thread) -----------------------------------------------------------
 
     private void onBreak(DebugFrame frame) {
+        pausedThreadId = frame.threadId() + 1;
+        pausedThreadName = frame.threadName();
         paused = true;
         try {
             event("stopped", map(
                     "reason", frame.reason() == DebugFrame.Reason.STEP ? "step" : "breakpoint",
                     "description", frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT
                             ? "debug statement" : ("paused: " + frame.statementText()),
-                    "threadId", 1,
+                    "threadId", pausedThreadId,
                     "allThreadsStopped", true));
             while (true) {
                 Cmd cmd;
@@ -282,6 +289,16 @@ final class Dap {
 
     private void resume(String kind) {
         cmds.add(new Resume(kind));
+    }
+
+    private List<Object> dapThreads() {
+        List<Object> threads = new ArrayList<>();
+        threads.add(map("id", 1, "name", "main"));
+        if (paused && pausedThreadId != 1) {
+            threads.add(map("id", pausedThreadId,
+                    "name", pausedThreadName + " (worker " + (pausedThreadId - 1) + ")"));
+        }
+        return threads;
     }
 
     private Object buildStack(DebugFrame frame) {

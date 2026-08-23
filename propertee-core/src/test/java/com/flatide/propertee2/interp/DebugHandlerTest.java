@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Host API 0.22.0 — the {@code debug} breakpoint hook. Covers what fixture 70 (no handler =
- * no-op) can't: in-place evaluation semantics, re-entry, worker/monitor exemption, and
+ * no-op) can't: in-place evaluation semantics, re-entry, worker inclusion/monitor exemption, and
  * {@link DebugQuit} session survival.
  */
 class DebugHandlerTest {
@@ -91,11 +91,13 @@ class DebugHandlerTest {
         assertEquals(List.of("done"), out);
     }
 
-    /** Workers and the monitor watchdog never break — debug stays a no-op there. */
-    @Test void workerAndMonitorDebugAreNoops() {
-        AtomicInteger breaks = new AtomicInteger();
+    /** Workers break with their own id/name/scope; the monitor watchdog remains excluded. */
+    @Test void workerDebugBreaksButMonitorDebugRemainsANoOp() {
+        List<String> breaks = new ArrayList<>();
         List<String> out = new ArrayList<>();
-        Engine.Session s = session(out, frame -> breaks.incrementAndGet());
+        Engine.Session s = session(out, frame -> breaks.add(
+                frame.reason() + "@" + frame.line() + "#" + frame.threadId()
+                        + ":" + frame.threadName() + ":" + frame.locals().get("n")));
         s.eval("""
                 function w(n) do
                     debug
@@ -110,8 +112,100 @@ class DebugHandlerTest {
                 end
                 PRINT(r.a.value, r.b.value)
                 """);
-        assertEquals(0, breaks.get(), "debug in worker/monitor must not invoke the handler");
+        assertEquals(List.of(
+                "DEBUG_STATEMENT@2#1:w:1",
+                "DEBUG_STATEMENT@2#2:w:2"), breaks,
+                "both workers break; monitor debug contributes no third break");
         assertEquals(List.of("1 2"), out);
+    }
+
+    /** Host line breakpoints apply inside workers even when the script has no debug statement. */
+    @Test void lineBreakpointFiresInsideWorker() {
+        List<String> breaks = new ArrayList<>();
+        List<String> out = new ArrayList<>();
+        Engine.Session s = session(out, frame -> breaks.add(
+                frame.reason() + "@" + frame.line() + "#" + frame.threadId()
+                        + ":" + frame.threadName() + ":" + frame.locals().get("n")));
+        s.debugBreakpoints().add(2);
+        s.eval("""
+                function w(n) do
+                    x = n + 1
+                    return x
+                end
+                multi r do
+                    thread answer: w(41)
+                end
+                PRINT(r.answer.value)
+                """);
+        assertEquals(List.of("BREAKPOINT@2#1:w:41"), breaks);
+        assertEquals(List.of("42"), out);
+    }
+
+    /** A step armed in a worker follows that worker instead of jumping to a sibling. */
+    @Test void workerStepStaysOnThePausedLogicalThread() {
+        List<String> out = new ArrayList<>();
+        Steps steps = new Steps() {
+            @Override public void onBreak(DebugFrame frame) {
+                super.onBreak(frame);
+                if (frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT) frame.stepOver();
+            }
+        };
+        session(out, steps).eval("""
+                function w(n) do
+                    x = n
+                    debug
+                    x = x + 1
+                    return x
+                end
+                multi r limit 1 do
+                    thread a: w(1)
+                    thread b: w(10)
+                end
+                PRINT(r.a.value, r.b.value)
+                """);
+        assertEquals(List.of(
+                "DEBUG_STATEMENT@3", "STEP@4",
+                "DEBUG_STATEMENT@3", "STEP@4"), steps.breaks);
+        assertEquals(List.of("2 11"), out);
+    }
+
+    /**
+     * The interleaved discriminator for step scoping: without a limit, sibling wb's statements
+     * run between wa arming stepOver and wa's next statement (deterministic round-robin yields
+     * at every statement head). An unscoped step would fire on wb's very next statement.
+     */
+    @Test void interleavedSiblingCannotStealAnArmedWorkerStep() {
+        List<String> breaks = new ArrayList<>();
+        List<String> out = new ArrayList<>();
+        Engine.Session s = session(out, frame -> {
+            breaks.add(frame.reason() + "@" + frame.line() + "#" + frame.threadId()
+                    + ":" + frame.threadName());
+            if (frame.reason() == DebugFrame.Reason.DEBUG_STATEMENT) frame.stepOver();
+        });
+        s.eval("""
+                function wa(n) do
+                    x = n
+                    debug
+                    x = x + 1
+                    x = x + 1
+                    return x
+                end
+                function wb(n) do
+                    y = n
+                    y = y + 1
+                    y = y + 2
+                    y = y + 3
+                    return y
+                end
+                multi r do
+                    thread a: wa(1)
+                    thread b: wb(100)
+                end
+                PRINT(r.a.value, r.b.value)
+                """);
+        assertEquals(List.of("DEBUG_STATEMENT@3#1:wa", "STEP@4#1:wa"), breaks,
+                "the armed step fires on wa only; interleaving wb never stops");
+        assertEquals(List.of("3 106"), out);
     }
 
     /** quit() aborts the run as DebugQuit; the session keeps pre-abort state and stays usable. */
@@ -123,6 +217,25 @@ class DebugHandlerTest {
         assertEquals(2, s.globals().get("g"), "effects before the abort persist, like a midway script error");
         assertEquals(12, s.eval("g + 10"), "the session Coop is not poisoned (unlike Coop.abort's latch)");
         assertTrue(out.isEmpty());
+    }
+
+    /** quit() from a worker is promoted to the whole run without poisoning the reusable session. */
+    @Test void workerQuitAbortsTheWholeRunAndTheSessionSurvives() {
+        List<String> out = new ArrayList<>();
+        Engine.Session s = session(out, DebugFrame::quit);
+        s.eval("g = 1");
+        assertThrows(DebugQuit.class, () -> s.eval("""
+                function stop_worker() do
+                    debug
+                    return 1
+                end
+                multi r do
+                    thread stop: stop_worker()
+                end
+                g = 99
+                """));
+        assertEquals(1, s.globals().get("g"), "nothing after the aborted multi ran");
+        assertEquals(2, s.eval("g + 1"), "Scheduler-only abort does not latch the session Coop");
     }
 
     // ---- 0.23.0: stepping, call stack, line breakpoints ---------------------------------------
@@ -140,7 +253,7 @@ class DebugHandlerTest {
             """;
 
     /** A scripted handler: records (reason, line) per break and replays queued commands. */
-    private static final class Steps implements DebugHandler {
+    private static class Steps implements DebugHandler {
         final List<String> breaks = new ArrayList<>();
         final List<java.util.function.Consumer<DebugFrame>> plan = new ArrayList<>();
         int at = 0;

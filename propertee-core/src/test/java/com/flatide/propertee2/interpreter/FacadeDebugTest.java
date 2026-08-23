@@ -104,6 +104,27 @@ class FacadeDebugTest {
         assertEquals(List.of("2"), stdoutLines);
     }
 
+    @Test void workerBreakCarriesLogicalThreadIdentityThroughTheFacade() {
+        ProperTeeInterpreter visitor = visitorFor("""
+                function worker(n) do
+                    debug
+                    return n
+                end
+                multi r do
+                    thread job: worker(7)
+                monitor 1
+                    debug
+                end
+                PRINT(r.job.value)
+                """, frame -> breaks.add(frame.reason() + "@" + frame.line()
+                + "#" + frame.threadId() + ":" + frame.threadName()
+                + ":" + frame.locals().get("n")));
+        run(visitor, null);
+        assertEquals(List.of("DEBUG_STATEMENT@2#1:worker:7"), breaks,
+                "worker breaks once and the monitor debug remains excluded");
+        assertEquals(List.of("7"), stdoutLines);
+    }
+
     /** quit() must reach the host as DebugQuit — not remapped to ProperTeeError/ProperTeeAborted. */
     @Test void quitUnwindsExecuteAsDebugQuitAndReportsTheMainThreadTerminal() {
         List<ThreadContext> errored = new ArrayList<>();

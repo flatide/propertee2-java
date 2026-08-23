@@ -178,6 +178,9 @@ final class Repl {
                                      BufferedReader in, PrintStream out, PrintStream err,
                                      boolean interactive) {
         String position = "line " + frame.line() + ":" + frame.column();
+        if (frame.threadId() != 0) {
+            position += " in worker " + frame.threadId() + " (" + frame.threadName() + ")";
+        }
         switch (frame.reason()) {
             case DEBUG_STATEMENT -> out.println("debug at " + position
                     + (interactive ? " — :c continues, :help for commands" : ""));

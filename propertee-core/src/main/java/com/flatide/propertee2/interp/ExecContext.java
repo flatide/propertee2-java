@@ -23,30 +23,34 @@ final class ExecContext {
     enum Mode { NORMAL, WORKER, MONITOR }
 
     final Mode mode;
+    final int threadId;                                      // 0 main, positive multi worker, -1 monitor
+    final String threadName;
     final Map<String, Object> globalsView;            // live globals (NORMAL) or snapshot (WORKER/MONITOR)
     final Deque<Map<String, Object>> frames = new ArrayDeque<>();      // local call frames
     final Deque<MultiBuilder> setupBuilders = new ArrayDeque<>();      // active multi setup phases
     final Deque<DebugCallSite> callStack = new ArrayDeque<>();         // debugger :where — outermost first
     final WorkerShellObservation shellObservation;                     // monitored WORKER only
-                                                                       // (maintained only while a debug
-                                                                       // handler is attached; per-fiber, so
-                                                                       // workers can't corrupt each other's)
 
-    private ExecContext(Mode mode, Map<String, Object> globalsView, WorkerShellObservation shellObservation) {
+    private ExecContext(Mode mode, int threadId, String threadName,
+                        Map<String, Object> globalsView,
+                        WorkerShellObservation shellObservation) {
         this.mode = mode;
+        this.threadId = threadId;
+        this.threadName = threadName;
         this.globalsView = globalsView;
         this.shellObservation = shellObservation;
     }
 
     static ExecContext normal(Map<String, Object> globals) {
-        return new ExecContext(Mode.NORMAL, globals, null);
+        return new ExecContext(Mode.NORMAL, 0, "main", globals, null);
     }
 
-    static ExecContext worker(Map<String, Object> snapshot, WorkerShellObservation shellObservation) {
-        return new ExecContext(Mode.WORKER, snapshot, shellObservation);
+    static ExecContext worker(Map<String, Object> snapshot, int threadId, String threadName,
+                              WorkerShellObservation shellObservation) {
+        return new ExecContext(Mode.WORKER, threadId, threadName, snapshot, shellObservation);
     }
 
     static ExecContext monitor(Map<String, Object> snapshot) {
-        return new ExecContext(Mode.MONITOR, snapshot, null);
+        return new ExecContext(Mode.MONITOR, -1, "monitor", snapshot, null);
     }
 }

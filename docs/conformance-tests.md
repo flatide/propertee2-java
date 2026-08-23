@@ -92,6 +92,14 @@ v0.11.0은 이름 해석 순서(호스트 차단 → 스크립트 함수 → 빌
 `ShellTest`의 host-unit 테스트가 별도로 검증한다. fixture는 Java와 JavaScript의 공통
 portable 계약만 고정한다.
 
+## spec v0.22.0 worker 디버깅 (host-API tests)
+
+문법과 일반 실행 stdout이 바뀌지 않으므로 fixture는 추가하지 않는다. Java의
+`DebugHandlerTest`/`FacadeDebugTest`/`DapTest`가 worker의 `debug`, 논리 thread ID/name,
+worker 고정 stepping, worker `quit()`의 전체 run 승격, monitor 제외를 검증한다.
+JavaScript는 `run_debug_worker_test.js`가 두 worker의 debug/step 순서와 monitor 제외를
+고정한다.
+
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 
 ### 코어 언어 (순서 안정, 그대로 일치 기대)

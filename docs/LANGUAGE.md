@@ -1,4 +1,4 @@
-# ProperTee Language Specification v0.21.0
+# ProperTee Language Specification v0.22.0
 
 ## Overview
 
@@ -464,8 +464,9 @@ no-op (does nothing). Can be placed anywhere a statement is valid.
 > (`Engine.Session.setDebugHandler`, `debugBreakpoints()`; since 0.26.0 also on the v1-compat
 > façade — `ProperTeeInterpreter.setDebugHandler`/`debugBreakpoints()` — so a façade host like
 > TeeBox can debug-rerun a script). Plain script mode stays a no-op.
-> Breaks fire only on the main logical thread; `debug` in workers and the monitor watchdog
-> remains a no-op.
+> Since 0.28.0/spec v0.22.0, breaks also fire inside `multi` workers. The frame exposes the
+> logical thread id/name; stepping remains on the worker that armed it. The monitor watchdog is
+> deliberately excluded: `debug` in a monitor body remains a no-op.
 
 ## Functions
 
@@ -1425,6 +1426,15 @@ Common error conditions:
 ## Changelog
 
 > Entries below `spec v0.7.0` use the **v1-runtime version numbers** this copy inherited (v1.0.0, v0.9.0, ... are propertee-java releases, not spec versions). New entries follow the spec versioning of the canonical `flatide/ProperTee` LANGUAGE.md.
+
+### spec v0.22.0 — worker-thread debugging; monitor excluded
+
+Additive, no grammar or normal-execution change. In a host debug mode, `debug` statements and
+line breakpoints apply to the main logical thread and every `multi` worker. A stop identifies its
+logical thread and exposes that worker's locals, global snapshot, and call stack. A step remains
+scoped to the worker that armed it, while explicit breaks may still stop any worker. Monitor
+iterations never stop and their `debug` statements remain no-ops. The active Java 25 and
+JavaScript runtimes implement this behavior; the frozen Java 7/8 runtime does not.
 
 ### spec v0.21.0 — monitor thread information and one-line SHELL progress
 

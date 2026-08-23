@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The recursive tree-walk interpreter (design §2 — NO stepper / replay machine).
@@ -319,6 +320,7 @@ public final class Interpreter {
         boolean hasMonitor = m.monitorClause() != null;
         AtomicInteger remaining = new AtomicInteger(pending.size());                               // workers only
         AtomicInteger parentPending = new AtomicInteger(pending.size() + (hasMonitor ? 1 : 0));    // gate parent resume
+        AtomicReference<DebugQuit> debugQuit = new AtomicReference<>();
         Runnable signalParent = () -> { if (parentPending.decrementAndGet() == 0) s.wake(parent); };
 
         // Announce every worker up front, in spawn order — a not-yet-admitted worker under
@@ -350,11 +352,21 @@ public final class Interpreter {
             MultiBuilder.Pending p = pending.get(i);
             int tid = tids[i];
             WorkerShellObservation observation = observations != null ? observations[i] : null;
-            s.spawn(p.key(), () -> ScopedValue.where(CTX, ExecContext.worker(snapshot, observation)).run(() -> {
+            s.spawn(p.key(), () -> ScopedValue.where(
+                    CTX, ExecContext.worker(snapshot, tid, p.funcName(), observation)).run(() -> {
                 try {
                     Object r = invokeNamed(p.funcName(), p.args(), p.call());
                     collection.put(p.key(), Result.ok(r));
                     if (threadObserver != null) threadObserver.completed(tid, r);
+                } catch (DebugQuit e) {
+                    // A debugger quit from a worker must end the WHOLE run, not become a thread
+                    // error or disappear in the child fiber. Abort only this Scheduler (not the
+                    // Coop latch, so Engine.Session remains reusable), then let the parent remap
+                    // its AbortError back to the original DebugQuit below.
+                    debugQuit.compareAndSet(null, e);
+                    if (threadObserver != null) threadObserver.error(tid, e);
+                    s.abort();
+                    throw new AbortError();
                 } catch (AbortError e) {
                     // Host abort, not a script error: no [THREAD ERROR], no result entry (the run is
                     // unwinding), but the observer must still see a terminal state — otherwise a
@@ -410,7 +422,13 @@ public final class Interpreter {
             });
         }
 
-        s.awaitChildren(() -> parentPending.get() == 0);
+        try {
+            s.awaitChildren(() -> parentPending.get() == 0);
+        } catch (AbortError e) {
+            DebugQuit requested = debugQuit.get();
+            if (requested != null) throw requested;
+            throw e;
+        }
     }
 
     /**
@@ -508,10 +526,11 @@ public final class Interpreter {
     //      debug as "pauses in a debug mode"; a host with a handler attached IS a debug mode) ----
 
     private DebugHandler debugHandler;
-    private boolean inDebugSession;   // root-fiber-confined (the handler only fires in NORMAL mode)
+    private boolean inDebugSession;   // one-baton-confined; suppresses re-entry while any fiber is paused
     private enum StepMode { NONE, IN, OVER, OUT }
     private StepMode stepMode = StepMode.NONE;
     private int stepDepth;            // frames.size() when the step was armed
+    private int stepThreadId;         // step stays on the logical thread that armed it
     private java.util.Set<Integer> debugBreakLines = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** Attach a {@link DebugHandler} — turns {@code debug} from a no-op into a breakpoint. */
@@ -520,7 +539,8 @@ public final class Interpreter {
     /**
      * Live, mutable set of 1-based source lines that break before executing (0.23.0). Lines are
      * the current snippet's/loaded file's own numbering. Only consulted while a handler is
-     * attached, on the root logical thread in NORMAL context.
+     * attached, on the main logical thread or a {@code multi} worker; monitor iterations are
+     * deliberately excluded.
      */
     public java.util.Set<Integer> debugBreakpoints() { return debugBreakLines; }
 
@@ -534,7 +554,7 @@ public final class Interpreter {
     }
 
     /** Reset per-run debugger state — a step armed at the end of one run must not leak into the next. */
-    private void resetStepState() { stepMode = StepMode.NONE; }
+    private void resetStepState() { stepMode = StepMode.NONE; stepThreadId = 0; }
 
     /**
      * The pre-statement hook behind stepping and line breakpoints. {@code debug} statements are
@@ -544,10 +564,10 @@ public final class Interpreter {
     private void debugStep(StatementContext s) {
         if (inDebugSession) return;
         ExecContext c = ec();
-        if (c.mode != ExecContext.Mode.NORMAL) return;
+        if (c.mode == ExecContext.Mode.MONITOR) return;
         if (s instanceof FlowStmtContext fl && fl.flowControl() instanceof DebugStmtContext) return;
         boolean bp = !debugBreakLines.isEmpty() && debugBreakLines.contains(s.getStart().getLine());
-        boolean step = switch (stepMode) {
+        boolean step = c.threadId == stepThreadId && switch (stepMode) {
             case NONE -> false;
             case IN   -> true;
             case OVER -> c.frames.size() <= stepDepth;
@@ -565,10 +585,10 @@ public final class Interpreter {
 
     private void execDebug(DebugStmtContext d) {
         requireKeyword("debug", d.getStart());   // hideable, like the other keywords
-        // No handler = normal execution = no-op (70_debug_statement). Workers and the monitor
-        // watchdog stay no-ops too (no stdin from a worker; purity questions deferred), as does
-        // code evaluated FROM a break (a debugger must not re-enter itself).
-        if (debugHandler == null || inDebugSession || ec().mode != ExecContext.Mode.NORMAL) return;
+        // No handler = normal execution = no-op (70_debug_statement). Monitor watchdog code stays
+        // a no-op even in debug mode; worker code is debuggable. Code evaluated FROM a break must
+        // not re-enter the debugger.
+        if (debugHandler == null || inDebugSession || ec().mode == ExecContext.Mode.MONITOR) return;
         stepMode = StepMode.NONE;                // stepping onto a debug statement = one break
         inDebugSession = true;
         try {
@@ -588,6 +608,8 @@ public final class Interpreter {
         }
 
         @Override public Reason reason() { return reason; }
+        @Override public int threadId() { return ec().threadId; }
+        @Override public String threadName() { return ec().threadName; }
         @Override public int line() { return at.getStart().getLine(); }
         @Override public int column() { return at.getStart().getCharPositionInLine(); }
 
@@ -602,9 +624,15 @@ public final class Interpreter {
             return List.copyOf(ec().callStack);   // outermost first (callUser appends at the tail)
         }
 
-        @Override public void stepInto() { stepMode = StepMode.IN;   stepDepth = ec().frames.size(); }
-        @Override public void stepOver() { stepMode = StepMode.OVER; stepDepth = ec().frames.size(); }
-        @Override public void stepOut()  { stepMode = StepMode.OUT;  stepDepth = ec().frames.size(); }
+        private void armStep(StepMode mode) {
+            stepMode = mode;
+            stepDepth = ec().frames.size();
+            stepThreadId = ec().threadId;
+        }
+
+        @Override public void stepInto() { armStep(StepMode.IN); }
+        @Override public void stepOver() { armStep(StepMode.OVER); }
+        @Override public void stepOut()  { armStep(StepMode.OUT); }
 
         @Override public Object eval(String source) {
             RootContext root = Parsing.parse(source);

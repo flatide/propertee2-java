@@ -218,9 +218,10 @@ public final class Engine {
 
         /**
          * Attach a {@link DebugHandler} (host API, 0.22.0): {@code debug} statements in snippets
-         * become breakpoints — the handler runs on the paused fiber and the snippet resumes when
-         * it returns. {@link DebugFrame#quit()} makes {@link #eval} throw {@link DebugQuit}; the
-         * session survives with all state from before the abort.
+         * become breakpoints on the main logical thread and {@code multi} workers (monitor
+         * iterations stay excluded) — the handler runs on the paused fiber and the snippet resumes
+         * when it returns. {@link DebugFrame#quit()} makes {@link #eval} throw {@link DebugQuit};
+         * the session survives with all state from before the abort.
          */
         public Session setDebugHandler(DebugHandler handler) {
             interp.setDebugHandler(handler);
@@ -229,7 +230,8 @@ public final class Engine {
 
         /**
          * Live, mutable set of 1-based lines that break before executing (0.23.0) — line numbers
-         * are each snippet's/loaded file's own. Only consulted while a debug handler is attached.
+         * are each snippet's/loaded file's own. Only consulted while a debug handler is attached;
+         * applies to main and worker code, never monitor iterations.
          */
         public java.util.Set<Integer> debugBreakpoints() { return interp.debugBreakpoints(); }
     }

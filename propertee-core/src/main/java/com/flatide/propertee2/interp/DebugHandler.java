@@ -19,10 +19,12 @@ package com.flatide.propertee2.interp;
  * ({@code SLEEP}, {@code multi}, blocking builtins) via {@link DebugFrame#eval} releases the
  * baton for the duration of that evaluation, letting the world advance.
  *
- * <p>Scope: the handler fires only on the root logical thread in NORMAL context (top level,
- * plain function calls, {@code multi} setup). A {@code debug} inside a worker or monitor body
- * stays a no-op, as does a {@code debug} reached while a break is already active (code run
- * through {@link DebugFrame#eval} cannot re-enter the debugger).
+ * <p>Scope: the handler fires on the main logical thread (top level, plain function calls,
+ * {@code multi} setup) and inside {@code multi} workers. {@link DebugFrame#threadId()} and
+ * {@link DebugFrame#threadName()} identify the paused logical thread. A monitor body is never
+ * debugged, and a {@code debug} reached while a break is already active (code run through
+ * {@link DebugFrame#eval}) cannot re-enter the debugger. A step is scoped to the logical thread
+ * that armed it; breakpoints and explicit {@code debug} statements can still stop any worker.
  */
 @FunctionalInterface
 public interface DebugHandler {

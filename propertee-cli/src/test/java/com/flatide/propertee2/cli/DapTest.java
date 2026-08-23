@@ -262,6 +262,53 @@ class DapTest {
         });
     }
 
+    @SuppressWarnings("unchecked")
+    @Test void workerDebugStopExposesWorkerThreadAndMonitorDoesNotStop() throws Exception {
+        String program = tempScript("""
+                function worker(n) do
+                    debug
+                    return n
+                end
+                multi r do
+                    thread job: worker(7)
+                monitor 1
+                    debug
+                end
+                PRINT(r.job.value)
+                """);
+        assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
+            try (Client c = new Client()) {
+                c.start(program, Map.of(), null);
+
+                Map<String, Object> stopped = Client.body(c.event("stopped"));
+                assertEquals(2, stopped.get("threadId"));       // core worker 1 -> DAP thread 2
+
+                c.request("threads", Map.of());
+                List<Map<String, Object>> threads =
+                        (List<Map<String, Object>>) Client.body(c.response("threads")).get("threads");
+                assertEquals(List.of(1, 2), threads.stream().map(t -> t.get("id")).toList());
+                assertTrue(String.valueOf(threads.get(1).get("name")).contains("worker"));
+
+                c.request("stackTrace", Map.of("threadId", 2));
+                List<Map<String, Object>> frames =
+                        (List<Map<String, Object>>) Client.body(c.response("stackTrace")).get("stackFrames");
+                assertEquals("worker", frames.get(0).get("name"));
+                assertEquals(2, frames.get(0).get("line"));
+
+                c.request("variables", Map.of("variablesReference", 1001));
+                List<Map<String, Object>> locals =
+                        (List<Map<String, Object>>) Client.body(c.response("variables")).get("variables");
+                assertEquals("7", locals.stream().filter(v -> v.get("name").equals("n"))
+                        .findFirst().orElseThrow().get("value"));
+
+                c.request("continue", Map.of("threadId", 2));
+                c.response("continue");
+                c.event("terminated");                         // monitor's debug must not produce another stop
+                assertEquals(List.of("7\n"), c.stdout);
+            }
+        });
+    }
+
     @Test void noDebugIgnoresBreakpointsAndDebugStatements() throws Exception {
         String program = tempScript("debug\nx = 1\nPRINT(x)\n");
         assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
