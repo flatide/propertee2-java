@@ -325,9 +325,14 @@ public final class Interpreter {
         // `limit` is externally indistinguishable from a running one (spec v0.19.0: no new
         // status), so a host observer sees the full thread list from the start, as before.
         int[] tids = new int[pending.size()];
+        WorkerShellObservation[] observations = hasMonitor && m.resultVar != null
+                ? new WorkerShellObservation[pending.size()] : null;
         for (int i = 0; i < pending.size(); i++) {
             tids[i] = workerIdSeq.incrementAndGet();              // 1, 2, ... (the main thread is the host's id 0)
             MultiBuilder.Pending p = pending.get(i);
+            if (observations != null) {
+                observations[i] = new WorkerShellObservation(tids[i], p.funcName(), p.key());
+            }
             if (threadObserver != null) threadObserver.created(tids[i], p.funcName(), 0, p.key());
         }
 
@@ -344,7 +349,8 @@ public final class Interpreter {
             if (i >= pending.size()) return;
             MultiBuilder.Pending p = pending.get(i);
             int tid = tids[i];
-            s.spawn(p.key(), () -> ScopedValue.where(CTX, ExecContext.worker(snapshot)).run(() -> {
+            WorkerShellObservation observation = observations != null ? observations[i] : null;
+            s.spawn(p.key(), () -> ScopedValue.where(CTX, ExecContext.worker(snapshot, observation)).run(() -> {
                 try {
                     Object r = invokeNamed(p.funcName(), p.args(), p.call());
                     collection.put(p.key(), Result.ok(r));
@@ -384,7 +390,9 @@ public final class Interpreter {
                     Runnable tick = () -> {
                         ExecContext mctx = ExecContext.monitor(snapshot);
                         Map<String, Object> iterScope = new LinkedHashMap<>();
-                        if (resultVarName != null) iterScope.put(resultVarName, Values.deepCopy(collection));
+                        if (resultVarName != null) {
+                            iterScope.put(resultVarName, monitorCollection(collection, pending, observations));
+                        }
                         mctx.frames.push(iterScope);
                         ScopedValue.where(CTX, mctx).run(() -> {
                             try {
@@ -403,6 +411,28 @@ public final class Interpreter {
         }
 
         s.awaitChildren(() -> parentPending.get() == 0);
+    }
+
+    /**
+     * Build the watchdog's capture without ever mutating the semantic result collection. Each
+     * Result entry stays genuine; only its copied {@code value} is replaced by thread information.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> monitorCollection(Map<String, Object> collection,
+                                                  List<MultiBuilder.Pending> pending,
+                                                  WorkerShellObservation[] observations) {
+        Map<String, Object> capture = (Map<String, Object>) Values.deepCopy(collection);
+        if (observations == null) return capture;
+        for (int i = 0; i < pending.size(); i++) {
+            String key = pending.get(i).key();
+            Object entryValue = capture.get(key);
+            if (!(entryValue instanceof Map<?, ?> rawEntry)) continue;
+            Map<String, Object> entry = (Map<String, Object>) rawEntry;
+            String state = String.valueOf(entry.get("status"));
+            Object returnValue = entry.get("value");
+            entry.put("value", observations[i].monitorValue(state, returnValue));
+        }
+        return capture;
     }
 
     /**
@@ -1035,7 +1065,8 @@ public final class Interpreter {
             // source position. Host-gated / blocking builtins release the baton (design §3.1).
             Builtins.Kind kind = builtins.kindOf(name);
             if (kind == Builtins.Kind.HOST_GATED || kind == Builtins.Kind.BLOCKING) {
-                return coop.blocking(() -> builtins.invokeRaw(name, args));
+                WorkerShellObservation observation = "SHELL".equals(name) ? ec().shellObservation : null;
+                return coop.blocking(() -> builtins.invokeRaw(name, args, observation));
             }
             return builtins.invokeRaw(name, args);
         }

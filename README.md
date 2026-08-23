@@ -1,32 +1,32 @@
 # ProperTee2 for Java (Java 25 · virtual-thread runtime)
 
-`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다 — v1과 동일한 스펙 v0.6.0을 거쳐, 스펙 v0.7.0(조건 불리언 엄격화, `and`/`or` 단축 평가, `RANDOM` 단일 인자 폐지, `SLICE` count 규약, `LEN` 엄격화), v0.8.0(일급 `null` — 암묵적 null 없이 JSON 무손실 왕복), v0.9.0(`elseif`), v0.10.0(Result 승격 — `FAIL`/`UNWRAP`/`OK`/`ERR`/`IS_RESULT`와 genuine-Result 브랜드), v0.11.0(함수 이름 해석 확정), v0.12.0(전부-대문자 함수 네임스페이스 예약), v0.13.0(32-bit 정수 envelope·spawn 격리·디스패치 이름 예약), v0.14.0(명목적 숫자 정체성·ECMA-262 표시·로드-시점 거부), v0.15.0(`CONTAINS` 배열 멤버십), v0.16.0(monitor = watchdog 스레드), v0.17.0(`FIND`/`FIND_FIRST`/`FIND_LAST` 리터럴 위치 검색), v0.18.0(`READ_FILE`/`READ_JSON_FILE`/`WRITE_JSON_FILE`)을 거쳐, v0.19.0(`multi ... limit K` 동시성 상한)을 거쳐, 현재는 **스펙 v0.20.0**(`_ARGS` 위치 호출 인자; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
+`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다. 현재는 **스펙 v0.21.0**(monitor 캡처의 워커 정보와 기본 1라인 SHELL 진행 출력; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
 
 - **베이스라인:** Java 25 LTS, **stable API만** (virtual threads + `ScopedValue`). `StructuredTaskScope`는 25에서도 preview라 회피 — `multi`는 hand-roll. **preview 의존 0.**
-- **상태:** **conformance 스위트 128/128 통과** (byte-for-byte, deterministic). 호스트 API: `Engine.validate`(0.9.0, ProperTee #9), `knownFunctionNames`(0.13.0), **협조적 run 중단 `abort()` + 캐리어 슬라이스 양보**(0.16.0), **`Engine.Session` 스니펫 평가 + CLI REPL**(0.18.0), **CLI 기본 SHELL 실행(`SimpleTaskRunner`)**(0.19.0), **pdb 스타일 인터랙티브 디버거(`DebugHandler` + REPL `debug>` 프롬프트, `:load`/`-i`)**(0.22.0), **스테핑 `:n`/`:s`/`:r` + `:where` 콜스택 + 라인 브레이크포인트 `:b`**(0.23.0), **`--dap` DAP 서버 — VS Code 실브레이크포인트/스테핑**(0.24.0), **v1 façade 디버그 훅(`ProperTeeInterpreter.setDebugHandler`/`debugBreakpoints()` — TeeBox 같은 façade 호스트가 디버그 재실행을 구현)**(0.26.0) — 전부 언어 변경 없음.
+- **상태:** **conformance 스위트 129/129 통과** (byte-for-byte, deterministic). 0.27.0은 monitor 캡처에서 워커/SHELL 스냅샷을 제공하고 `SimpleTaskRunner`의 제한 초과 출력을 오래된 쪽부터 버리는 rolling tail로 유지한다. 기존 호스트 API와 디버거/DAP 기능은 그대로 유지된다.
 
 ## 빌드 / 테스트
 
 JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.java.installations.paths`에 JDK 25 home 등록). 두 모듈로 구성된다: **`propertee-core`**(엔진 — TeeBox가 의존), **`propertee-cli`**(`propertee2` 커맨드).
 
 ```bash
-./gradlew build     # 두 모듈 컴파일 + 전체 테스트(conformance 128 fixture 포함)
+./gradlew build     # 두 모듈 컴파일 + 전체 테스트(conformance 129 fixture 포함)
 ```
 
 ## 실행 (CLI)
 
 ```bash
-./gradlew dist                                  # → dist/propertee2-0.26.0.jar + dist/propertee2.jar(안정 경로 사본)
-java -jar dist/propertee2-0.26.0.jar script.tee
+./gradlew dist                                  # → dist/propertee2-0.27.0.jar + dist/propertee2.jar(안정 경로 사본)
+java -jar dist/propertee2-0.27.0.jar script.tee
 
 # 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
-java -jar dist/propertee2-0.26.0.jar -p '{"width":100,"height":200}' script.tee
+java -jar dist/propertee2-0.27.0.jar -p '{"width":100,"height":200}' script.tee
 
 # 스크립트 파일 없이 실행하면 인터랙티브 REPL (0.18.0)
-java -jar dist/propertee2-0.26.0.jar
+java -jar dist/propertee2-0.27.0.jar
 ```
 
-**SHELL(0.19.0):** CLI(스크립트 모드·REPL 모두)는 in-process `SimpleTaskRunner`(`/bin/sh -c`, Linux/macOS; v1 CLI와 동일한 계약, 스트림당 1 MB 캡)를 기본 배선하므로 `SHELL("...")`이 호스트 설정 없이 바로 동작한다. 임베딩 기본값은 여전히 `UnsupportedTaskRunner`(`SHELL() requires a host-provided TaskRunner ...`) — 필요하면 `new Engine().setTaskRunner(new SimpleTaskRunner())`.
+**SHELL:** CLI(스크립트 모드·REPL 모두)는 in-process `SimpleTaskRunner`(`/bin/sh -c`, Linux/macOS; 스트림당 최신 1 MiB rolling cap)를 기본 배선하므로 `SHELL("...")`이 호스트 설정 없이 바로 동작한다. 제한을 넘으면 오래된 출력은 누락될 수 있고 최신 suffix가 Result에 남는다. 전체 대용량 출력이 필요하면 파일로 명시적으로 redirect한다. 임베딩 기본값은 여전히 `UnsupportedTaskRunner`(`SHELL() requires a host-provided TaskRunner ...`) — 필요하면 `new Engine().setTaskRunner(new SimpleTaskRunner())`.
 
 > 런타임에 **JDK 25**가 필요하다. 개발 중에는 `./gradlew :propertee-cli:run --args="script.tee"`도 가능.
 

@@ -61,6 +61,7 @@
 - `Result.error(m)` → `{status:"error", ok:false, value:"…"}`
 - 스레드 결과 수집도 동일 포맷. `registerExternal`은 throw를 `{status:"error",…}`로 래핑.
 - **genuine Result 브랜드 (spec v0.10.0)**: 위 `Result` 팩토리(와 `OK`/`ERR` 생성자)가 만드는 맵은 `value/TeeResult`(`LinkedHashMap` 서브클래스) — `UNWRAP`/`IS_RESULT`만 이 출처를 관찰하고, TYPE_OF/표시/동등성/JSON엔 불가시(기존 픽스처 byte-parity가 불가시성의 증명). `Values.deepCopy`가 브랜드를 보존(대입·인자 전달·`PUSH` 경유 복사 포함)하고 필드 변이로도 유지됨. JSON 경계에서 소멸: `JSON_FORMAT`은 평범한 3필드 객체로 렌더, `JSON_PARSE`된 데이터 내부에 genuine 없음(단 `JSON_PARSE` 자신이 반환하는 래퍼는 genuine). `ERR(v)`/`Result.errorValue(v)`의 value는 문자열 외 구조화 값도 허용. ⚠️ 새 Result 생성 지점은 반드시 팩토리를 경유할 것 — 손으로 만든 3필드 맵은 브랜드가 없어 `UNWRAP`/`IS_RESULT`만 조용히 깨짐(픽스처 101이 감시).
+- **monitor 투영 (spec v0.21.0)**: monitor iteration의 deep-copy에 한해서 각 스레드 Result의 `value`를 `{id,key,functionName,state,returnValue,shell}`로 바꿔 보여 준다. 이때도 Result 브랜드와 `status`/`ok`는 보존되고 원래 스레드 값은 `returnValue`에 있다. live collection은 변경하지 않으므로 `multi ... end` 뒤의 Result는 위의 보통 3필드 계약 그대로다. `shell.output`은 갱신 시 최신 논리 1라인뿐이며 완전한 stdout 계약이 아니다.
 
 ## 8. 구조적 결과 계약 (스크립트 반환)
 

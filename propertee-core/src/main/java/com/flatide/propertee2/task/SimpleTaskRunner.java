@@ -16,9 +16,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * TaskRunner for CLI/standalone use, referenced by the {@link TaskRunner} javadoc. No disk
  * persistence, no process group management, no archival: runs shell commands via
  * {@code /bin/sh -c} (Unix — Linux/macOS; on a platform without {@code /bin/sh} the launch
- * failure surfaces as the task's error output) and captures stdout/stderr in memory, capped at
- * 1&nbsp;MB per stream. {@link #releaseTask} frees a task's state immediately — the SHELL builtin
- * calls it once the result is extracted, so a long session does not accumulate task state.
+ * failure surfaces as the task's error output) and captures the latest stdout/stderr in rolling
+ * in-memory tails capped at 1&nbsp;MB per stream. {@link #releaseTask} frees a task's state
+ * immediately — the SHELL builtin calls it once the result is extracted, so a long session does
+ * not accumulate task state.
  * Hosts that need persistence, kill-by-run, or restart survival provide their own runner
  * (TeeBox's ManagedTaskEngine).
  */
@@ -30,26 +31,84 @@ public class SimpleTaskRunner implements TaskRunner {
 
     private static final class TaskState {
         final String taskId;
+        final String runId;
+        final Integer threadId;
+        final String threadName;
         final String command;
         final long startTime = System.currentTimeMillis();
         Process process;
-        final StringBuilder stdout = new StringBuilder();
-        final StringBuilder stderr = new StringBuilder();
+        int pid;
+        final BoundedOutputBuffer stdout = new BoundedOutputBuffer(MAX_OUTPUT_BYTES);
+        final BoundedOutputBuffer stderr = new BoundedOutputBuffer(MAX_OUTPUT_BYTES);
         Thread stdoutDrainer;
         Thread stderrDrainer;
         Integer exitCode;
         volatile boolean alive = true;
 
-        TaskState(String taskId, String command) {
+        TaskState(String taskId, TaskRequest request) {
             this.taskId = taskId;
-            this.command = command;
+            this.runId = request.runId;
+            this.threadId = request.threadId;
+            this.threadName = request.threadName;
+            this.command = request.command;
+        }
+    }
+
+    /** Byte-accurate rolling tail; once full, oldest bytes are evicted and new output is retained. */
+    private static final class BoundedOutputBuffer {
+        private final byte[] bytes;
+        private int start;
+        private int size;
+
+        BoundedOutputBuffer(int capacity) {
+            bytes = new byte[capacity];
+        }
+
+        synchronized void append(byte[] source, int offset, int length) {
+            if (length <= 0) return;
+            if (length >= bytes.length) {
+                System.arraycopy(source, offset + length - bytes.length, bytes, 0, bytes.length);
+                start = 0;
+                size = bytes.length;
+                return;
+            }
+
+            int overflow = Math.max(0, size + length - bytes.length);
+            start = (start + overflow) % bytes.length;
+            size -= overflow;
+
+            int end = (start + size) % bytes.length;
+            int first = Math.min(length, bytes.length - end);
+            System.arraycopy(source, offset, bytes, end, first);
+            if (first < length) {
+                System.arraycopy(source, offset + first, bytes, 0, length - first);
+            }
+            size += length;
+        }
+
+        synchronized void append(String text) {
+            byte[] encoded = text.getBytes(StandardCharsets.UTF_8);
+            append(encoded, 0, encoded.length);
+        }
+
+        synchronized String snapshot() {
+            byte[] ordered = new byte[size];
+            int first = Math.min(size, bytes.length - start);
+            System.arraycopy(bytes, start, ordered, 0, first);
+            if (first < size) System.arraycopy(bytes, 0, ordered, first, size - first);
+
+            // Eviction may land in the middle of a UTF-8 sequence. Skip continuation bytes so the
+            // visible tail never begins with a replacement character solely because of the cap.
+            int offset = 0;
+            while (offset < ordered.length && (ordered[offset] & 0xC0) == 0x80) offset++;
+            return new String(ordered, offset, ordered.length - offset, StandardCharsets.UTF_8);
         }
     }
 
     @Override
     public Task execute(TaskRequest request) {
         String taskId = "task-" + nextId.incrementAndGet();
-        TaskState state = new TaskState(taskId, request.command);
+        TaskState state = new TaskState(taskId, request);
 
         try {
             List<String> cmd = new ArrayList<>();
@@ -68,6 +127,8 @@ public class SimpleTaskRunner implements TaskRunner {
                 pb.redirectErrorStream(true);
             }
             state.process = pb.start();
+            long processId = state.process.pid();
+            state.pid = processId <= Integer.MAX_VALUE ? (int) processId : 0;
             // Start drainer threads immediately to prevent OS pipe deadlock
             state.stdoutDrainer = startDrainer(state.process.getInputStream(), state.stdout, "drain-stdout-" + taskId);
             if (!request.mergeErrorToStdout) {
@@ -80,14 +141,7 @@ public class SimpleTaskRunner implements TaskRunner {
         }
 
         tasks.put(taskId, state);
-
-        Task task = new Task();
-        task.taskId = taskId;
-        task.command = request.command;
-        task.status = TaskStatus.RUNNING;
-        task.alive = true;
-        task.startTime = state.startTime;
-        return task;
+        return toTask(state);
     }
 
     @Override
@@ -165,8 +219,12 @@ public class SimpleTaskRunner implements TaskRunner {
         // The in-memory buffers are already capped (1 MB per stream), so the full read is
         // bounded. Trim to the tail if the caller wants less.
         String combined = getCombinedOutput(taskId);
-        if (maxBytes <= 0 || combined.length() <= maxBytes) return combined;
-        return combined.substring(combined.length() - maxBytes);
+        if (maxBytes <= 0) return combined;
+        byte[] encoded = combined.getBytes(StandardCharsets.UTF_8);
+        if (encoded.length <= maxBytes) return combined;
+        int offset = encoded.length - maxBytes;
+        while (offset < encoded.length && (encoded[offset] & 0xC0) == 0x80) offset++;
+        return new String(encoded, offset, encoded.length - offset, StandardCharsets.UTF_8);
     }
 
     @Override
@@ -224,24 +282,17 @@ public class SimpleTaskRunner implements TaskRunner {
 
     private String readOutput(TaskState state, boolean isStderr) {
         checkProcess(state);
-        StringBuilder buf = isStderr ? state.stderr : state.stdout;
-        synchronized (buf) {
-            return buf.toString();
-        }
+        BoundedOutputBuffer buf = isStderr ? state.stderr : state.stdout;
+        return buf.snapshot();
     }
 
-    private static Thread startDrainer(InputStream is, StringBuilder buf, String name) {
+    private static Thread startDrainer(InputStream is, BoundedOutputBuffer buf, String name) {
         Thread t = new Thread(() -> {
             try {
                 byte[] tmp = new byte[4096];
                 int len;
                 while ((len = is.read(tmp)) != -1) {
-                    synchronized (buf) {
-                        int room = MAX_OUTPUT_BYTES - buf.length();
-                        if (room <= 0) continue; // drain & discard once cap hit
-                        int writeLen = Math.min(len, room);
-                        buf.append(new String(tmp, 0, writeLen, StandardCharsets.UTF_8));
-                    }
+                    buf.append(tmp, 0, len);
                 }
             } catch (IOException ignore) {
                 // stream closed
@@ -268,7 +319,11 @@ public class SimpleTaskRunner implements TaskRunner {
         checkProcess(state);
         Task task = new Task();
         task.taskId = state.taskId;
+        task.runId = state.runId;
+        task.threadId = state.threadId;
+        task.threadName = state.threadName;
         task.command = state.command;
+        task.pid = state.pid;
         task.alive = state.alive;
         task.exitCode = state.exitCode;
         task.startTime = state.startTime;

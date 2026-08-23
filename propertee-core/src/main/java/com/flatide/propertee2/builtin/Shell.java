@@ -22,6 +22,8 @@ import java.util.Map;
  */
 final class Shell {
     private static final int OUTPUT_CAP_BYTES = 10 * 1024 * 1024;
+    private static final int MONITOR_OUTPUT_CAP_BYTES = 64 * 1024;
+    private static final long MONITOR_POLL_MS = 100L;
 
     private final TaskRunner taskRunner;
     private final String runId;   // tags each TaskRequest so a host can group tasks by run (null when unset)
@@ -29,27 +31,66 @@ final class Shell {
     Shell(TaskRunner taskRunner, String runId) { this.taskRunner = taskRunner; this.runId = runId; }
 
     Object run(List<Object> args) {
+        return run(args, null);
+    }
+
+    Object run(List<Object> args, Builtins.ShellObserver observer) {
         if (args.isEmpty()) return Result.error("SHELL() requires at least 1 argument");
+        TaskRequest request;
+        try {
+            request = buildRequest(args);
+        } catch (RuntimeException e) {
+            return Result.error(e.getMessage());
+        }
+        if (observer != null) observer.starting(request);
+
         Task task;
         try {
-            task = taskRunner.execute(buildRequest(args));   // UnsupportedTaskRunner throws here (no task created)
+            task = taskRunner.execute(request);              // UnsupportedTaskRunner throws here (no task created)
+            if (observer != null) observer.started(task);
         } catch (RuntimeException e) {                        // no runner, or bad args (TeeError) -> Result.error
-            return Result.error(e.getMessage());
+            Object result = Result.error(e.getMessage());
+            if (observer != null) observer.completed(null, result, "");
+            return result;
         }
         // Once a task exists, always release it (finally) so a lightweight TaskRunner doesn't retain its
         // task map / output buffer / process handle on an exception or interrupt path.
         try {
-            Task completed = taskRunner.waitForCompletion(task.taskId, 0);
-            if (completed == null) return Result.error("Unknown task: " + task.taskId);
-            return buildResult(task);
+            Task completed = waitForCompletion(task, observer);
+            if (completed == null) {
+                Object result = Result.error("Unknown task: " + task.taskId);
+                if (observer != null) observer.completed(task, result, progressOutput(task.taskId));
+                return result;
+            }
+            ShellResult built = buildResult(task);
+            if (observer != null) observer.completed(completed, built.result(), built.output());
+            return built.result();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             try { taskRunner.killTask(task.taskId); } catch (RuntimeException ignore) { /* best-effort */ }
-            return Result.error("interrupted");
+            Object result = Result.error("interrupted");
+            if (observer != null) observer.completed(task, result, progressOutput(task.taskId));
+            return result;
         } catch (RuntimeException e) {                        // observe/getCombinedOutput/getExitCode failure
-            return Result.error(e.getMessage());
+            Object result = Result.error(e.getMessage());
+            if (observer != null) observer.completed(task, result, progressOutput(task.taskId));
+            return result;
         } finally {
             try { taskRunner.releaseTask(task.taskId); } catch (RuntimeException ignore) { /* best-effort */ }
+        }
+    }
+
+    /**
+     * With monitor observation enabled, the already-blocking SHELL worker performs bounded samples
+     * while it waits. Without an observer the historical single indefinite wait is retained.
+     */
+    private Task waitForCompletion(Task task, Builtins.ShellObserver observer) throws InterruptedException {
+        if (observer == null) return taskRunner.waitForCompletion(task.taskId, 0);
+        while (true) {
+            Task current = taskRunner.waitForCompletion(task.taskId, MONITOR_POLL_MS);
+            if (current == null) return null;
+            observer.progress(current, progressOutput(task.taskId));
+            if (!current.alive) return current;
         }
     }
 
@@ -110,20 +151,33 @@ final class Shell {
         }
     }
 
-    private Object buildResult(Task task) {
+    private ShellResult buildResult(Task task) {
         TaskObservation obs = taskRunner.observe(task.taskId);
-        if (obs == null) return Result.error("Unknown task: " + task.taskId);
-        if (obs.alive) return Result.running();
-        String output = normalize(taskRunner.getCombinedOutput(task.taskId, OUTPUT_CAP_BYTES));
+        if (obs == null) {
+            return new ShellResult(Result.error("Unknown task: " + task.taskId), progressOutput(task.taskId));
+        }
+        if (obs.alive) return new ShellResult(Result.running(), progressOutput(task.taskId));
+        String captured = taskRunner.getCombinedOutput(task.taskId, OUTPUT_CAP_BYTES);
+        String output = normalize(captured);
         Integer exitCode = taskRunner.getExitCode(task.taskId);
-        if (exitCode != null && exitCode == 0) return Result.ok(output);
+        if (exitCode != null && exitCode == 0) return new ShellResult(Result.ok(output), captured);
         if (output.isEmpty()) {
             if ("killed".equals(obs.status)) output = "killed";
             else if (exitCode != null) output = "Task failed with exitCode " + exitCode;
             else output = obs.status;
         }
-        return Result.error(output);
+        return new ShellResult(Result.error(output), captured);
     }
+
+    private String progressOutput(String taskId) {
+        try {
+            return taskRunner.getCombinedOutput(taskId, MONITOR_OUTPUT_CAP_BYTES);
+        } catch (RuntimeException ignored) {
+            return "";  // monitoring is diagnostic and must never alter SHELL's semantic result
+        }
+    }
+
+    private record ShellResult(Object result, String output) { }
 
     private static String normalize(String output) {
         if (output == null) return "";

@@ -27,24 +27,26 @@ final class ExecContext {
     final Deque<Map<String, Object>> frames = new ArrayDeque<>();      // local call frames
     final Deque<MultiBuilder> setupBuilders = new ArrayDeque<>();      // active multi setup phases
     final Deque<DebugCallSite> callStack = new ArrayDeque<>();         // debugger :where — outermost first
+    final WorkerShellObservation shellObservation;                     // monitored WORKER only
                                                                        // (maintained only while a debug
                                                                        // handler is attached; per-fiber, so
                                                                        // workers can't corrupt each other's)
 
-    private ExecContext(Mode mode, Map<String, Object> globalsView) {
+    private ExecContext(Mode mode, Map<String, Object> globalsView, WorkerShellObservation shellObservation) {
         this.mode = mode;
         this.globalsView = globalsView;
+        this.shellObservation = shellObservation;
     }
 
     static ExecContext normal(Map<String, Object> globals) {
-        return new ExecContext(Mode.NORMAL, globals);
+        return new ExecContext(Mode.NORMAL, globals, null);
     }
 
-    static ExecContext worker(Map<String, Object> snapshot) {
-        return new ExecContext(Mode.WORKER, snapshot);
+    static ExecContext worker(Map<String, Object> snapshot, WorkerShellObservation shellObservation) {
+        return new ExecContext(Mode.WORKER, snapshot, shellObservation);
     }
 
     static ExecContext monitor(Map<String, Object> snapshot) {
-        return new ExecContext(Mode.MONITOR, snapshot);
+        return new ExecContext(Mode.MONITOR, snapshot, null);
     }
 }

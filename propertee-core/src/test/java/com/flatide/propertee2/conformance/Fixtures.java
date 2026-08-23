@@ -7,14 +7,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * The canonical conformance fixture set (101 .tee/.expected pairs under
- * src/test/resources/tests — the 84 copied from v1, plus 87–92 (spec v0.7.0),
- * 93–96 (spec v0.8.0), 97–98 (spec v0.9.0), and 99–103 (spec v0.10.0) added by
- * the spec batches). The list is HARDCODED — not
+ * The canonical conformance fixture set (129 .tee/.expected pairs under
+ * src/test/resources/tests, from the v1 baseline through spec v0.21.0). The list is HARDCODED — not
  * directory-discovered — matching the v1 ScriptTest convention so a missing or
  * stray fixture shows up as a test failure (conformance-tests.md §하네스 TODO).
  *
- * <p>Numbers 31 and 79 are intentionally absent (skipped in v1 / not in this corpus).
+ * <p>Numbers 31, 79, and 104 are intentionally absent (retired or not in this corpus).
  * The full conformance harness (PE) runs each fixture and diffs stdout against
  * .expected with the documented host injections; for now {@code ParseAllFixturesTest}
  * uses this list as a parser smoke test.
@@ -80,7 +78,9 @@ public final class Fixtures {
             "126_multi_limit_cap", "127_multi_limit_one", "128_error_multi_limit_zero",
             "129_error_multi_limit_decimal",
             // spec v0.20.0: _ARGS positional invocation arguments (130 harness-injected)
-            "130_args", "131_args_empty");
+            "130_args", "131_args_empty",
+            // spec v0.21.0: monitor-only worker/SHELL observation projection
+            "132_monitor_thread_info");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

@@ -7,6 +7,8 @@ import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeResult;
 import com.flatide.propertee2.value.TeeFormat;
 import com.flatide.propertee2.value.Values;
+import com.flatide.propertee2.task.Task;
+import com.flatide.propertee2.task.TaskRequest;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -49,8 +51,25 @@ public final class Builtins {
     private record Entry(Kind kind, Builtin fn) {}
 
     private final Map<String, Entry> registry = new HashMap<>();
+    private Shell shell;
+
+    /**
+     * Progress seam for a SHELL call made by a monitored {@code multi} worker. The blocking SHELL
+     * call samples its own bounded output; no separate sampler/watchdog thread is created.
+     */
+    public interface ShellObserver {
+        default void starting(TaskRequest request) { }
+        default void started(Task task) { }
+        default void progress(Task task, String boundedOutput) { }
+        default void completed(Task task, Object result, String boundedOutput) { }
+    }
 
     public void register(String name, Kind kind, Builtin fn) {
+        // Re-registering SHELL (Interpreter.addRawBuiltin allows it) also retires the monitor
+        // observation seam; a stale seam would keep routing monitored workers to the original
+        // TaskRunner-backed Shell instead of the replacement. registerShell() re-arms it after
+        // this call.
+        if ("SHELL".equals(name)) shell = null;
         registry.put(name, new Entry(kind, fn));
     }
 
@@ -79,6 +98,19 @@ public final class Builtins {
         Entry e = registry.get(name);
         if (e == null) throw new TeeError("Unknown function '" + name + "'");
         return e.fn().invoke(args);
+    }
+
+    /**
+     * Invoke SHELL with monitor observation; all other builtin dispatch remains unchanged. The
+     * seam is only armed while the registry entry is the original TaskRunner-backed Shell — a
+     * host replacement (or an external named SHELL, which bypasses the registry entirely) runs
+     * unobserved and the monitor's {@code shell} projection stays {@code {}}.
+     */
+    public Object invokeRaw(String name, List<Object> args, ShellObserver observer) {
+        if ("SHELL".equals(name) && shell != null && observer != null) {
+            return shell.run(args, observer);
+        }
+        return invokeRaw(name, args);
     }
 
     /** Registry pre-loaded with the full PURE catalog (no host integration). */
@@ -672,6 +704,7 @@ public final class Builtins {
         // default UnsupportedTaskRunner this surfaces as Result.error("...requires a host-provided TaskRunner...").
         Shell shell = new Shell(taskRunner, runId);
         b.register("SHELL", Kind.BLOCKING, shell::run);
+        b.shell = shell;   // after register(): registering "SHELL" retires any previous seam
 
         // SHELL_CTX(cwd, [env], [timeout]) — builds a context after validating the cwd IS a directory
         // and the optional env (object) / timeout (number) types.

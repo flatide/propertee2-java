@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처: `propertee-java`(v1.0.0) `ScriptTest`의 `testNames` 배열 + `src/test/resources/tests/*.tee`/`*.expected`(84쌍, 이 repo로 복사됨). **spec v0.7.0 breaking 배치**(ProperTee 이슈 #1/#2/#5/#6/#7)에서 신규 `87`–`92` 6쌍이 추가되고 기존 3쌍이 갱신됐고, **spec v0.8.0 null 리터럴**(이슈 #4)에서 신규 `93`–`96` 4쌍 + `84_json` 갱신, **spec v0.9.0 elseif**(이슈 #3)에서 신규 `97`–`98` 2쌍, **spec v0.10.0 Result 승격**(이슈 없음 — design-draft-result-handling.md)에서 신규 `99`–`103` 5쌍, **spec v0.11.0 함수 이름 해석**(이슈 없음)에서 신규 `104` 1쌍이 추가됐다가 **spec v0.12.0 대문자 네임스페이스 예약**(이슈 없음 — design-draft-reserved-uppercase-namespace.md)에서 104 은퇴·75 갱신·`105`-`106` 2쌍 추가로 현재 **103쌍**이다 — 아래 [spec v0.7.0 배치](#spec-v070-breaking-배치-87-92), [spec v0.8.0 null](#spec-v080-null-리터럴-93-96), [spec v0.9.0 elseif](#spec-v090-elseif-97-98), [spec v0.10.0 Result 승격](#spec-v0100-result-승격-99-103), [spec v0.11.0/v0.12.0](#spec-v0110-함수-이름-해석--v0120-대문자-네임스페이스-예약-105-106) 참고. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence).
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **129쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -81,6 +81,16 @@ v0.11.0은 이름 해석 순서(호스트 차단 → 스크립트 함수 → 빌
 |---|---|
 | `105_error_reserved_function_name` | `function LEN(...)` → 정의 시점 에러 + 정의 위치(line:col) 지목·앞 문장은 실행됨(정의문이 순차 실행되는 것도 함께 고정) |
 | `106_function_name_case` | 혼합/소문자 이름(`Foo`/`getBALANCE`/`get_balance`) 정의 합법·ALL-CAPS 빌트인 호출 불변 |
+
+## spec v0.21.0 monitor 스레드 정보와 SHELL 1라인 tail (132)
+
+| fixture | 검증 내용 |
+|---|---|
+| `132_monitor_thread_info` | monitor 안에서 genuine Result의 `value`가 `{id,key,functionName,state,returnValue,shell}`로 투영되고, SHELL 호스트 필드가 없을 때 `{}`를 사용하며, `multi` 종료 뒤에는 원래 worker 반환값만 남는지 검증 |
+
+실제 프로세스의 bounded polling, PID/스레드 metadata 전달, 최신 출력 보존은
+`ShellTest`의 host-unit 테스트가 별도로 검증한다. fixture는 Java와 JavaScript의 공통
+portable 계약만 고정한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

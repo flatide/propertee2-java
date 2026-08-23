@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.27.0
+
+**Spec v0.21.0 — monitor thread information and default one-line SHELL progress.** This is mildly
+breaking only for scripts that read a thread Result's `value` inside a `monitor`; grammar and the
+post-`multi` result collection are unchanged.
+
+- Each monitor capture keeps genuine Result identity and `status`/`ok`, but projects the copied
+  `value` to `{id, key, functionName, state, returnValue, shell}`. `returnValue` holds the ordinary
+  worker value. The live collection is never mutated, so after `multi ... end` the ordinary value
+  is assigned exactly as before.
+- `shell` is one replace-on-next-call slot for the worker's current or latest SHELL, not a command
+  history. It exposes portable state plus host-provided task id, PID, exit code, elapsed time,
+  final Result, and a default one-line output tail. `output` is blank with `updated=false` when the
+  bounded capture did not change. No `tail` grammar was added and no separate watcher thread is
+  created; the already-blocking SHELL worker polls its host task with bounded waits.
+- `SimpleTaskRunner` now evicts the oldest bytes after its per-stream 1 MiB cap and retains the
+  newest suffix, instead of discarding all later output. Complete large stdout remains an explicit
+  redirection/file responsibility.
+- TaskRunner remains source/binary compatible. Existing TeeBox runners supply the richer metadata
+  through their existing API; its full test suite passes unchanged. The JavaScript runtime mirrors
+  the monitor projection (its standard SHELL remains a process-less stub), and browser/docs bundles
+  were regenerated. The frozen Java 7/8 `propertee-java` runtime is intentionally unchanged.
+- The observation seam only routes to the original TaskRunner-backed SHELL: re-registering the
+  name (`Interpreter.addRawBuiltin`) retires the seam, so a replacement runs unobserved and the
+  monitor's `shell` projection stays `{}` (host-registered external SHELLs never had the seam).
+
+Fixture 132 pins the portable monitor contract. **129 conformance fixtures / 410 tests green
+(both modules), 5× deterministic; 120 JavaScript fixtures + 3 host-API tests green; TeeBox suite
+green unchanged.**
+
 ## 0.26.0
 
 **v1 façade debug hooks** (host API only, zero language change — the same release class as
