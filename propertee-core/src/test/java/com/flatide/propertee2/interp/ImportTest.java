@@ -191,4 +191,41 @@ class ImportTest {
         assertThrows(com.flatide.propertee2.value.TeeError.class,
                 () -> session.eval("import first as another\n"));
     }
+
+    @Test void reImportingTheSameAliasRebindsToCurrentContentWithFreshGlobals() {
+        List<String> output = new ArrayList<>();
+        Map<String, String> sources = new java.util.HashMap<>();
+        sources.put("util", """
+                function init(n) do
+                    ::n = n
+                end
+                function get() do
+                    return ::n
+                end
+                """);
+        Engine.Session session = new Engine()
+                .setModuleResolver(request ->
+                        sources.containsKey(request.displayName())
+                                ? new ModuleSource(request.moduleId(), request.version(),
+                                        "module:" + request.displayName(), sources.get(request.displayName()))
+                                : null)
+                .session(Map.of(), output::add, ignored -> {});
+
+        // First run: initialize the module global, read it back.
+        session.eval("import util as u\nu::init(10)\nPRINT(u::get())\n");
+        // Edit the module's stored content, then re-import the same alias: the re-run must see the
+        // NEW content (a renamed function) and start from EMPTY module globals.
+        sources.put("util", """
+                function tag() do
+                    return "v2"
+                end
+                function get() do
+                    ::calls = 1
+                    return ::calls
+                end
+                """);
+        session.eval("import util as u\nPRINT(u::tag())\nPRINT(u::get())\n");
+
+        assertEquals(List.of("10", "v2", "1"), output);   // v2 content runs; globals start fresh
+    }
 }

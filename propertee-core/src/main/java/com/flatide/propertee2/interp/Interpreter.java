@@ -137,11 +137,27 @@ public final class Interpreter {
      * so {@code null} is a safe "nothing to echo" sentinel).
      */
     public Object runSnippet(RootContext root) {
+        return runSnippet(root, false);
+    }
+
+    /**
+     * {@link #runSnippet(RootContext)} with an optional entry pause (0.31.0): when
+     * {@code pauseAtEntry} is true and a debug handler is attached, the debugger stops before the
+     * snippet's first root statement (a {@code Reason.STEP} stop), so a host can restart a loaded
+     * script under the debugger without editing a {@code debug} statement into it. Without a
+     * handler the flag is ignored and the snippet runs normally.
+     */
+    public Object runSnippet(RootContext root, boolean pauseAtEntry) {
         resetStepState();
+        entryPausePending = pauseAtEntry && debugHandler != null;
         entrySourceId = sourceId(root);
         Object[] echo = new Object[1];
-        ScopedValue.where(CTX, ExecContext.normal(globals, liveModuleGlobals()))
-                .run(() -> echo[0] = execSnippet(root));
+        try {
+            ScopedValue.where(CTX, ExecContext.normal(globals, liveModuleGlobals()))
+                    .run(() -> echo[0] = execSnippet(root));
+        } finally {
+            entryPausePending = false;   // an empty/definition-free snippet must not leak the pause
+        }
         return echo[0];
     }
 
@@ -149,18 +165,42 @@ public final class Interpreter {
     void installModules(LoadedModules loaded) {
         // Preflight the persistent-session namespace before mutating either map. A rejected REPL
         // snippet must not leave the aliases resolved earlier in that snippet installed.
+        //
+        // Re-binding an existing alias is allowed when the module id matches: re-running a loaded
+        // script re-resolves its imports against the CURRENT stored content — fresh instance,
+        // empty globals, possibly a newer version (the current-content semantics TeeBox debug
+        // re-runs pinned). A different module id under the same alias is a conflict, and a NEW
+        // alias may not duplicate an identity that stays bound to another alias.
         for (Map.Entry<String, ModuleInstance> e : loaded.aliases().entrySet()) {
-            if (moduleAliases.containsKey(e.getKey())) {
-                throw new TeeError("Duplicate import alias '" + e.getKey() + "'");
+            ModuleInstance existing = moduleAliases.get(e.getKey());
+            if (existing != null
+                    && !existing.source.moduleId().equals(e.getValue().source.moduleId())) {
+                throw new TeeError("Import alias '" + e.getKey() + "' is already bound to module '"
+                        + existing.source.moduleId() + "'");
             }
         }
         for (ModuleInstance module : loaded.instances()) {
-            if (modulesByIdentity.containsKey(module.identity())) {
+            ModuleInstance existing = modulesByIdentity.get(module.identity());
+            if (existing == null) continue;
+            String boundAlias = aliasOf(existing);
+            if (boundAlias != null && !loaded.aliases().containsKey(boundAlias)) {
                 throw new TeeError("Duplicate import of module '" + module.identity() + "'");
             }
         }
+        for (Map.Entry<String, ModuleInstance> e : loaded.aliases().entrySet()) {
+            ModuleInstance old = moduleAliases.get(e.getKey());
+            if (old != null) modulesByIdentity.remove(old.identity());   // rebind retires the old instance
+        }
         moduleAliases.putAll(loaded.aliases());
         for (ModuleInstance module : loaded.instances()) modulesByIdentity.put(module.identity(), module);
+    }
+
+    /** The alias currently bound to this instance (identities and aliases are one-to-one). */
+    private String aliasOf(ModuleInstance instance) {
+        for (Map.Entry<String, ModuleInstance> e : moduleAliases.entrySet()) {
+            if (e.getValue() == instance) return e.getKey();
+        }
+        return null;
     }
 
     /** Resolve, validate, and atomically install the entry's direct imports. */
@@ -585,6 +625,7 @@ public final class Interpreter {
     private final Map<String, java.util.Set<Integer>> moduleDebugBreakLines =
             new java.util.concurrent.ConcurrentHashMap<>();
     private String entrySourceId = "<memory>";
+    private boolean entryPausePending;   // one-shot: stop before the first root statement (0.31.0)
 
     /** Attach a {@link DebugHandler} — turns {@code debug} from a no-op into a breakpoint. */
     public void setDebugHandler(DebugHandler handler) { this.debugHandler = handler; }
@@ -619,7 +660,12 @@ public final class Interpreter {
     }
 
     /** Reset per-run debugger state — a step armed at the end of one run must not leak into the next. */
-    private void resetStepState() { stepMode = StepMode.NONE; stepThreadId = 0; stepReturns.clear(); }
+    private void resetStepState() {
+        stepMode = StepMode.NONE;
+        stepThreadId = 0;
+        stepReturns.clear();
+        entryPausePending = false;
+    }
 
     /**
      * Auto-display of function return values (0.29.0): while a step is armed, record each user
@@ -657,7 +703,9 @@ public final class Interpreter {
             case OVER -> c.frames.size() <= stepDepth;
             case OUT  -> c.frames.size() < stepDepth;
         };
-        if (!bp && !step) return;
+        boolean entry = entryPausePending && c.threadId == 0;   // pause-at-entry: first root statement
+        if (entry) entryPausePending = false;
+        if (!bp && !step && !entry) return;
         stepMode = StepMode.NONE;
         // Crossed returns belong to a STEP stop only; a breakpoint (all-stop rule) drops them.
         List<DebugReturn> crossed = !bp && !stepReturns.isEmpty() ? List.copyOf(stepReturns) : List.of();
@@ -678,6 +726,7 @@ public final class Interpreter {
         // not re-enter the debugger.
         if (debugHandler == null || inDebugSession || ec().mode == ExecContext.Mode.MONITOR) return;
         stepMode = StepMode.NONE;                // stepping onto a debug statement = one break
+        entryPausePending = false;               // a leading debug statement IS the entry pause
         stepReturns.clear();
         inDebugSession = true;
         try {

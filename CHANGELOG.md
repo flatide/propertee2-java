@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.31.0
+
+**REPL re-execution commands** (host/CLI only, zero language/spec change — the same release class
+as 0.18.0's REPL and 0.29.0; user request "REPL에서 로드된 스크립트를 다시 실행/디버깅").
+
+- `:run [file]` re-executes a script in the session (defaulting to the last loaded/run one);
+  `:debug [file]` restarts it paused before the first statement — a restart under the debugger
+  without editing a `debug` statement in. `:list [file]` prints a script with 1-based line
+  numbers, marking breakpoint lines with `*`, matching the numbers `:b` and the debugger use.
+  An explicit path to `:run`/`:debug` becomes the new default target; `:list` only peeks.
+- New engine hook `Engine.Session.eval(source, pauseAtEntry)` / `Interpreter.runSnippet(root,
+  pauseAtEntry)`: a one-shot entry pause reusing the existing stepping machine (a `STEP` stop
+  before the first root statement; ignored without a debug handler).
+- Re-importing an alias already bound in a persistent session now re-resolves the same module id
+  against its current stored content with fresh module globals (current-content semantics), so a
+  re-run reflects edits to imported modules. A different module id under the same alias, or a new
+  alias duplicating a still-bound identity, remains an error.
+
+**130 conformance fixtures / 450 tests green (both modules), 5× deterministic; dist rebuilt +
+smoke-tested. The JavaScript playground REPL and TeeBox are unaffected (js has no `:load`-style
+REPL; TeeBox builds a fresh interpreter per run).**
+
 ## 0.30.0
 
 **Spec v0.23.0 — depth-one imports and function-only modules.**

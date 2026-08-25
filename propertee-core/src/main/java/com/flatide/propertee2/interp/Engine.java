@@ -219,6 +219,18 @@ public final class Engine {
          * statements that ran before the error keep their effects, like a script that failed midway.
          */
         public Object eval(String source) {
+            return eval(source, false);
+        }
+
+        /**
+         * {@link #eval(String)} with an optional entry pause (0.31.0): when {@code pauseAtEntry}
+         * is true and a debug handler is attached, the debugger stops before the snippet's first
+         * root statement — a restart-under-debugger without editing a {@code debug} statement in.
+         * Re-importing an alias already bound in the session re-resolves the same module id
+         * against its current stored content (fresh instance, empty module globals); a different
+         * module id under the same alias is an error.
+         */
+        public Object eval(String source, boolean pauseAtEntry) {
             ProperTeeParser.RootContext root = Parsing.parse(source, sourceId);
             if (!hiddenKeywords.isEmpty() || !ignoredFunctions.isEmpty()) {
                 TeeError blocked = Validator.firstViolation(root, hiddenKeywords, ignoredFunctions);
@@ -226,7 +238,7 @@ public final class Engine {
             }
             Object[] echo = new Object[1];
             interp.resolveModules(root, moduleResolver);
-            coop.run("repl", () -> echo[0] = interp.runSnippet(root));
+            coop.run("repl", () -> echo[0] = interp.runSnippet(root, pauseAtEntry));
             return echo[0];
         }
 

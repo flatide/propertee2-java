@@ -36,6 +36,13 @@ import java.util.Map;
  * {@code :c} resumes, {@code :q} aborts the run keeping the session, {@code :vars}/{@code :globals}
  * dump state. Plain script mode ({@code propertee2 script.tee}) keeps {@code debug} a no-op, as the
  * spec's "normal execution" requires.
+ *
+ * <p>Re-running (0.31.0): {@code :run [file]} re-executes a script in the same session (defaulting
+ * to the last one loaded), and {@code :debug [file]} does the same but stops before the first
+ * statement — a restart under the debugger without editing a {@code debug} statement in. Either
+ * one re-resolves the script's imports against their current stored content with fresh module
+ * globals, so a re-run reflects edits to imported modules. {@code :list [file]} prints a script
+ * with 1-based line numbers (marking breakpoint lines), matching the numbers {@code :b} uses.
  */
 final class Repl {
     private Repl() {}
@@ -85,8 +92,9 @@ final class Repl {
             out.println("propertee2 " + version + " REPL — :help for commands, :exit or Ctrl-D to quit");
         }
         if (preload != null) {
-            load(session, preload, out, err);
+            load(session, preload, out, err, false);
         }
+        String lastLoaded = preload;                           // :run/:debug default target
 
         StringBuilder buffer = new StringBuilder();
         while (true) {
@@ -112,6 +120,9 @@ final class Repl {
                             expression is echoed ({} is not). A debug statement opens the debugger.
                               :help          this help
                               :load <file>   run a script in this session (state accumulates)
+                              :run [file]    re-run a script (defaults to the last loaded one)
+                              :debug [file]  re-run paused at the first statement (defaults to last)
+                              :list [file]   show a script with line numbers (defaults to last)
                               :b [line]      list breakpoints / add one (breaks in the debugger)
                               :bd [line]     delete one breakpoint / all of them
                               :exit, :quit   leave the REPL (Ctrl-D also works)""");
@@ -122,7 +133,32 @@ final class Repl {
                     if (path.isEmpty()) {
                         err.println("propertee2: usage: :load <file>");
                     } else {
-                        load(session, path, out, err);
+                        lastLoaded = path;
+                        load(session, path, out, err, false);
+                    }
+                    continue;
+                }
+                if (trimmed.equals(":run") || trimmed.startsWith(":run ")
+                        || trimmed.equals(":debug") || trimmed.startsWith(":debug ")) {
+                    boolean pauseAtEntry = trimmed.startsWith(":debug");
+                    String arg = trimmed.substring(pauseAtEntry ? 6 : 4).trim();
+                    String path = arg.isEmpty() ? lastLoaded : arg;
+                    if (path == null) {
+                        err.println("propertee2: no script loaded yet — usage: "
+                                + (pauseAtEntry ? ":debug" : ":run") + " [file]");
+                    } else {
+                        lastLoaded = path;
+                        load(session, path, out, err, pauseAtEntry);
+                    }
+                    continue;
+                }
+                if (trimmed.equals(":list") || trimmed.startsWith(":list ")) {
+                    String arg = trimmed.substring(5).trim();     // peek only — does not change :run target
+                    String path = arg.isEmpty() ? lastLoaded : arg;
+                    if (path == null) {
+                        err.println("propertee2: no script loaded yet — usage: :list [file]");
+                    } else {
+                        listScript(path, session.debugBreakpoints(), out, err);
                     }
                     continue;
                 }
@@ -147,8 +183,39 @@ final class Repl {
         }
     }
 
-    /** {@code :load} / {@code -i} preload: run a whole file in the session, debugger active. */
-    private static void load(Engine.Session session, String path, PrintStream out, PrintStream err) {
+    /**
+     * {@code :list [file]} — print a script with 1-based line numbers, matching the numbering
+     * {@code :b <line>} and the debugger use. A {@code *} marks a line that currently has a
+     * breakpoint. This only reads the file (does not run it or change the {@code :run} target).
+     */
+    private static void listScript(String path, java.util.Set<Integer> breakpoints,
+                                   PrintStream out, PrintStream err) {
+        String source;
+        try {
+            source = Files.readString(Path.of(path), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            err.println("propertee2: cannot read " + path + ": " + e.getMessage());
+            return;
+        }
+        // A trailing newline should not render as a spurious final empty line.
+        String body = source.endsWith("\n") ? source.substring(0, source.length() - 1) : source;
+        String[] lines = body.isEmpty() ? new String[0] : body.split("\n", -1);
+        int width = Math.max(2, Integer.toString(lines.length).length());
+        for (int i = 0; i < lines.length; i++) {
+            int lineNo = i + 1;
+            String mark = breakpoints.contains(lineNo) ? "*" : " ";
+            out.println(String.format("%" + width + "d%s %s", lineNo, mark, lines[i]));
+        }
+    }
+
+    /**
+     * {@code :load} / {@code -i} preload / {@code :run} / {@code :debug}: run a whole file in the
+     * session, debugger active. With {@code pauseAtEntry} ({@code :debug}) the run stops before its
+     * first statement, so a loaded script can be re-run under the debugger without editing a
+     * {@code debug} statement into it.
+     */
+    private static void load(Engine.Session session, String path, PrintStream out, PrintStream err,
+                             boolean pauseAtEntry) {
         String source;
         try {
             source = Files.readString(Path.of(path), StandardCharsets.UTF_8);
@@ -162,13 +229,19 @@ final class Repl {
             err.println("propertee2: " + path + ": " + e.getMessage());
             return;
         }
-        evalAndReport(session, source, out);
+        evalAndReport(session, source, out, pauseAtEntry);
     }
 
     /** Shared eval tail: echo, script-error, and debugger-abort reporting. */
     private static void evalAndReport(Engine.Session session, String snippet, PrintStream out) {
+        evalAndReport(session, snippet, out, false);
+    }
+
+    /** Shared eval tail with an optional entry pause ({@code :debug}). */
+    private static void evalAndReport(Engine.Session session, String snippet, PrintStream out,
+                                      boolean pauseAtEntry) {
         try {
-            Object echo = session.eval(snippet);
+            Object echo = session.eval(snippet, pauseAtEntry);
             if (echo != null && !isEmptyObject(echo)) {
                 out.println(TeeFormat.display(echo));
             }

@@ -470,6 +470,10 @@ no-op (does nothing). Can be placed anywhere a statement is valid.
 > Since 0.29.0 a STEP stop also auto-displays the function returns the step crossed
 > (`DebugFrame.returns()` — the REPL echoes `f returned <value>`, DAP lists `(return) f`
 > pseudo-variables in Locals); a host API only, no language change.
+> Since 0.31.0 the REPL re-runs a loaded script with `:run [file]`, restarts it paused at the
+> first statement with `:debug [file]` (`Engine.Session.eval(source, pauseAtEntry)`), and prints
+> it with line numbers via `:list [file]`; a re-run re-resolves the script's imports against
+> their current stored content with fresh module globals.
 
 ## Functions
 

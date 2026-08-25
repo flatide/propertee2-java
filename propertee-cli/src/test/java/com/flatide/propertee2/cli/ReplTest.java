@@ -252,4 +252,99 @@ class ReplTest {
                 """, r.out());
         assertEquals("", r.err());
     }
+
+    // ---- 0.31.0: :run / :debug re-execution -------------------------------------------------
+
+    @Test void runReexecutesTheLastLoadedScript() throws IOException {
+        String script = tempScript("::hits = ::hits + 1\nPRINT(::hits)\n");
+        // seed the global, load once, then :run twice without repeating the path
+        Run r = repl("::hits = 0\n:load " + script + "\n:run\n:run\n");
+        assertEquals("1\n2\n3\n", r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void runTakesAnExplicitPathAndRemembersIt() throws IOException {
+        String a = tempScript("PRINT(\"a\")\n");
+        String b = tempScript("PRINT(\"b\")\n");
+        Run r = repl(":load " + a + "\n:run " + b + "\n:run\n");   // :run b, then :run defaults to b
+        assertEquals("a\nb\nb\n", r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void runWithNoLoadedScriptReports() throws IOException {
+        Run r = repl(":run\n");
+        assertEquals("", r.out());
+        assertEquals(true, r.err().contains("no script loaded yet"));
+    }
+
+    @Test void debugReRunPausesAtTheFirstStatement() throws IOException {
+        String script = tempScript("x = 1\nx = x + 1\nPRINT(x)\n");
+        // :debug stops before line 1; :vars shows nothing yet, :c runs to completion
+        Run r = repl(":load " + script + "\n:debug\n:vars\n:c\n");
+        assertEquals("""
+                2
+                at line 1:0: x = 1
+                (no locals — top level; use :globals)
+                2
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void debugReRunSteppingWalksFromEntry() throws IOException {
+        String script = tempScript("a = 2\nb = a + 3\nPRINT(b)\n");
+        // pause at line 1, step to 2, step to 3, then continue
+        Run r = repl(":debug " + script + "\n:n\n:n\n:c\n");
+        assertEquals("""
+                at line 1:0: a = 2
+                at line 2:0: b = a + 3
+                at line 3:0: PRINT(b)
+                5
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void listShowsTheLoadedScriptWithLineNumbers() throws IOException {
+        String script = tempScript("x = 1\nfunction f(n) do\n    return n\nend\nPRINT(f(x))\n");
+        Run r = repl(":load " + script + "\n:list\n");
+        assertEquals("""
+                1
+                 1  x = 1
+                 2  function f(n) do
+                 3      return n
+                 4  end
+                 5  PRINT(f(x))
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void listMarksBreakpointLinesAndTakesAnExplicitPath() throws IOException {
+        String script = tempScript("a = 1\na = a + 1\nPRINT(a)\n");
+        Run r = repl(":b 2\n:list " + script + "\n");
+        assertEquals("""
+                breakpoint added at line 2
+                 1  a = 1
+                 2* a = a + 1
+                 3  PRINT(a)
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void listWithNoLoadedScriptReports() throws IOException {
+        Run r = repl(":list\n");
+        assertEquals("", r.out());
+        assertEquals(true, r.err().contains("no script loaded yet"));
+    }
+
+    @Test void listDoesNotChangeTheReRunTarget() throws IOException {
+        String a = tempScript("PRINT(\"a\")\n");
+        String b = tempScript("PRINT(\"b\")\n");
+        // load a, peek at b with :list, then :run must still default to a
+        Run r = repl(":load " + a + "\n:list " + b + "\n:run\n");
+        assertEquals("""
+                a
+                 1  PRINT("b")
+                a
+                """, r.out());
+        assertEquals("", r.err());
+    }
 }
