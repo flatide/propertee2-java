@@ -17,7 +17,12 @@ public final class Parsing {
     private Parsing() {}
 
     public static ProperTeeParser.RootContext parse(String source) {
-        ProperTeeLexer lexer = new ProperTeeLexer(CharStreams.fromString(source));
+        return parse(source, "<memory>");
+    }
+
+    /** Parse source while retaining a stable host source id in every token. */
+    public static ProperTeeParser.RootContext parse(String source, String sourceId) {
+        ProperTeeLexer lexer = new ProperTeeLexer(CharStreams.fromString(source, sourceId));
         lexer.removeErrorListeners();
         lexer.addErrorListener(Throwing.INSTANCE);
 
@@ -30,12 +35,22 @@ public final class Parsing {
     /** Thrown on any lexer/parser syntax error. */
     public static final class SyntaxException extends RuntimeException {
         private final boolean atEof;
+        private final String sourceId;
+        private final int line;
+        private final int column;
 
-        public SyntaxException(String message) { this(message, false); }
+        public SyntaxException(String message) { this(message, false, "<memory>", -1, -1); }
 
         public SyntaxException(String message, boolean atEof) {
+            this(message, atEof, "<memory>", -1, -1);
+        }
+
+        public SyntaxException(String message, boolean atEof, String sourceId, int line, int column) {
             super(message);
             this.atEof = atEof;
+            this.sourceId = sourceId;
+            this.line = line;
+            this.column = column;
         }
 
         /**
@@ -44,6 +59,9 @@ public final class Parsing {
          * open paren). A REPL uses this to keep reading lines instead of reporting an error.
          */
         public boolean atEof() { return atEof; }
+        public String sourceId() { return sourceId; }
+        public int line() { return line; }
+        public int column() { return column; }
     }
 
     private static final class Throwing extends BaseErrorListener {
@@ -53,7 +71,9 @@ public final class Parsing {
                                 int line, int charPositionInLine, String msg, RecognitionException e) {
             boolean atEof = offendingSymbol instanceof org.antlr.v4.runtime.Token t
                     && t.getType() == org.antlr.v4.runtime.Token.EOF;
-            throw new SyntaxException("syntax error at " + line + ":" + charPositionInLine + " - " + msg, atEof);
+            String sourceId = recognizer.getInputStream().getSourceName();
+            throw new SyntaxException("syntax error at " + line + ":" + charPositionInLine + " - " + msg,
+                    atEof, sourceId, line, charPositionInLine);
         }
     }
 }

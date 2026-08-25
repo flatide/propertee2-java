@@ -53,10 +53,17 @@ final class Repl {
     static void run(Map<String, Object> props, java.util.List<String> args,
                     BufferedReader in, PrintStream out, PrintStream err,
                     boolean interactive, String version, String preload) throws IOException {
+        run(props, args, in, out, err, interactive, version, preload, Path.of("."));
+    }
+
+    static void run(Map<String, Object> props, java.util.List<String> args,
+                    BufferedReader in, PrintStream out, PrintStream err,
+                    boolean interactive, String version, String preload,
+                    Path moduleRoot) throws IOException {
         // SHELL works in the REPL too (0.19.0): the same in-process SimpleTaskRunner as script mode.
         com.flatide.propertee2.task.SimpleTaskRunner taskRunner = new com.flatide.propertee2.task.SimpleTaskRunner();
         try {
-            run(props, args, taskRunner, in, out, err, interactive, version, preload);
+            run(props, args, taskRunner, in, out, err, interactive, version, preload, moduleRoot);
         } finally {
             taskRunner.shutdown();
         }
@@ -65,8 +72,12 @@ final class Repl {
     private static void run(Map<String, Object> props, java.util.List<String> args,
                             com.flatide.propertee2.task.SimpleTaskRunner taskRunner,
                             BufferedReader in, PrintStream out, PrintStream err,
-                            boolean interactive, String version, String preload) throws IOException {
+                            boolean interactive, String version, String preload,
+                            Path moduleRoot) throws IOException {
+        String sourceId = preload == null ? "<memory>" : Path.of(preload).toAbsolutePath().normalize().toString();
         Engine.Session session = new Engine().setTaskRunner(taskRunner).setArgs(args)
+                .setSourceId(sourceId)
+                .setModuleResolver(new FileModuleResolver(moduleRoot))
                 .session(props, out::println, err::println);
         session.setDebugHandler(frame ->
                 debugSession(frame, session.debugBreakpoints(), in, out, err, interactive));
@@ -217,7 +228,11 @@ final class Repl {
                         StringBuilder chain = new StringBuilder("top level");
                         for (var call : frame.callStack()) {
                             chain.append(" → ").append(call.function())
-                                 .append(" (called at ").append(call.line()).append(':').append(call.column()).append(')');
+                                 .append(" (called at ");
+                            if (call.sourceId() != null && !call.sourceId().startsWith("<")) {
+                                chain.append(call.sourceId()).append(' ');
+                            }
+                            chain.append(call.line()).append(':').append(call.column()).append(')');
                         }
                         out.println(chain);
                         out.println("at " + position + ": " + frame.statementText());

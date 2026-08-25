@@ -2,6 +2,7 @@ package com.flatide.propertee2.cli;
 
 import com.flatide.propertee2.Parsing;
 import com.flatide.propertee2.interp.Engine;
+import com.flatide.propertee2.module.ModuleResolutionException;
 import com.flatide.propertee2.task.SimpleTaskRunner;
 import com.flatide.propertee2.value.JsonParser;
 import com.flatide.propertee2.value.TeeError;
@@ -30,6 +31,7 @@ public final class Main {
         Map<String, Object> props = Map.of();
         String file = null;
         boolean interactive = false;
+        Path moduleRoot = null;
         java.util.List<String> scriptArgs = new java.util.ArrayList<>();
 
         for (int i = 0; i < args.length; i++) {
@@ -48,6 +50,10 @@ public final class Main {
                     props = parseProps(args[++i]);
                 }
                 case "-i", "--interactive" -> interactive = true;
+                case "--module-root" -> {
+                    if (i + 1 >= args.length) fail("missing directory after --module-root");
+                    moduleRoot = Path.of(args[++i]);
+                }
                 case "--dap" -> {
                     // Debug Adapter Protocol server on stdio (0.24.0) — spawned by the VS Code
                     // extension; the script and its options arrive in the DAP launch request.
@@ -71,19 +77,27 @@ public final class Main {
             // then drops into the REPL sharing its state, like `python -i`. Prompts only when
             // stdin is a terminal, so `echo 'PRINT(1)' | propertee2` emits clean output.
             try {
+                Path resolvedModuleRoot = moduleRoot != null ? moduleRoot
+                        : file != null ? Path.of(file).toAbsolutePath().normalize().getParent()
+                        : Path.of(".");
                 Repl.run(props, scriptArgs,
                         new java.io.BufferedReader(new java.io.InputStreamReader(System.in, StandardCharsets.UTF_8)),
-                        System.out, System.err, System.console() != null, version(), file);
+                        System.out, System.err, System.console() != null, version(), file,
+                        resolvedModuleRoot);
+            } catch (ModuleResolutionException e) {
+                System.err.println("propertee2: " + e.getMessage());
+                System.exit(1);
             } catch (IOException e) {
                 System.err.println("propertee2: " + e.getMessage());
                 System.exit(1);
             }
             return;
         }
-        run(file, props, scriptArgs);
+        run(file, props, scriptArgs, moduleRoot);
     }
 
-    private static void run(String file, Map<String, Object> props, java.util.List<String> scriptArgs) {
+    private static void run(String file, Map<String, Object> props, java.util.List<String> scriptArgs,
+                            Path configuredModuleRoot) {
 
         String source;
         try {
@@ -105,7 +119,11 @@ public final class Main {
         try {
             // Live sinks (like the v1 CLI): program output streams to stdout as it prints; runtime
             // diagnostics ([THREAD ERROR]/[MONITOR ERROR]/loop warnings) go to stderr, as in v1/js.
+            Path entry = Path.of(file).toAbsolutePath().normalize();
+            Path moduleRoot = configuredModuleRoot != null ? configuredModuleRoot : entry.getParent();
             new Engine().setTaskRunner(taskRunner).setArgs(scriptArgs)
+                    .setSourceId(entry.toString())
+                    .setModuleResolver(new FileModuleResolver(moduleRoot))
                     .run(source, props, System.out::println, System.err::println);
         } catch (Parsing.SyntaxException e) {
             // malformed input: a concise stderr line + nonzero exit (a script *runtime* error is in stdout)
@@ -114,6 +132,9 @@ public final class Main {
         } catch (TeeError e) {
             // script runtime error: part of normal output (stdout, exit 0) — the conformance contract
             System.out.println("Runtime error: " + e.positioned());
+        } catch (ModuleResolutionException e) {
+            System.err.println("propertee2: " + e.getMessage());
+            System.exit(1);
         } finally {
             taskRunner.shutdown();
         }
@@ -140,7 +161,7 @@ public final class Main {
 
     private static void usage(PrintStream out) {
         out.println("""
-                usage: propertee2 [-p <json-object>] [-i] [script.tee] [args...]
+                usage: propertee2 [-p <json-object>] [--module-root <dir>] [-i] [script.tee] [args...]
 
                   With no script file, starts an interactive REPL on stdin. In the REPL
                   (and under -i) a `debug` statement pauses the run and opens a pdb-style
@@ -152,6 +173,8 @@ public final class Main {
                   -p, --props <json>   host-injected built-in properties (a JSON object)
                   -i, --interactive    run the script in a REPL session, then stay in the
                                        REPL with its state (debug statements break)
+                  --module-root <dir>  root used to resolve imported module paths (defaults
+                                       to the entry file's directory, or the current directory)
                   --dap                Debug Adapter Protocol server on stdio (for IDEs;
                                        the script arrives via the DAP launch request)
                   -v, --version        print version and exit

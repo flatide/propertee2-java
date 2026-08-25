@@ -4,6 +4,7 @@ import com.flatide.propertee2.Parsing;
 import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.host.DefaultPlatformProvider;
 import com.flatide.propertee2.host.PlatformProvider;
+import com.flatide.propertee2.module.ModuleResolver;
 import com.flatide.propertee2.parser.ProperTeeParser;
 import com.flatide.propertee2.value.TeeError;
 
@@ -29,6 +30,20 @@ public final class Engine {
     private Set<String> hiddenKeywords = Set.of();
     private Set<String> ignoredFunctions = Set.of();
     private com.flatide.propertee2.task.TaskRunner taskRunner = new com.flatide.propertee2.task.UnsupportedTaskRunner();
+    private ModuleResolver moduleResolver;
+    private String sourceId = "<memory>";
+
+    /** Host-specific module lookup used by {@code import}; absent by default. */
+    public Engine setModuleResolver(ModuleResolver moduleResolver) {
+        this.moduleResolver = moduleResolver;
+        return this;
+    }
+
+    /** Stable identity for the entry source, used in module-aware diagnostics and debugging. */
+    public Engine setSourceId(String sourceId) {
+        this.sourceId = sourceId == null || sourceId.isBlank() ? "<memory>" : sourceId;
+        return this;
+    }
 
     /** Host process executor for SHELL (the v1 com.flatide.propertee2.task contract). Default: none (SHELL errors). */
     public Engine setTaskRunner(com.flatide.propertee2.task.TaskRunner taskRunner) {
@@ -108,7 +123,7 @@ public final class Engine {
      * detection before execution for sandboxing hosts.
      */
     public List<String> validate(String source) {
-        return Validator.validate(Parsing.parse(source), hiddenKeywords, ignoredFunctions);
+        return Validator.validate(Parsing.parse(source, sourceId), hiddenKeywords, ignoredFunctions);
     }
 
     /** Run with no host-injected properties and the default platform. */
@@ -147,7 +162,7 @@ public final class Engine {
      */
     public void run(String source, Map<String, Object> props, PlatformProvider platform,
                     Interpreter.Sink out, Interpreter.Sink err) {
-        ProperTeeParser.RootContext root = Parsing.parse(source);
+        ProperTeeParser.RootContext root = Parsing.parse(source, sourceId);
         // Load-time rejection (spec v0.14.0): a script that names any blocked construct — hidden
         // keyword or ignored function, dead branches included — does not run at all. Refuse before
         // executing a single statement, failing on the first violation in document order (the runtime
@@ -159,6 +174,7 @@ public final class Engine {
         Coop coop = new Coop();
         Interpreter interp = new Interpreter(out, props, coop, platform,
                 externals, hiddenKeywords, ignoredFunctions, taskRunner);
+        interp.resolveModules(root, moduleResolver);
         interp.setArgs(args);
         interp.setErrorSink(err);
         coop.run("main", () -> interp.run(root));   // the program is the root logical thread
@@ -203,12 +219,13 @@ public final class Engine {
          * statements that ran before the error keep their effects, like a script that failed midway.
          */
         public Object eval(String source) {
-            ProperTeeParser.RootContext root = Parsing.parse(source);
+            ProperTeeParser.RootContext root = Parsing.parse(source, sourceId);
             if (!hiddenKeywords.isEmpty() || !ignoredFunctions.isEmpty()) {
                 TeeError blocked = Validator.firstViolation(root, hiddenKeywords, ignoredFunctions);
                 if (blocked != null) throw blocked;
             }
             Object[] echo = new Object[1];
+            interp.resolveModules(root, moduleResolver);
             coop.run("repl", () -> echo[0] = interp.runSnippet(root));
             return echo[0];
         }
@@ -234,5 +251,10 @@ public final class Engine {
          * applies to main and worker code, never monitor iterations.
          */
         public java.util.Set<Integer> debugBreakpoints() { return interp.debugBreakpoints(); }
+
+        /** Live breakpoints scoped to one imported module source id. */
+        public java.util.Set<Integer> debugBreakpoints(String sourceId) {
+            return interp.debugBreakpoints(sourceId);
+        }
     }
 }

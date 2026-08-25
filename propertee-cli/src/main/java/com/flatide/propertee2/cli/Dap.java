@@ -61,7 +61,7 @@ final class Dap {
     private Engine.Session session;
     private Map<String, Object> launchArgs;
     private String programPath;
-    private final List<Integer> pendingBreakpoints = new ArrayList<>();
+    private final Map<String, List<Integer>> pendingBreakpoints = new LinkedHashMap<>();
     private boolean launched, configured, started;
     private volatile boolean paused;
     private volatile int pausedThreadId = 1;       // DAP ids are 1-based; core main id 0 maps to 1
@@ -113,12 +113,14 @@ final class Dap {
                     maybeStart();
                 }
                 case "setBreakpoints" -> {
+                    String sourcePath = asMap(args.get("source")).get("path") instanceof String p
+                            ? canonicalSourceId(p) : programPath;
                     List<Integer> lines = new ArrayList<>();
                     for (Object bp : asList(args.get("breakpoints"))) {
                         Object line = asMap(bp).get("line");
                         if (line instanceof Integer l) lines.add(l);
                     }
-                    setBreakpoints(lines);
+                    setBreakpoints(sourcePath, lines);
                     List<Object> verified = new ArrayList<>();
                     for (Integer l : lines) verified.add(map("verified", true, "line", l));
                     respond(request, map("breakpoints", verified));
@@ -187,23 +189,30 @@ final class Dap {
         Map<String, Object> props = asMap(launchArgs.get("props"));
         List<String> scriptArgs = new ArrayList<>();
         for (Object a : asList(launchArgs.get("args"))) scriptArgs.add(String.valueOf(a));
-        session = new Engine().setTaskRunner(taskRunner).setArgs(scriptArgs).session(props,
+        Path entry = Path.of(programPath).toAbsolutePath().normalize();
+        Path moduleRoot = launchArgs.get("moduleRoot") instanceof String configured
+                ? Path.of(configured) : entry.getParent();
+        session = new Engine().setTaskRunner(taskRunner).setArgs(scriptArgs)
+                .setSourceId(canonicalSourceId(programPath))
+                .setModuleResolver(new FileModuleResolver(moduleRoot)).session(props,
                 line -> output("stdout", line + "\n"),
                 line -> output("stderr", line + "\n"));
         if (!Boolean.TRUE.equals(launchArgs.get("noDebug"))) {
             session.setDebugHandler(this::onBreak);
-            setBreakpoints(new ArrayList<>(pendingBreakpoints));
+            pendingBreakpoints.forEach(this::setBreakpoints);
         }
     }
 
-    private void setBreakpoints(List<Integer> lines) {
+    private void setBreakpoints(String sourceId, List<Integer> lines) {
+        sourceId = sourceId == null ? programPath : canonicalSourceId(sourceId);
         if (session == null) {                       // setBreakpoints before launch: stash
-            pendingBreakpoints.clear();
-            pendingBreakpoints.addAll(lines);
+            pendingBreakpoints.put(sourceId, new ArrayList<>(lines));
             return;
         }
-        session.debugBreakpoints().clear();
-        session.debugBreakpoints().addAll(lines);
+        java.util.Set<Integer> target = canonicalSourceId(programPath).equals(sourceId)
+                ? session.debugBreakpoints() : session.debugBreakpoints(sourceId);
+        target.clear();
+        target.addAll(lines);
     }
 
     private void maybeStart() {
@@ -305,18 +314,29 @@ final class Dap {
         List<Object> frames = new ArrayList<>();
         List<DebugCallSite> stack = frame.callStack();               // outermost first
         String current = stack.isEmpty() ? "main" : stack.get(stack.size() - 1).function();
-        frames.add(stackFrame(0, current, frame.line(), frame.column() + 1));
+        frames.add(stackFrame(0, current, frame.sourceId(), frame.line(), frame.column() + 1));
         for (int i = stack.size() - 1; i >= 0; i--) {
             DebugCallSite call = stack.get(i);
             String name = i == 0 ? "main" : stack.get(i - 1).function();
-            frames.add(stackFrame(frames.size(), name, call.line(), call.column() + 1));
+            frames.add(stackFrame(frames.size(), name, call.sourceId(), call.line(), call.column() + 1));
         }
         return frames;
     }
 
-    private Map<String, Object> stackFrame(int id, String name, int line, int column) {
+    private Map<String, Object> stackFrame(int id, String name, String sourceId, int line, int column) {
+        String path = sourceId == null || sourceId.startsWith("<") ? programPath : sourceId;
         return map("id", id, "name", name, "line", line, "column", column,
-                "source", map("name", Path.of(programPath).getFileName().toString(), "path", programPath));
+                "source", map("name", Path.of(path).getFileName().toString(), "path", path));
+    }
+
+    private static String canonicalSourceId(String path) {
+        if (path == null || path.startsWith("<")) return path;
+        Path p = Path.of(path).toAbsolutePath().normalize();
+        try {
+            return p.toRealPath().toString();
+        } catch (IOException ignored) {
+            return p.toString();
+        }
     }
 
     /**

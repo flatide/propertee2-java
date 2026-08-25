@@ -20,27 +20,30 @@ final class MultiBuilder {
      * A captured thread: resolved key, function name, already-evaluated args (captured at spawn time),
      * and the call context — so dispatch errors (unknown function / arity) point at the thread's call site.
      */
-    record Pending(String key, String funcName, List<Object> args, FunctionCallContext call) {}
+    record Pending(String key, String funcName, ModuleInstance module,
+                   List<Object> args, FunctionCallContext call) {}
 
     final List<Pending> pending = new ArrayList<>();
     private final Set<String> usedKeys = new HashSet<>();
     private int unnamed = 0;
 
     /** Add a named/dynamic-keyed thread. Duplicate explicit key → error at the thread-statement position. */
-    void addNamed(String key, String funcName, List<Object> args, FunctionCallContext call, int line, int col) {
+    void addNamed(String key, String funcName, ModuleInstance module,
+                  List<Object> args, FunctionCallContext call, int line, int col) {
         if (!usedKeys.add(key)) {
             throw new TeeError("Duplicate result key '" + key + "' in multi block", line, col);
         }
-        pending.add(new Pending(key, funcName, args, call));
+        pending.add(new Pending(key, funcName, module, args, call));
     }
 
     /** Add an unnamed thread (auto-key {@code #N}). A collision with an explicit key → error at (line, col). */
-    void addUnnamed(String funcName, List<Object> args, FunctionCallContext call, int line, int col) {
+    void addUnnamed(String funcName, ModuleInstance module,
+                    List<Object> args, FunctionCallContext call, int line, int col) {
         String key = "#" + (++unnamed);
         if (!usedKeys.add(key)) {
             throw new TeeError("Auto-generated key '" + key + "' conflicts with an explicit key in multi block",
                     line, col);
         }
-        pending.add(new Pending(key, funcName, args, call));
+        pending.add(new Pending(key, funcName, module, args, call));
     }
 }

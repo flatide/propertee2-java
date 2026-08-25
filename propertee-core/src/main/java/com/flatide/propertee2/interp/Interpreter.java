@@ -7,6 +7,7 @@ import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.coop.Fiber;
 import com.flatide.propertee2.coop.Scheduler;
 import com.flatide.propertee2.host.PlatformProvider;
+import com.flatide.propertee2.module.ModuleResolver;
 import com.flatide.propertee2.parser.ProperTeeParser.*;
 import com.flatide.propertee2.value.JsonNull;
 import com.flatide.propertee2.value.Result;
@@ -44,6 +45,8 @@ public final class Interpreter {
     private final Map<String, Object> globals = new LinkedHashMap<>();   // the program's top-level globals
     private final Map<String, Object> builtinProps;          // host-injected (-p), incl. _PROPS
     private final Map<String, UserFunction> functions = new LinkedHashMap<>();
+    private final Map<String, ModuleInstance> moduleAliases = new LinkedHashMap<>();
+    private final Map<String, ModuleInstance> modulesByIdentity = new LinkedHashMap<>();
     private final Builtins builtins;
     private final Map<String, ExternalFunction> externals;   // host-registered external functions
     private final Set<String> hiddenKeywords;                // keywords made unavailable in this environment
@@ -110,7 +113,8 @@ public final class Interpreter {
 
     public void run(RootContext root) {
         resetStepState();
-        ScopedValue.where(CTX, ExecContext.normal(globals)).run(() -> execProgram(root));
+        entrySourceId = sourceId(root);
+        ScopedValue.where(CTX, ExecContext.normal(globals, liveModuleGlobals())).run(() -> execProgram(root));
     }
 
     private void execProgram(RootContext root) {
@@ -134,9 +138,40 @@ public final class Interpreter {
      */
     public Object runSnippet(RootContext root) {
         resetStepState();
+        entrySourceId = sourceId(root);
         Object[] echo = new Object[1];
-        ScopedValue.where(CTX, ExecContext.normal(globals)).run(() -> echo[0] = execSnippet(root));
+        ScopedValue.where(CTX, ExecContext.normal(globals, liveModuleGlobals()))
+                .run(() -> echo[0] = execSnippet(root));
         return echo[0];
+    }
+
+    /** Install fully validated imports before execution; entry statements never observe partial loads. */
+    void installModules(LoadedModules loaded) {
+        // Preflight the persistent-session namespace before mutating either map. A rejected REPL
+        // snippet must not leave the aliases resolved earlier in that snippet installed.
+        for (Map.Entry<String, ModuleInstance> e : loaded.aliases().entrySet()) {
+            if (moduleAliases.containsKey(e.getKey())) {
+                throw new TeeError("Duplicate import alias '" + e.getKey() + "'");
+            }
+        }
+        for (ModuleInstance module : loaded.instances()) {
+            if (modulesByIdentity.containsKey(module.identity())) {
+                throw new TeeError("Duplicate import of module '" + module.identity() + "'");
+            }
+        }
+        moduleAliases.putAll(loaded.aliases());
+        for (ModuleInstance module : loaded.instances()) modulesByIdentity.put(module.identity(), module);
+    }
+
+    /** Resolve, validate, and atomically install the entry's direct imports. */
+    public void resolveModules(RootContext root, ModuleResolver resolver) {
+        installModules(ModuleLoader.load(root, resolver, hiddenKeywords, ignoredFunctions));
+    }
+
+    private Map<String, Map<String, Object>> liveModuleGlobals() {
+        Map<String, Map<String, Object>> views = new LinkedHashMap<>();
+        modulesByIdentity.forEach((identity, module) -> views.put(identity, module.globals));
+        return views;
     }
 
     private Object execSnippet(RootContext root) {
@@ -259,15 +294,18 @@ public final class Interpreter {
         SpawnKeyStmtContext k = (SpawnKeyStmtContext) sp;
         FunctionCallContext fc = k.functionCall();
         String funcName = fc.funcName.getText();
+        ModuleInstance targetModule = resolveCallModule(fc);
         List<Object> args = new ArrayList<>();
         for (ExpressionContext arg : fc.expression()) args.add(Values.deepCopy(eval(arg))); // captured at spawn time
 
         String key = k.access() != null ? objectKey(k.access()) : "";     // no key or "" -> unnamed (#N)
         if (key.isEmpty()) {
             // auto-key conflicts report at the function-call position (61_duplicate_auto_key)
-            builder.addUnnamed(funcName, args, fc, fc.getStart().getLine(), fc.getStart().getCharPositionInLine());
+            builder.addUnnamed(funcName, targetModule, args, fc,
+                    fc.getStart().getLine(), fc.getStart().getCharPositionInLine());
         } else {
-            builder.addNamed(key, funcName, args, fc, sp.getStart().getLine(), sp.getStart().getCharPositionInLine());
+            builder.addNamed(key, funcName, targetModule, args, fc,
+                    sp.getStart().getLine(), sp.getStart().getCharPositionInLine());
         }
     }
 
@@ -289,7 +327,13 @@ public final class Interpreter {
         //    multi ENTRY — before the setup phase — matching v1/js and the spec: a :: write in
         //    setup updates the real globals but is invisible to the workers/watchdog (fixture 121)
         @SuppressWarnings("unchecked")
-        Map<String, Object> snapshot = (Map<String, Object>) Values.deepCopy(c.globalsView);
+        Map<String, Object> snapshot = (Map<String, Object>) Values.deepCopy(c.rootGlobalsView);
+        Map<String, Map<String, Object>> moduleSnapshots = new LinkedHashMap<>();
+        for (Map.Entry<String, Map<String, Object>> e : c.moduleGlobalsViews.entrySet()) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> copied = (Map<String, Object>) Values.deepCopy(e.getValue());
+            moduleSnapshots.put(e.getKey(), copied);
+        }
 
         // 2. setup phase: isolated scope, collect thread statements
         MultiBuilder builder = new MultiBuilder();
@@ -307,14 +351,16 @@ public final class Interpreter {
         for (MultiBuilder.Pending p : builder.pending) collection.put(p.key(), Result.running());
 
         // 4. spawn workers (+ optional monitor), wait for all, in-place result updates
-        runThreads(builder.pending, collection, snapshot, m, limit);
+        runThreads(builder.pending, collection, snapshot, moduleSnapshots, c.module, m, limit);
 
         // 5. assign the collection to resultVar (current scope) — global at top level, local in a function
         if (m.resultVar != null) currentScope().put(m.resultVar.getText(), collection);
     }
 
     private void runThreads(List<MultiBuilder.Pending> pending, Map<String, Object> collection,
-                            Map<String, Object> snapshot, ParallelStmtContext m, int limit) {
+                            Map<String, Object> snapshot,
+                            Map<String, Map<String, Object>> moduleSnapshots,
+                            ModuleInstance enclosingModule, ParallelStmtContext m, int limit) {
         Scheduler s = coop.scheduler();
         Fiber parent = s.self();
         boolean hasMonitor = m.monitorClause() != null;
@@ -353,7 +399,8 @@ public final class Interpreter {
             int tid = tids[i];
             WorkerShellObservation observation = observations != null ? observations[i] : null;
             s.spawn(p.key(), () -> ScopedValue.where(
-                    CTX, ExecContext.worker(snapshot, tid, p.funcName(), observation)).run(() -> {
+                    CTX, ExecContext.worker(snapshot, moduleSnapshots, p.module(),
+                            tid, p.funcName(), observation)).run(() -> {
                 try {
                     Object r = invokeNamed(p.funcName(), p.args(), p.call());
                     collection.put(p.key(), Result.ok(r));
@@ -400,7 +447,7 @@ public final class Interpreter {
                     // result collection (a consistent snapshot even if the body suspends), same
                     // globals purity as workers.
                     Runnable tick = () -> {
-                        ExecContext mctx = ExecContext.monitor(snapshot);
+                        ExecContext mctx = ExecContext.monitor(snapshot, moduleSnapshots, enclosingModule);
                         Map<String, Object> iterScope = new LinkedHashMap<>();
                         if (resultVarName != null) {
                             iterScope.put(resultVarName, monitorCollection(collection, pending, observations));
@@ -535,6 +582,9 @@ public final class Interpreter {
                                       // step crossed (0.29.0) — delivered at the STEP stop, cleared
                                       // on every break/arm/run-end alongside stepMode
     private java.util.Set<Integer> debugBreakLines = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Map<String, java.util.Set<Integer>> moduleDebugBreakLines =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private String entrySourceId = "<memory>";
 
     /** Attach a {@link DebugHandler} — turns {@code debug} from a no-op into a breakpoint. */
     public void setDebugHandler(DebugHandler handler) { this.debugHandler = handler; }
@@ -547,6 +597,12 @@ public final class Interpreter {
      */
     public java.util.Set<Integer> debugBreakpoints() { return debugBreakLines; }
 
+    /** Live breakpoints for one imported source id. */
+    public java.util.Set<Integer> debugBreakpoints(String sourceId) {
+        return moduleDebugBreakLines.computeIfAbsent(sourceId,
+                ignored -> java.util.concurrent.ConcurrentHashMap.newKeySet());
+    }
+
     /**
      * Adopt a host-owned breakpoint set (must be a concurrent set) in place of the default one
      * (0.26.0). Lets a host that builds a fresh interpreter per run — e.g. the v1 façade — hand
@@ -554,6 +610,12 @@ public final class Interpreter {
      */
     public void setDebugBreakpoints(java.util.Set<Integer> lines) {
         this.debugBreakLines = java.util.Objects.requireNonNull(lines);
+    }
+
+    /** Adopt a host-owned live breakpoint set for one imported source id. */
+    public void setDebugBreakpoints(String sourceId, java.util.Set<Integer> lines) {
+        moduleDebugBreakLines.put(java.util.Objects.requireNonNull(sourceId),
+                java.util.Objects.requireNonNull(lines));
     }
 
     /** Reset per-run debugger state — a step armed at the end of one run must not leak into the next. */
@@ -585,7 +647,10 @@ public final class Interpreter {
         ExecContext c = ec();
         if (c.mode == ExecContext.Mode.MONITOR) return;
         if (s instanceof FlowStmtContext fl && fl.flowControl() instanceof DebugStmtContext) return;
-        boolean bp = !debugBreakLines.isEmpty() && debugBreakLines.contains(s.getStart().getLine());
+        String sourceId = sourceId(s);
+        java.util.Set<Integer> sourceLines = moduleDebugBreakLines.get(sourceId);
+        boolean bp = (sourceId.equals(entrySourceId) && debugBreakLines.contains(s.getStart().getLine()))
+                || (sourceLines != null && sourceLines.contains(s.getStart().getLine()));
         boolean step = c.threadId == stepThreadId && switch (stepMode) {
             case NONE -> false;
             case IN   -> true;
@@ -637,6 +702,7 @@ public final class Interpreter {
         @Override public List<DebugReturn> returns() { return returns; }
         @Override public int threadId() { return ec().threadId; }
         @Override public String threadName() { return ec().threadName; }
+        @Override public String sourceId() { return Interpreter.sourceId(at); }
         @Override public int line() { return at.getStart().getLine(); }
         @Override public int column() { return at.getStart().getCharPositionInLine(); }
 
@@ -709,7 +775,9 @@ public final class Interpreter {
         if (f.parameterList() != null) {
             for (var id : f.parameterList().ID()) params.add(id.getText());
         }
-        functions.put(name, new UserFunction(name, params, f.block()));
+        UserFunction fn = new UserFunction(name, params, f.block(), ec().module);
+        if (ec().module == null) functions.put(name, fn);
+        else ec().module.functions.put(name, fn);
     }
 
     // ---- loops -------------------------------------------------------------
@@ -1095,7 +1163,31 @@ public final class Interpreter {
     private Object callFunction(FunctionCallContext fc) {
         List<Object> args = new ArrayList<>();
         for (ExpressionContext arg : fc.expression()) args.add(eval(arg));
+        if (fc.moduleAlias != null) {
+            ModuleInstance module = resolveCallModule(fc);
+            UserFunction fn = module.functions.get(fc.funcName.getText());
+            if (fn == null) {
+                throw err("Unknown function '" + fc.moduleAlias.getText() + "::"
+                        + fc.funcName.getText() + "'", fc);
+            }
+            if (ignoredFunctions.contains(fc.funcName.getText())) {
+                throw err("'" + fc.funcName.getText() + "' is not available in this environment", fc);
+            }
+            // callUser performs the return copy when this crosses into the module context.
+            return callUser(fn, args, fc);
+        }
         return invokeNamed(fc.funcName.getText(), args, fc);
+    }
+
+    private ModuleInstance resolveCallModule(FunctionCallContext fc) {
+        if (fc.moduleAlias == null) return ec().module;
+        if (ec().module != null) {
+            throw err("Imported modules cannot call entry import aliases", fc);
+        }
+        String alias = fc.moduleAlias.getText();
+        ModuleInstance module = moduleAliases.get(alias);
+        if (module == null) throw err("Unknown module alias '" + alias + "'", fc);
+        return module;
     }
 
     /** Dispatch a call by name with already-evaluated args (shared by direct calls and multi workers). */
@@ -1103,7 +1195,7 @@ public final class Interpreter {
         if (ignoredFunctions.contains(name)) {
             throw err("'" + name + "' is not available in this environment", ctx);
         }
-        UserFunction fn = functions.get(name);
+        UserFunction fn = ec().module == null ? functions.get(name) : ec().module.functions.get(name);
         if (fn != null) return callUser(fn, args, ctx);
         if (name.equals("PRINT")) return doPrint(args);
         if (name.equals("SLEEP")) return doSleep(args, ctx);
@@ -1147,6 +1239,16 @@ public final class Interpreter {
     }
 
     private Object callUser(UserFunction fn, List<Object> args, ParserRuleContext ctx) {
+        if (fn.owner() != ec().module) {
+            Object[] result = new Object[1];
+            ExecContext moduleContext = ec().forModule(fn.owner());
+            ScopedValue.where(CTX, moduleContext).run(() -> result[0] = callUserInContext(fn, args, ctx));
+            return Values.deepCopy(result[0]);
+        }
+        return callUserInContext(fn, args, ctx);
+    }
+
+    private Object callUserInContext(UserFunction fn, List<Object> args, ParserRuleContext ctx) {
         if (args.size() > fn.params().size()) {
             throw err("Function '" + fn.name() + "' expects " + fn.params().size()
                     + " argument(s), but " + args.size() + " were provided", ctx);
@@ -1160,7 +1262,7 @@ public final class Interpreter {
         boolean trackCall = debugHandler != null;
         if (trackCall) {
             ec().callStack.addLast(new DebugCallSite(fn.name(),
-                    ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()));
+                    sourceId(ctx), ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()));
         }
         ec().frames.push(frame);
         Object result;
@@ -1294,14 +1396,26 @@ public final class Interpreter {
     // helpers
     // ====================================================================
 
-    private static TeeError err(String message, ParserRuleContext ctx) {
-        return new TeeError(message, ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+    private TeeError err(String message, ParserRuleContext ctx) {
+        String id = sourceId(ctx);
+        // Preserve the v1-compatible entry-script error text. Imported source identity is
+        // included because otherwise an imported failure cannot be located unambiguously.
+        String diagnosticSource = id.equals(entrySourceId) ? null : id;
+        return new TeeError(message, diagnosticSource, ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine());
+    }
+
+    private static String sourceId(ParserRuleContext ctx) {
+        String id = ctx.getStart().getInputStream().getSourceName();
+        return id == null || id.isBlank() || id.equals("<unknown>") ? "<memory>" : id;
     }
 
     /** Enforce host keyword hiding (73_keyword_ignore): a hidden keyword is a runtime error at its token. */
     private void requireKeyword(String keyword, Token token) {
         if (hiddenKeywords.contains(keyword)) {
+            String id = token.getInputStream().getSourceName();
             throw new TeeError("'" + keyword + "' is not available in this environment",
+                    id != null && id.equals(entrySourceId) ? null : id,
                     token.getLine(), token.getCharPositionInLine());
         }
     }

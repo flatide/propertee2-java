@@ -3,7 +3,7 @@ package com.flatide.propertee2.core;
 import com.flatide.propertee2.parser.ProperTeeLexer;
 import com.flatide.propertee2.parser.ProperTeeParser;
 
-import org.antlr.v4.runtime.ANTLRInputStream;
+import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.RecognitionException;
@@ -28,8 +28,12 @@ public final class ScriptParser {
     }
 
     public static ProperTeeParser.RootContext parse(String scriptText, List<String> errors) {
-        ANTLRInputStream chars = new ANTLRInputStream(scriptText);
-        ProperTeeLexer lexer = new ProperTeeLexer(chars);
+        return parse(scriptText, "<memory>", errors);
+    }
+
+    /** Parse with a stable source id retained by tokens for module-aware errors/debugging. */
+    public static ProperTeeParser.RootContext parse(String scriptText, String sourceId, List<String> errors) {
+        ProperTeeLexer lexer = new ProperTeeLexer(CharStreams.fromString(scriptText, sourceId));
         ErrorCollector lexerErrors = new ErrorCollector();
         lexer.removeErrorListeners();
         lexer.addErrorListener(lexerErrors);

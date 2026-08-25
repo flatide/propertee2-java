@@ -3,6 +3,7 @@ package com.flatide.propertee2.conformance;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.flatide.propertee2.interp.Engine;
+import com.flatide.propertee2.module.ModuleSource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,13 +18,13 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Semantic conformance: run each fixture through the {@link Engine} and diff stdout against
- * {@code .expected} (design §10.1 PE). All 129 fixtures pass — including multi/thread/monitor and the
+ * {@code .expected} (design §10.1 PE). All 130 fixtures pass — including multi/thread/monitor and the
  * host tail, with the documented host injections (-p properties, ENV/file via the default platform,
  * external functions, hidden keywords / ignored functions) configured per fixture below.
  */
 class ConformanceTest {
 
-    /** All 129 fixtures now pass; nothing is deferred. */
+    /** All 130 fixtures now pass; nothing is deferred. */
     static final Set<String> PENDING = Set.of();
 
     /** Host-injected built-in properties (the {@code -p} flag) for fixtures that need them. */
@@ -98,6 +99,14 @@ class ConformanceTest {
             case "74_function_ignore" -> e.setIgnoredFunctions(Set.of("SHELL"));
             case "111_thread_ignored_function" -> e.setIgnoredFunctions(Set.of("blocked_fn"));
             case "112_load_reject_dead_branch" -> e.setIgnoredFunctions(Set.of("SHELL"));
+            case "133_import_modules" -> e.setModuleResolver(request -> {
+                if (!request.moduleId().equals("util.file")) return null;
+                int version = request.version() != null ? request.version() : 2;
+                if (version != 1 && version != 2) return null;
+                String resource = "util/file." + version + ".tee";
+                return new ModuleSource(request.moduleId(), version, "fixture:" + resource,
+                        Fixtures.supportingSource(resource));
+            });
             default -> { }
         }
         return e;
@@ -109,7 +118,7 @@ class ConformanceTest {
 
     @Test
     void allFixturesCovered() {
-        assertEquals(129, allFixtures().size());
-        assertEquals(129, Fixtures.ALL.size());
+        assertEquals(130, allFixtures().size());
+        assertEquals(130, Fixtures.ALL.size());
     }
 }

@@ -5,6 +5,7 @@ import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.host.DefaultPlatformProvider;
 import com.flatide.propertee2.interp.DebugHandler;
 import com.flatide.propertee2.interp.Interpreter;
+import com.flatide.propertee2.module.ModuleResolver;
 import com.flatide.propertee2.value.Values;
 import com.flatide.propertee2.scheduler.SchedulerListener;
 import com.flatide.propertee2.task.UnsupportedTaskRunner;
@@ -36,7 +37,10 @@ public class ProperTeeInterpreter {
     private final String iterationLimitBehavior;
     private final Coop coop = new Coop();      // per-interpreter runtime; a field so abort() has a target
     private DebugHandler debugHandler;
+    private ModuleResolver moduleResolver;
     private final java.util.Set<Integer> debugBreakLines = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<String, java.util.Set<Integer>> moduleDebugBreakLines =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     public ProperTeeInterpreter(Map<String, Object> properties,
                                 BuiltinFunctions.PrintFunction stdout,
@@ -83,6 +87,11 @@ public class ProperTeeInterpreter {
         this.debugHandler = handler;
     }
 
+    /** Host module lookup used by {@code import}; TeeBox supplies a registry-backed resolver. */
+    public void setModuleResolver(ModuleResolver moduleResolver) {
+        this.moduleResolver = moduleResolver;
+    }
+
     /**
      * Live, mutable set of 1-based source lines that break before executing (only consulted
      * while a {@link DebugHandler} is attached). The interpreter created by {@link #execute}
@@ -91,6 +100,12 @@ public class ProperTeeInterpreter {
      */
     public java.util.Set<Integer> debugBreakpoints() {
         return debugBreakLines;
+    }
+
+    /** Live, mutable breakpoints for one imported module's canonical source id. */
+    public java.util.Set<Integer> debugBreakpoints(String sourceId) {
+        return moduleDebugBreakLines.computeIfAbsent(java.util.Objects.requireNonNull(sourceId),
+                ignored -> java.util.concurrent.ConcurrentHashMap.newKeySet());
     }
 
     /**
@@ -119,6 +134,7 @@ public class ProperTeeInterpreter {
         interp.setLoopLimitWarns("warn".equals(iterationLimitBehavior));
         interp.setDebugHandler(debugHandler);              // no-op when null (normal execution)
         interp.setDebugBreakpoints(debugBreakLines);       // share the façade's live set
+        moduleDebugBreakLines.forEach(interp::setDebugBreakpoints);
         for (Map.Entry<String, BuiltinFunctions.BuiltinFunction> e : builtins.custom.entrySet()) {
             final BuiltinFunctions.BuiltinFunction fn = e.getValue();
             interp.addRawBuiltin(e.getKey(), fn::call);          // cheap, on the baton (raw return)
@@ -167,6 +183,7 @@ public class ProperTeeInterpreter {
         if (listener != null) listener.onThreadCreated(main);
 
         try {
+            interp.resolveModules(stepper.tree, moduleResolver);
             coop.run("main", () -> interp.run(stepper.tree));     // a TeeError here propagates to the host
         } catch (com.flatide.propertee2.value.TeeError e) {
             // v1 host contract: the position lives in the exception MESSAGE (v1's createError baked

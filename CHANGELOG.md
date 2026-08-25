@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.30.0
+
+**Spec v0.23.0 — depth-one imports and function-only modules.**
+
+- Added `import util.file as file` / exact `import util.file.2 as file_v2` and qualified
+  `file::function(...)` calls. Imported top-level code is skipped; only direct root functions are
+  registered. Module globals are private, per-run, initially empty, and initialized explicitly.
+- Added the host `ModuleResolver` contract. CLI resolution uses the entry directory (or
+  `--module-root`), selects the greatest numeric `file.N.tee`, falls back to `file.tee` only when
+  no numeric version exists, and rejects real paths outside the root.
+- All direct imports resolve, parse, and validate before entry side effects. Nested imports,
+  duplicate aliases, and duplicate resolved identities fail the load. Arguments and returns are
+  deep-copied across the boundary.
+- `multi` snapshots entry and module globals together. Imported functions run in workers against
+  the module snapshot under existing purity rules. Debug stops, call sites, and module-specific
+  breakpoint sets carry source identity; monitor execution remains excluded.
+- The v1 compatibility façade exposes the module resolver and source-specific breakpoint sets for
+  TeeBox. The Java 7/8 `propertee-java` implementation remains unchanged.
+- Shared fixture 133 now pins latest/exact resolution, skipped module top-level code, state,
+  deep-copy boundaries, and worker snapshots in both Java and JavaScript. Entry import-load errors
+  retain the path-free compatibility format; qualified calls perform one return-boundary copy.
+
+**130 conformance fixtures / 440 Java tests green; import behavior is covered by core and CLI
+host-resolver tests.**
+
 ## 0.29.0
 
 **Auto-display of function return values while stepping** (host API only, zero language/spec

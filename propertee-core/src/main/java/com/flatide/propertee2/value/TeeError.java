@@ -12,24 +12,36 @@ package com.flatide.propertee2.value;
 public final class TeeError extends RuntimeException {
     private final int line;
     private final int col;
+    private final String sourceId;
 
     public TeeError(String message) {
-        this(message, -1, -1);
+        this(message, null, -1, -1);
     }
 
     public TeeError(String message, int line, int col) {
+        this(message, null, line, col);
+    }
+
+    public TeeError(String message, String sourceId, int line, int col) {
         super(message);
+        this.sourceId = sourceId;
         this.line = line;
         this.col = col;
     }
 
+    public String sourceId() { return sourceId; }
     public int line() { return line; }
     public int col() { return col; }
     public boolean hasPosition() { return line >= 0; }
 
     /** Attach a position to a positionless error (interpreter fills this in at the throwing node). */
     public TeeError at(int line, int col) {
-        return hasPosition() ? this : new TeeError(getMessage(), line, col);
+        return hasPosition() ? this : new TeeError(getMessage(), sourceId, line, col);
+    }
+
+    /** Attach source identity without changing the compatibility rendering of unnamed sources. */
+    public TeeError at(String sourceId, int line, int col) {
+        return hasPosition() ? this : new TeeError(getMessage(), sourceId, line, col);
     }
 
     /**
@@ -39,6 +51,9 @@ public final class TeeError extends RuntimeException {
      */
     public String positioned() {
         if (!hasPosition()) return "Runtime Error: " + getMessage();
+        if (sourceId != null && !sourceId.equals("<memory>")) {
+            return "Runtime Error at " + sourceId + " line " + line + ":" + col + ": " + getMessage();
+        }
         return "Runtime Error at line " + line + ":" + col + ": " + getMessage();
     }
 }

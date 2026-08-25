@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **129쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **130쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -21,6 +21,7 @@
 | `78_task_basic`, `79_task_cancel`, `80_task_unique_ids` | TaskRunner/프로세스 |
 | `83_type_env`, `85_file_io` | `DefaultPlatformProvider` 주입 |
 | `73_keyword_ignore`, `74_function_ignore` | `setHiddenKeywords` / `setIgnoredFunctions` |
+| `133_import_modules` | `ModuleResolver`: `util.file` latest → 2, exact `.1` → 1 |
 
 > `31_*`는 v1에서 **skip**(번호 결번). 새 repo도 동일하게 비움.
 
@@ -99,6 +100,17 @@ portable 계약만 고정한다.
 worker 고정 stepping, worker `quit()`의 전체 run 승격, monitor 제외를 검증한다.
 JavaScript는 `run_debug_worker_test.js`가 두 worker의 debug/step 순서와 monitor 제외를
 고정한다.
+
+## spec v0.23.0 import와 함수 전용 module (133)
+
+| fixture | 검증 내용 |
+|---|---|
+| `133_import_modules` | 무버전 latest와 exact version 해석, import 시 top-level 미실행, 명시적 init과 내부 helper, module global 상태, 인자·반환 deep-copy, worker의 module snapshot 읽기 |
+
+Java와 JavaScript는 같은 `133_import_modules.tee/.expected`와 `util/file.1.tee`,
+`util/file.2.tee` 지원 source를 사용한다. 파일 시스템 자체의 latest/fallback/containment는
+각 CLI resolver 테스트가 별도로 검증하며, 이 fixture는 host가 resolver를 주입하는 portable
+language/runtime 계약만 고정한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

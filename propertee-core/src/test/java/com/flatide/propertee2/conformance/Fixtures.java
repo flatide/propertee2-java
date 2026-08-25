@@ -7,8 +7,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * The canonical conformance fixture set (129 .tee/.expected pairs under
- * src/test/resources/tests, from the v1 baseline through spec v0.21.0). The list is HARDCODED — not
+ * The canonical conformance fixture set (130 .tee/.expected pairs under
+ * src/test/resources/tests, from the v1 baseline through spec v0.23.0). The list is HARDCODED — not
  * directory-discovered — matching the v1 ScriptTest convention so a missing or
  * stray fixture shows up as a test failure (conformance-tests.md §하네스 TODO).
  *
@@ -80,7 +80,9 @@ public final class Fixtures {
             // spec v0.20.0: _ARGS positional invocation arguments (130 harness-injected)
             "130_args", "131_args_empty",
             // spec v0.21.0: monitor-only worker/SHELL observation projection
-            "132_monitor_thread_info");
+            "132_monitor_thread_info",
+            // spec v0.23.0: function-only imports (resolver supplied by the host harness)
+            "133_import_modules");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {
@@ -90,6 +92,11 @@ public final class Fixtures {
     /** Load a fixture's expected output ({@code <name>.expected}) from the test classpath. */
     public static String expected(String name) {
         return read(name + ".expected");
+    }
+
+    /** Load a supporting source used by a host-injected fixture. */
+    static String supportingSource(String relativePath) {
+        return read(relativePath);
     }
 
     private static String read(String file) {

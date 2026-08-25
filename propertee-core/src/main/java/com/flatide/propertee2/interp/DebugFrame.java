@@ -24,6 +24,9 @@ public interface DebugFrame {
     /** Logical-thread display name ({@code "main"} or the spawned worker function name). */
     default String threadName() { return "main"; }
 
+    /** Stable id of the entry or imported source containing the paused statement. */
+    default String sourceId() { return "<memory>"; }
+
     /**
      * Auto-display of function return values (0.29.0): the user-function returns the step that
      * produced this {@link Reason#STEP} stop crossed, in chronological order. Recorded are only
