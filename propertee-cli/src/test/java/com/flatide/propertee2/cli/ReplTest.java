@@ -78,7 +78,7 @@ class ReplTest {
         assertEquals("", r.err());
     }
 
-    // ---- the debugger (0.22.0): debug breaks in the REPL / :load / -i -------------------------
+    // ---- the debugger (0.22.0): debug breaks in the REPL / :run / -i --------------------------
 
     private Run replPreload(String input, String preload) throws IOException {
         ByteArrayOutputStream outBuf = new ByteArrayOutputStream();
@@ -88,6 +88,11 @@ class ReplTest {
                 new PrintStream(errBuf, true, StandardCharsets.UTF_8),
                 false, "test", preload);
         return new Run(outBuf.toString(StandardCharsets.UTF_8), errBuf.toString(StandardCharsets.UTF_8));
+    }
+
+    /** The confirmation {@code :load} prints (0.34.0): it loads without running. */
+    private static String loaded(String path) {
+        return "loaded " + path + " — :run runs it, :debug pauses at its first statement\n";
     }
 
     private String tempScript(String source) throws IOException {
@@ -119,21 +124,21 @@ class ReplTest {
 
     @Test void debugQuitAbortsTheRunButKeepsTheSession() throws IOException {
         String script = tempScript("g = 2\ndebug\ng = 3\n");
-        Run r = repl("g = 1\n:load " + script + "\n:q\ng\n");
+        Run r = repl("g = 1\n:run " + script + "\n:q\ng\n");
         assertEquals("debug at line 2:0\ndebug: run aborted; session state kept\n2\n", r.out());
         assertEquals("", r.err());
     }
 
-    @Test void loadRunsAFileIntoTheSession() throws IOException {
+    @Test void runRunsAFileIntoTheSession() throws IOException {
         String script = tempScript("x = 7\nfunction dbl(n) do\n    return n * 2\nend\n");
-        Run r = repl(":load " + script + "\ndbl(x)\n");
+        Run r = repl(":run " + script + "\ndbl(x)\n");
         assertEquals("14\n", r.out());
         assertEquals("", r.err());
     }
 
     @Test void varsDumpsThePausedFunctionFrame() throws IOException {
         String script = tempScript("function f(a) do\n    b = a * 2\n    debug\n    return b\nend\ntop = f(3)\n");
-        Run r = repl(":load " + script + "\n:vars\n:c\ntop\n");
+        Run r = repl(":run " + script + "\n:vars\n:c\ntop\n");
         assertEquals("debug at line 3:4\na = 3\nb = 6\n6\n", r.out());
         assertEquals("", r.err());
     }
@@ -163,7 +168,7 @@ class ReplTest {
 
     @Test void eofAtTheDebugPromptResumesTheRun() throws IOException {
         String script = tempScript("debug\nPRINT(\"after\")\n");
-        Run r = replPreload(":load " + script + "\n", null);
+        Run r = replPreload(":run " + script + "\n", null);
         assertEquals("debug at line 1:0\nafter\n", r.out());
         assertEquals("", r.err());
     }
@@ -183,7 +188,7 @@ class ReplTest {
 
     @Test void stepNextThenIntoWalksTheScriptWithWhere() throws IOException {
         String script = tempScript(STEP_SCRIPT);
-        Run r = repl(":load " + script + "\n:n\n:s\n:vars\n:w\n:c\n");
+        Run r = repl(":run " + script + "\n:n\n:s\n:vars\n:w\n:c\n");
         assertEquals("""
                 debug at line 6:0
                 at line 7:0: b = inner(a)
@@ -198,7 +203,7 @@ class ReplTest {
 
     @Test void stepOutReturnsToTheCaller() throws IOException {
         String script = tempScript(STEP_SCRIPT);
-        Run r = repl(":load " + script + "\n:s\n:s\n:r\n:c\n");
+        Run r = repl(":run " + script + "\n:s\n:s\n:r\n:c\n");
         // debug@6 -> :s stops at 7, :s enters inner (line 2), :r runs to the caller's next
         // statement — echoing what inner returned on the way (0.29.0)
         assertEquals("""
@@ -214,7 +219,7 @@ class ReplTest {
 
     @Test void stepOverAcrossACallEchoesItsReturn() throws IOException {
         String script = tempScript(STEP_SCRIPT);
-        Run r = repl(":load " + script + "\n:n\n:n\n:c\n");
+        Run r = repl(":run " + script + "\n:n\n:n\n:c\n");
         // The second :n runs b = inner(a) to completion; its crossed return is echoed (0.29.0).
         assertEquals("""
                 debug at line 6:0
@@ -226,10 +231,11 @@ class ReplTest {
         assertEquals("", r.err());
     }
 
-    @Test void breakpointSetBeforeLoadFiresAndDeletes() throws IOException {
+    @Test void breakpointSetAfterLoadFiresOnRunAndDeletes() throws IOException {
         String script = tempScript("x = 1\nx = x + 1\nPRINT(x)\n");
-        Run r = repl(":b 2\n:load " + script + "\nx\n:c\n:bd 2\n:load " + script + "\n");
-        assertEquals("""
+        // load (nothing runs), set a breakpoint by line, run into it, then delete it and re-run
+        Run r = repl(":load " + script + "\n:b 2\n:run\nx\n:c\n:bd 2\n:run\n");
+        assertEquals(loaded(script) + """
                 breakpoint added at line 2
                 breakpoint at line 2:0: x = x + 1
                 1
@@ -259,7 +265,7 @@ class ReplTest {
         String script = tempScript("::hits = ::hits + 1\nPRINT(::hits)\n");
         // seed the global, load once, then :run twice without repeating the path
         Run r = repl("::hits = 0\n:load " + script + "\n:run\n:run\n");
-        assertEquals("1\n2\n3\n", r.out());
+        assertEquals(loaded(script) + "1\n2\n", r.out());       // :load itself runs nothing
         assertEquals("", r.err());
     }
 
@@ -267,7 +273,7 @@ class ReplTest {
         String a = tempScript("PRINT(\"a\")\n");
         String b = tempScript("PRINT(\"b\")\n");
         Run r = repl(":load " + a + "\n:run " + b + "\n:run\n");   // :run b, then :run defaults to b
-        assertEquals("a\nb\nb\n", r.out());
+        assertEquals(loaded(a) + "b\nb\n", r.out());
         assertEquals("", r.err());
     }
 
@@ -277,12 +283,11 @@ class ReplTest {
         assertEquals(true, r.err().contains("no script loaded yet"));
     }
 
-    @Test void debugReRunPausesAtTheFirstStatement() throws IOException {
+    @Test void debugPausesTheLoadedScriptAtItsFirstStatement() throws IOException {
         String script = tempScript("x = 1\nx = x + 1\nPRINT(x)\n");
         // :debug stops before line 1; :vars shows nothing yet, :c runs to completion
         Run r = repl(":load " + script + "\n:debug\n:vars\n:c\n");
-        assertEquals("""
-                2
+        assertEquals(loaded(script) + """
                 at line 1:0: x = 1
                 (no locals — top level; use :globals)
                 2
@@ -306,8 +311,7 @@ class ReplTest {
     @Test void listShowsTheLoadedScriptWithLineNumbers() throws IOException {
         String script = tempScript("x = 1\nfunction f(n) do\n    return n\nend\nPRINT(f(x))\n");
         Run r = repl(":load " + script + "\n:list\n");
-        assertEquals("""
-                1
+        assertEquals(loaded(script) + """
                  1  x = 1
                  2  function f(n) do
                  3      return n
@@ -340,11 +344,36 @@ class ReplTest {
         String b = tempScript("PRINT(\"b\")\n");
         // load a, peek at b with :list, then :run must still default to a
         Run r = repl(":load " + a + "\n:list " + b + "\n:run\n");
-        assertEquals("""
-                a
+        assertEquals(loaded(a) + """
                  1  PRINT("b")
                 a
                 """, r.out());
         assertEquals("", r.err());
+    }
+
+    // ---- 0.34.0: :load only loads -------------------------------------------------------------
+
+    @Test void loadOnlyLoadsAndRunRunsTheLoadedScript() throws IOException {
+        String script = tempScript("PRINT(\"ran\")\nx = 7\n");
+        // :load prints just its confirmation — no script output, no globals — until :run
+        Run r = repl(":load " + script + "\nx\n:run\nx\n");
+        assertEquals(loaded(script)
+                + "Runtime error: Runtime Error at line 1:0: Variable 'x' is not defined\n"
+                + "ran\n7\n", r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void loadReportsASyntaxErrorButKeepsTheTarget() throws IOException {
+        String script = tempScript("PRINT(\"ran\")\nx = )\n");
+        // the check fails without running anything, and :list still defaults to the file
+        Run r = repl(":load " + script + "\n:list\n");
+        assertEquals(" 1  PRINT(\"ran\")\n 2  x = )\n", r.out());
+        assertEquals(true, r.err().startsWith("propertee2: " + script + ": syntax error at 2:4"));
+    }
+
+    @Test void loadWithoutAPathReportsUsage() throws IOException {
+        Run r = repl(":load\n");
+        assertEquals("", r.out());
+        assertEquals("propertee2: usage: :load <file>\n", r.err());
     }
 }

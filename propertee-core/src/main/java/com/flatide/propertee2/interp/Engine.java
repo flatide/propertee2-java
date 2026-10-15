@@ -7,7 +7,9 @@ import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.module.ModuleResolver;
 import com.flatide.propertee2.parser.ProperTeeParser;
 import com.flatide.propertee2.value.TeeError;
+import com.flatide.propertee2.value.Values;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -150,7 +152,7 @@ public final class Engine {
 
     /** Run with live sinks and the default platform (the CLI's form). */
     public void run(String source, Map<String, Object> props, Interpreter.Sink out, Interpreter.Sink err) {
-        run(source, props, new DefaultPlatformProvider(), out, err);
+        execute(source, props, new DefaultPlatformProvider(), out, err);
     }
 
     /**
@@ -162,6 +164,20 @@ public final class Engine {
      */
     public void run(String source, Map<String, Object> props, PlatformProvider platform,
                     Interpreter.Sink out, Interpreter.Sink err) {
+        execute(source, props, platform, out, err);
+    }
+
+    /** {@link #execute(String, Map, PlatformProvider, Interpreter.Sink, Interpreter.Sink)} on the default platform. */
+    public Outcome execute(String source, Map<String, Object> props, Interpreter.Sink out, Interpreter.Sink err) {
+        return execute(source, props, new DefaultPlatformProvider(), out, err);
+    }
+
+    /**
+     * Run exactly like {@link #run(String, Map, PlatformProvider, Interpreter.Sink, Interpreter.Sink)}
+     * and report what the run left for its host (0.34.0 — the CLI's {@code --result-only}).
+     */
+    public Outcome execute(String source, Map<String, Object> props, PlatformProvider platform,
+                           Interpreter.Sink out, Interpreter.Sink err) {
         ProperTeeParser.RootContext root = Parsing.parse(source, sourceId);
         // Load-time rejection (spec v0.14.0): a script that names any blocked construct — hidden
         // keyword or ignored function, dead branches included — does not run at all. Refuse before
@@ -178,6 +194,25 @@ public final class Engine {
         interp.setArgs(args);
         interp.setErrorSink(err);
         coop.run("main", () -> interp.run(root));   // the program is the root logical thread
+        return new Outcome(interp.hasExplicitReturn(), interp.returnValue(),
+                Collections.unmodifiableMap(interp.globals()));
+    }
+
+    /**
+     * What a completed run leaves for its host (0.34.0): whether the program ended in a top-level
+     * {@code return}, that value (the empty object when it did not), and the final globals.
+     */
+    public record Outcome(boolean hasExplicitReturn, Object returnValue, Map<String, Object> globals) {
+        /**
+         * The run's result as hosts report it (value-model §8, and TeeBox's run result): the
+         * top-level {@code return} value, else the final {@code result} global, else the empty
+         * object — absence is {@code {}}, never Java null ("no implicit null").
+         */
+        public Object result() {
+            if (hasExplicitReturn) return returnValue;
+            if (globals.containsKey("result")) return globals.get("result");
+            return Values.emptyObject();
+        }
     }
 
     /** Open a session with the default platform (the CLI REPL's form). */

@@ -30,8 +30,8 @@ import java.util.Map;
  * and the session continues. Prompts and the banner appear only when stdin is a terminal, so piped
  * input produces clean output.
  *
- * <p>Debugging (0.22.0): in the REPL — including {@code :load} and {@code -i} — the {@code debug}
- * statement is a breakpoint. Execution freezes and a {@code debug>} prompt opens <i>in the paused
+ * <p>Debugging (0.22.0): in the REPL — including {@code :run}, {@code :debug} and {@code -i} — the
+ * {@code debug} statement is a breakpoint. Execution freezes and a {@code debug>} prompt opens <i>in the paused
  * scope</i>: bare input evaluates there (reading and writing the paused function's locals),
  * {@code :c} resumes, {@code :q} aborts the run keeping the session, {@code :vars}/{@code :globals}
  * dump state. Plain script mode ({@code propertee2 script.tee}) keeps {@code debug} a no-op, as the
@@ -43,6 +43,11 @@ import java.util.Map;
  * one re-resolves the script's imports against their current stored content with fresh module
  * globals, so a re-run reflects edits to imported modules. {@code :list [file]} prints a script
  * with 1-based line numbers (marking breakpoint lines), matching the numbers {@code :b} uses.
+ *
+ * <p>Loading (0.34.0): {@code :load <file>} only reads and syntax-checks a script and makes it the
+ * default target of {@code :run}/{@code :debug}/{@code :list} — it does not run it, so the script
+ * can be listed and given breakpoints before its first run. {@code -i script.tee} still runs the
+ * script before the first prompt, like {@code python -i}.
  */
 final class Repl {
     private Repl() {}
@@ -92,9 +97,9 @@ final class Repl {
             out.println("propertee2 " + version + " REPL — :help for commands, :exit or Ctrl-D to quit");
         }
         if (preload != null) {
-            load(session, preload, out, err, false);
+            runFile(session, preload, out, err, false);
         }
-        String lastLoaded = preload;                           // :run/:debug default target
+        String lastLoaded = preload;                           // :run/:debug/:list default target
 
         StringBuilder buffer = new StringBuilder();
         while (true) {
@@ -119,22 +124,26 @@ final class Repl {
                             a blank line abandons an unfinished input. The value of a trailing bare
                             expression is echoed ({} is not). A debug statement opens the debugger.
                               :help          this help
-                              :load <file>   run a script in this session (state accumulates)
-                              :run [file]    re-run a script (defaults to the last loaded one)
-                              :debug [file]  re-run paused at the first statement (defaults to last)
-                              :list [file]   show a script with line numbers (defaults to last)
+                              :load <file>   load a script for :run/:debug/:list without running it
+                              :run [file]    run a script in this session (defaults to the loaded one)
+                              :debug [file]  run it paused at its first statement (same default)
+                              :list [file]   show a script with line numbers (same default)
                               :b [line]      list breakpoints / add one (breaks in the debugger)
                               :bd [line]     delete one breakpoint / all of them
                               :exit, :quit   leave the REPL (Ctrl-D also works)""");
                     continue;
                 }
-                if (trimmed.startsWith(":load")) {
+                if (trimmed.equals(":load") || trimmed.startsWith(":load ")) {
                     String path = trimmed.substring(5).trim();
                     if (path.isEmpty()) {
                         err.println("propertee2: usage: :load <file>");
                     } else {
+                        // Load only (0.34.0): the script runs on :run / :debug. The target sticks
+                        // even when the check fails, so a fix in the editor needs only :run.
                         lastLoaded = path;
-                        load(session, path, out, err, false);
+                        if (readAndParse(path, err) != null) {
+                            out.println("loaded " + path + " — :run runs it, :debug pauses at its first statement");
+                        }
                     }
                     continue;
                 }
@@ -148,7 +157,7 @@ final class Repl {
                                 + (pauseAtEntry ? ":debug" : ":run") + " [file]");
                     } else {
                         lastLoaded = path;
-                        load(session, path, out, err, pauseAtEntry);
+                        runFile(session, path, out, err, pauseAtEntry);
                     }
                     continue;
                 }
@@ -209,27 +218,38 @@ final class Repl {
     }
 
     /**
-     * {@code :load} / {@code -i} preload / {@code :run} / {@code :debug}: run a whole file in the
-     * session, debugger active. With {@code pauseAtEntry} ({@code :debug}) the run stops before its
-     * first statement, so a loaded script can be re-run under the debugger without editing a
-     * {@code debug} statement into it.
+     * {@code -i} preload / {@code :run} / {@code :debug}: run a whole file in the session, debugger
+     * active. With {@code pauseAtEntry} ({@code :debug}) the run stops before its first statement,
+     * so a loaded script can be run under the debugger without editing a {@code debug} statement
+     * into it.
      */
-    private static void load(Engine.Session session, String path, PrintStream out, PrintStream err,
-                             boolean pauseAtEntry) {
+    private static void runFile(Engine.Session session, String path, PrintStream out, PrintStream err,
+                                boolean pauseAtEntry) {
+        String source = readAndParse(path, err);
+        if (source != null) {
+            evalAndReport(session, source, out, pauseAtEntry);
+        }
+    }
+
+    /**
+     * Read a script and check its syntax — all {@code :load} does, and the first step of every run.
+     * Reports the failure on {@code err} and returns null when the file is unreadable or invalid.
+     */
+    private static String readAndParse(String path, PrintStream err) {
         String source;
         try {
             source = Files.readString(Path.of(path), StandardCharsets.UTF_8);
         } catch (IOException e) {
             err.println("propertee2: cannot read " + path + ": " + e.getMessage());
-            return;
+            return null;
         }
         try {
             Parsing.parse(source);
         } catch (Parsing.SyntaxException e) {
             err.println("propertee2: " + path + ": " + e.getMessage());
-            return;
+            return null;
         }
-        evalAndReport(session, source, out, pauseAtEntry);
+        return source;
     }
 
     /** Shared eval tail: echo, script-error, and debugger-abort reporting. */
@@ -370,7 +390,8 @@ final class Repl {
 
     /**
      * {@code :b [line]} / {@code :bd [line]} — shared by the {@code pt>} prompt (set breakpoints
-     * before a {@code :load}) and the {@code debug>} prompt. Returns true when it consumed the input.
+     * before a {@code :run}/{@code :debug}) and the {@code debug>} prompt. Returns true when it
+     * consumed the input.
      */
     private static boolean breakpointCommand(String trimmed, java.util.Set<Integer> breakpoints,
                                              PrintStream out, PrintStream err) {

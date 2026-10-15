@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.34.0
+
+**`:load` only loads, and `--result-only` prints a script's result** (host/CLI only, zero
+language/spec change — the same release class as 0.31.0).
+
+`:load` (user report: it ran the script at once, although `:run` and `:debug` exist for that):
+
+- `:load <file>` reads the script, checks its syntax, and makes it the default target of
+  `:run`/`:debug`/`:list`, printing `loaded <file> — :run runs it, :debug pauses at its first
+  statement`. It no longer runs the script — no output, no globals or functions in the session —
+  so the script can be listed and given breakpoints (`:b <line>`) before its first run. A syntax
+  error is reported right away; the target still switches to the file, so after a fix in the
+  editor `:run` alone picks it up.
+- `:run`, `:debug`, and `:list` are unchanged, and `propertee2 -i script.tee` still runs the
+  script before the first prompt (like `python -i`) and makes it the `:run` target.
+- `:load` now matches only as a whole command (`:loadx` is no longer read as `:load x`), like
+  `:run`/`:debug`/`:list`. `:help` describes the load/run split; the shared read-and-check step is
+  `Repl.readAndParse`, and the run path is `Repl.runFile` (was `load`).
+
+`--result-only` (user request: a script ending in `return true` printed nothing in script mode —
+the top-level `return` is the host's result channel, kept apart from stdout since v1):
+
+- `propertee2 --result-only script.tee` discards the script's `PRINT` output and writes only its
+  result to stdout, as one line of JSON (`TeeFormat.json`, the `JSON_FORMAT` form). The result is
+  the value TeeBox reports for a run: the top-level `return` value, else the final `result` global,
+  else `{}`. Runtime diagnostics on stderr (`[THREAD ERROR]`, `[MONITOR ERROR]`, loop warnings)
+  are kept. A runtime error leaves no result, so its `Runtime error:` line goes to stderr and the
+  exit code is 1; the default mode keeps the conformance contract (error on stdout, exit 0).
+- The option must precede the script path (later words are `_ARGS`); combining it with `-i`, or
+  using it without a script, is a usage error (exit 2).
+- Host API: `Engine.execute(...)` runs exactly like the live-sink `run(...)` overloads (which
+  now delegate to it) and returns an `Engine.Outcome` — `hasExplicitReturn`, `returnValue`, the
+  final globals, and `result()` with the resolution above. Script mode in `Main` now returns its
+  exit code from `Main.run(...)` instead of calling `System.exit` inside, so tests can drive it.
+
+**134 conformance fixtures / 471 tests green (both modules); dist rebuilt + smoke-tested. The
+JavaScript runtime and TeeBox are unaffected (js has no `:load` or `--result-only`; TeeBox embeds
+only propertee-core, whose change is additive).**
+
 ## 0.33.0
 
 **Spec v0.25.0 — `TO_NUMBER` reads exactly a decimal numeral** (the `TO_NUMBER` divergence found

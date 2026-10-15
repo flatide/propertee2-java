@@ -48,6 +48,54 @@ class CliTest {
         assertEquals("propertee2 0.1.0\n", runMain(new String[]{"--version"}));
     }
 
+    // ---- 0.34.0: --result-only ----------------------------------------------------------------
+
+    private record Run(int code, String out, String err) {}
+
+    private Run runScript(String source, boolean resultOnly) throws IOException {
+        Path f = Files.createTempFile("cli", ".tee");
+        Files.writeString(f, source);
+        ByteArrayOutputStream outBuf = new ByteArrayOutputStream();
+        ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
+        try {
+            int code = Main.run(f.toString(), java.util.Map.of(), java.util.List.of(), null, resultOnly,
+                    new PrintStream(outBuf, true, StandardCharsets.UTF_8),
+                    new PrintStream(errBuf, true, StandardCharsets.UTF_8));
+            return new Run(code, outBuf.toString(StandardCharsets.UTF_8), errBuf.toString(StandardCharsets.UTF_8));
+        } finally {
+            Files.deleteIfExists(f);
+        }
+    }
+
+    @Test void resultOnlyPrintsJustTheResultAsJson() throws IOException {
+        Run r = runScript("PRINT(\"noise\")\nreturn {\"ok\": true, \"s\": \"a\\\"b\", \"z\": null}\n", true);
+        assertEquals(new Run(0, "{\"ok\":true,\"s\":\"a\\\"b\",\"z\":null}\n", ""), r);
+        // without a return: the final `result` global, else {}
+        assertEquals("[1,2]\n", runScript("PRINT(1)\nresult = [1, 2]\n", true).out());
+        assertEquals("{}\n", runScript("PRINT(1)\n", true).out());
+    }
+
+    @Test void resultOnlyKeepsStderrDiagnostics() throws IOException {
+        Run r = runScript("function bad() do\n    ::x = 1\nend\nmulti m do\n    thread w: bad()\nend\n"
+                + "PRINT(\"noise\")\nreturn m.w.ok\n", true);
+        assertEquals(0, r.code());
+        assertEquals("false\n", r.out());
+        assertEquals(true, r.err().startsWith("[THREAD ERROR] Runtime Error at line 2:4: Cannot assign"));
+    }
+
+    @Test void resultOnlyRuntimeErrorGoesToStderrWithExit1() throws IOException {
+        Run r = runScript("PRINT(\"before\")\ny = nope + 1\nreturn 1\n", true);
+        assertEquals(new Run(1, "",
+                "Runtime error: Runtime Error at line 2:4: Variable 'nope' is not defined\n"), r);
+    }
+
+    @Test void defaultModeKeepsOutputAndInlineRuntimeErrors() throws IOException {
+        // the conformance contract: no result echo; a runtime error is part of stdout, exit 0
+        assertEquals(new Run(0, "hello\n", ""), runScript("PRINT(\"hello\")\nreturn true\n", false));
+        assertEquals(new Run(0, "before\nRuntime error: Runtime Error at line 2:4: Variable 'nope' is not defined\n", ""),
+                runScript("PRINT(\"before\")\ny = nope + 1\n", false));
+    }
+
     @Test void shellWorksInScriptMode() throws IOException {
         // 0.19.0: the CLI wires an in-process SimpleTaskRunner (the bare Engine still errors)
         Path f = Files.createTempFile("cli", ".tee");

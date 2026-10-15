@@ -456,7 +456,7 @@ end
 execution pauses at each `debug` statement. In normal execution, `debug` is a
 no-op (does nothing). Can be placed anywhere a statement is valid.
 
-> **Runtime note (0.22.0/0.23.0):** this runtime's CLI REPL — including `:load` and
+> **Runtime note (0.22.0/0.23.0):** this runtime's CLI REPL — including `:run`/`:debug` and
 > `propertee2 -i script.tee` — is such a debug mode: `debug` opens a pdb-style `debug>` prompt
 > that evaluates in the paused scope (`:c` continues, `:q` aborts the run keeping the session;
 > 0.23.0 adds stepping `:n`/`:s`/`:r`, the `:w` call stack, and line breakpoints `:b [line]` /
@@ -474,6 +474,9 @@ no-op (does nothing). Can be placed anywhere a statement is valid.
 > first statement with `:debug [file]` (`Engine.Session.eval(source, pauseAtEntry)`), and prints
 > it with line numbers via `:list [file]`; a re-run re-resolves the script's imports against
 > their current stored content with fresh module globals.
+> Since 0.34.0 `:load <file>` only loads: it reads and syntax-checks the script and makes it the
+> default for `:run`/`:debug`/`:list` without running it, so breakpoints can be set before the
+> first run. `propertee2 -i script.tee` still runs the script first, like `python -i`.
 
 ## Functions
 
