@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **130쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **132쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -111,6 +111,17 @@ Java와 JavaScript는 같은 `133_import_modules.tee/.expected`와 `util/file.1.
 `util/file.2.tee` 지원 source를 사용한다. 파일 시스템 자체의 latest/fallback/containment는
 각 CLI resolver 테스트가 별도로 검증하며, 이 fixture는 host가 resolver를 주입하는 portable
 language/runtime 계약만 고정한다.
+
+## spec v0.24.0 `WORDS`·공백 집합·빈 `SPLIT` 구분자 (134-135)
+
+| fixture | 검증 내용 |
+|---|---|
+| `134_words_whitespace` | `WORDS`의 연속 공백 분리·빈 결과(`[]`)·6개 공백 문자 전부로 분리, `TRIM`이 같은 6자를 양끝에서만 제거, 그 밖의 문자(U+0000/0001/001F 제어 문자, U+0085, U+00A0, U+1680, U+2000, U+2028, U+3000, BOM U+FEFF)는 `TRIM`·`WORDS` 모두 텍스트로 취급, `SPLIT`이 앞·중간·뒤 빈 필드를 유지하고 `JOIN`으로 원문 복원, 리터럴(정규식 아님)·왼쪽부터 겹치지 않는 구분자 매치 |
+| `135_error_split_empty_delimiter` | `CHARS`로 문자 분리 후 `SPLIT("abc", "")` → `SPLIT() requires a non-empty delimiter` |
+
+VT·FF와 그 밖의 제어/비 ASCII 문자는 소스에 그대로 넣지 않고 `ch(hex)` 헬퍼
+(`UNWRAP(JSON_PARSE("\"\\u" + hex + "\""))`)로 만들며, 그런 문자가 든 결과는 `LEN`으로만 출력해
+`.expected`를 ASCII로 유지한다. Java와 JavaScript가 같은 파일을 사용한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

@@ -1,29 +1,29 @@
 # ProperTee2 for Java (Java 25 · virtual-thread runtime)
 
-`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다. 현재는 **스펙 v0.23.0**(`import`와 함수 전용 모듈; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
+`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다. 현재는 **스펙 v0.24.0**(`WORDS`, `TRIM`/`WORDS` 공백 집합 고정, 빈 `SPLIT` 구분자 에러; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
 
 - **베이스라인:** Java 25 LTS, **stable API만** (virtual threads + `ScopedValue`). `StructuredTaskScope`는 25에서도 preview라 회피 — `multi`는 hand-roll. **preview 의존 0.**
-- **상태:** **conformance 스위트 130/130 통과** (byte-for-byte, deterministic). 0.31.0은 REPL에 `:run`/`:debug`(첫 문장 정지 재실행)/`:list`(라인번호 출력) 재실행 커맨드를 더한다(호스트/CLI 전용, 언어 무변경). 0.30.0의 depth 1 `import`·격리 module globals·source-aware debugger·CLI resolver는 그대로다. Java 7/8 구현체는 갱신하지 않는다.
+- **상태:** **conformance 스위트 132/132 통과** (byte-for-byte, deterministic). 0.32.0은 스펙 v0.24.0을 구현한다 — 공백 단위 분리 `WORDS(s)` 추가, `TRIM`/`WORDS`의 공백을 ASCII 6자(space, `\t`, `\n`, VT, `\f`, `\r`)로 고정, 빈 `SPLIT` 구분자는 런타임 에러. 0.31.0의 REPL `:run`/`:debug`/`:list`와 0.30.0의 depth 1 `import`는 그대로다. Java 7/8 구현체는 갱신하지 않는다.
 
 ## 빌드 / 테스트
 
 JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.java.installations.paths`에 JDK 25 home 등록). 두 모듈로 구성된다: **`propertee-core`**(엔진 — TeeBox가 의존), **`propertee-cli`**(`propertee2` 커맨드).
 
 ```bash
-./gradlew build     # 두 모듈 컴파일 + 전체 테스트(conformance 130 fixture 포함)
+./gradlew build     # 두 모듈 컴파일 + 전체 테스트(conformance 132 fixture 포함)
 ```
 
 ## 실행 (CLI)
 
 ```bash
-./gradlew dist                                  # → dist/propertee2-0.31.0.jar + dist/propertee2.jar(안정 경로 사본)
-java -jar dist/propertee2-0.31.0.jar script.tee
+./gradlew dist                                  # → dist/propertee2-0.32.0.jar + dist/propertee2.jar(안정 경로 사본)
+java -jar dist/propertee2-0.32.0.jar script.tee
 
 # 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
-java -jar dist/propertee2-0.31.0.jar -p '{"width":100,"height":200}' script.tee
+java -jar dist/propertee2-0.32.0.jar -p '{"width":100,"height":200}' script.tee
 
 # 스크립트 파일 없이 실행하면 인터랙티브 REPL (0.18.0)
-java -jar dist/propertee2-0.31.0.jar
+java -jar dist/propertee2-0.32.0.jar
 ```
 
 **SHELL:** CLI(스크립트 모드·REPL 모두)는 in-process `SimpleTaskRunner`(`/bin/sh -c`, Linux/macOS; 스트림당 최신 1 MiB rolling cap)를 기본 배선하므로 `SHELL("...")`이 호스트 설정 없이 바로 동작한다. 제한을 넘으면 오래된 출력은 누락될 수 있고 최신 suffix가 Result에 남는다. 전체 대용량 출력이 필요하면 파일로 명시적으로 redirect한다. 임베딩 기본값은 여전히 `UnsupportedTaskRunner`(`SHELL() requires a host-provided TaskRunner ...`) — 필요하면 `new Engine().setTaskRunner(new SimpleTaskRunner())`.

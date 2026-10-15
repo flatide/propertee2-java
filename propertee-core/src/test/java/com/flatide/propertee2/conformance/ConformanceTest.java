@@ -118,7 +118,7 @@ class ConformanceTest {
 
     @Test
     void allFixturesCovered() {
-        assertEquals(130, allFixtures().size());
-        assertEquals(130, Fixtures.ALL.size());
+        assertEquals(132, allFixtures().size());
+        assertEquals(132, Fixtures.ALL.size());
     }
 }

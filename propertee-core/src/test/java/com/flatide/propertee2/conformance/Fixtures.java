@@ -82,7 +82,9 @@ public final class Fixtures {
             // spec v0.21.0: monitor-only worker/SHELL observation projection
             "132_monitor_thread_info",
             // spec v0.23.0: function-only imports (resolver supplied by the host harness)
-            "133_import_modules");
+            "133_import_modules",
+            // spec v0.24.0: WORDS, the pinned TRIM/WORDS whitespace set, non-empty SPLIT delimiter
+            "134_words_whitespace", "135_error_split_empty_delimiter");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

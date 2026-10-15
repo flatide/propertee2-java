@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.32.0
+
+**Spec v0.24.0 — `WORDS`, a pinned whitespace set, and no empty `SPLIT` delimiter** (user report:
+`SPLIT("    test 1  2", " ")` returned `[ '', '', '', '', 'test', '1', '', '2' ]` where the words
+`[ 'test', '1', '2' ]` were wanted). Mildly breaking, no grammar change; all three live in the
+PURE catalog (`Builtins.registerTypeAndString`):
+
+- `WORDS(s)` — new: the maximal runs of non-whitespace, in order, so never an empty string; empty
+  or all-whitespace input → `[]`. `SPLIT` keeps its lossless contract (every field kept, so
+  `JOIN(SPLIT(s, d), d) == s`).
+- `TRIM` strips exactly the six spec whitespace characters (space, `\t`, `\n`, VT, `\f`, `\r`)
+  through the `isWhitespace` helper that `WORDS` shares. `String.trim()` also stripped the other
+  C0 controls (U+0000–U+0008, U+000E–U+001F), which the JavaScript runtime kept; `TRIM` now keeps
+  them here too. `TO_NUMBER`'s surrounding-whitespace tolerance is untouched.
+- `SPLIT(s, "")` is a runtime error (`SPLIT() requires a non-empty delimiter`, positionless
+  catalog form). It used to return the characters plus a trailing `""` here but only the
+  characters in js; `CHARS` is the way to split into characters.
+
+Fixtures 134 (`134_words_whitespace`) and 135 (`135_error_split_empty_delimiter`), byte-identical
+with the JavaScript runtime. Hosts pick `WORDS` up through `knownFunctionNames` (0.13.0), so
+TeeBox's server lint needs no change; its static editor assets (inlined browser bundle,
+highlighter list, reference panel) need the usual refresh.
+
+**132 conformance fixtures / 455 tests green (both modules), 5× deterministic; dist rebuilt +
+smoke-tested.**
+
 ## 0.31.0
 
 **REPL re-execution commands** (host/CLI only, zero language/spec change — the same release class

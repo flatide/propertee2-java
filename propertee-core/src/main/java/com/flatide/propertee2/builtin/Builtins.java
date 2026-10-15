@@ -229,7 +229,7 @@ public final class Builtins {
         });
         b.register("UPPERCASE", Kind.PURE, args -> string("UPPERCASE", arg("UPPERCASE", args, 0)).toUpperCase());
         b.register("LOWERCASE", Kind.PURE, args -> string("LOWERCASE", arg("LOWERCASE", args, 0)).toLowerCase());
-        b.register("TRIM",      Kind.PURE, args -> string("TRIM", arg("TRIM", args, 0)).trim());
+        b.register("TRIM",      Kind.PURE, args -> trimWhitespace(string("TRIM", arg("TRIM", args, 0))));
 
         // SUBSTRING(s, start, [length]) — start is 1-based; 3rd arg is LENGTH (13_strings).
         b.register("SUBSTRING", Kind.PURE, args -> {
@@ -238,12 +238,27 @@ public final class Builtins {
             int to = args.size() > 2 ? clamp(from + (int) intArg("SUBSTRING", args, 2), from, s.length()) : s.length();
             return s.substring(from, to);
         });
-        // SPLIT preserves trailing empty strings; delimiter is literal.
+        // SPLIT keeps every field — leading, interior and trailing empties — so JOIN(SPLIT(s, d), d)
+        // == s; the delimiter is literal and, since spec v0.24.0, non-empty (CHARS splits characters).
         b.register("SPLIT", Kind.PURE, args -> {
             String s = string("SPLIT", arg("SPLIT", args, 0));
             String delim = string("SPLIT", arg("SPLIT", args, 1));
+            if (delim.isEmpty()) throw new TeeError("SPLIT() requires a non-empty delimiter");
             List<Object> out = new ArrayList<>();
             for (String part : s.split(Pattern.quote(delim), -1)) out.add(part);
+            return out;
+        });
+        // WORDS (spec v0.24.0): the maximal runs of non-whitespace, in order — never an empty string.
+        b.register("WORDS", Kind.PURE, args -> {
+            String s = string("WORDS", arg("WORDS", args, 0));
+            List<Object> out = new ArrayList<>();
+            int i = 0;
+            while (i < s.length()) {
+                while (i < s.length() && isWhitespace(s.charAt(i))) i++;
+                int start = i;
+                while (i < s.length() && !isWhitespace(s.charAt(i))) i++;
+                if (i > start) out.add(s.substring(start, i));
+            }
             return out;
         });
         b.register("JOIN", Kind.PURE, args -> {
@@ -791,6 +806,19 @@ public final class Builtins {
     }
 
     private static int clamp(int x, int lo, int hi) { return Math.max(lo, Math.min(hi, x)); }
+
+    // Spec v0.24.0 whitespace (TRIM, WORDS): exactly space, \t, \n, VT, \f, \r. String.trim()
+    // would also strip the other C0 controls — characters the JavaScript runtime keeps.
+    private static boolean isWhitespace(char c) {
+        return c == ' ' || (c >= '\t' && c <= '\r');
+    }
+
+    private static String trimWhitespace(String s) {
+        int from = 0, to = s.length();
+        while (from < to && isWhitespace(s.charAt(from))) from++;
+        while (to > from && isWhitespace(s.charAt(to - 1))) to--;
+        return s.substring(from, to);
+    }
 
     private static Pattern compile(String fn, String pattern) {
         try {

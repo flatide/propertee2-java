@@ -125,6 +125,36 @@ class BuiltinsTest {
                 assertThrows(TeeError.class, () -> call("FIND", list(1, 2), 2)).getMessage());
     }
 
+    @Test void wordsSplitTrim() {                         // 134_words_whitespace, 135_error_split_empty_delimiter (spec v0.24.0)
+        assertEquals(list("test", "1", "2"), call("WORDS", "    test 1  2"));
+        assertEquals(list(), call("WORDS", ""));
+        assertEquals(list(), call("WORDS", " \t\n\u000B\f\r"));
+        assertEquals(list("a", "b", "c", "d", "e", "f"), call("WORDS", "a\tb\nc\u000Bd\fe\rf"));
+        assertEquals(list(" x ", "y"), call("WORDS", " x  y")); // NBSP is not whitespace
+        assertEquals(list("x\u0001", "y"), call("WORDS", "x\u0001 y"));             // nor are other controls
+        // TRIM strips exactly the six ASCII whitespace characters (String.trim() strips all <= U+0020)
+        assertEquals("hi", call("TRIM", " \t\n\u000B\f\rhi \r\n"));
+        assertEquals("a  b", call("TRIM", "a  b"));
+        assertEquals("", call("TRIM", "   "));
+        assertEquals(" hi ", call("TRIM", " hi "));
+        assertEquals("\u0001hi\u001F", call("TRIM", "\u0001hi\u001F"));
+        assertEquals("﻿hi", call("TRIM", "﻿hi"));
+        // SPLIT keeps every field — leading, interior, trailing — and matches literally, left to right
+        assertEquals(list("", "", "", "", "test", "1", "", "2"), call("SPLIT", "    test 1  2", " "));
+        assertEquals(list("", "a", "", "b", ""), call("SPLIT", ",a,,b,", ","));
+        assertEquals(list(""), call("SPLIT", "", ","));
+        assertEquals(list("", "a"), call("SPLIT", "aaa", "aa"));
+        assertEquals(list("a", "b", ""), call("SPLIT", "a::b::", "::"));
+        assertEquals(list("a", "b"), call("SPLIT", "a.b", "."));
+        // exact error messages
+        assertEquals("SPLIT() requires a non-empty delimiter",
+                assertThrows(TeeError.class, () -> call("SPLIT", "abc", "")).getMessage());
+        assertEquals("SPLIT() requires a non-empty delimiter",
+                assertThrows(TeeError.class, () -> call("SPLIT", "", "")).getMessage());
+        assertEquals("WORDS() requires a string argument",
+                assertThrows(TeeError.class, () -> call("WORDS", 42)).getMessage());
+    }
+
     @Test void arrayFns() {                               // 11_arrays
         assertEquals(list(99, 2, 3, 4, 5), call("PUSH", list(99, 2, 3), 4, 5));
         assertEquals(list(99, 2, 3, 4), call("POP", list(99, 2, 3, 4, 5)));
