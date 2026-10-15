@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.33.0
+
+**Spec v0.25.0 — `TO_NUMBER` reads exactly a decimal numeral** (the `TO_NUMBER` divergence found
+during 0.32.0: `TO_NUMBER("0x10")` was `16` in js but an error here, `TO_NUMBER("1f")` was `1` here
+but an error in js). Mildly breaking, no grammar change; PURE catalog
+(`Builtins.registerTypeAndString`):
+
+- `toNumber` strips the six spec whitespace characters with the `trimWhitespace` helper `TRIM`
+  uses, then matches the text against `DECIMAL_NUMERAL` — an optional sign, ASCII digits with an
+  optional fraction (`.5` and `5.` included), an optional exponent — before any parser sees it.
+  `Double.valueOf` used to read the type suffixes `f`/`F`/`d`/`D` (`"1f"` → `1`), hexadecimal
+  floating point (`"0x1p3"` → `8`), `"NaN"`, and `"Infinity"`, and `Integer.valueOf` read
+  non-ASCII digits (`"１２"` → `12`); `String.trim()` also dropped the other C0 controls. All of
+  these are runtime errors now.
+- Digits-only text that fits 32 bits is still an `Integer` and every other numeral a `Double`
+  (spec v0.13.0/v0.14.0, as in `JsonParser.number`). A numeral too large for a double (`"1e999"`)
+  is `TO_NUMBER() value out of range: '1e999'` instead of `Infinity`, which `JSON_FORMAT` wrote as
+  the invalid JSON token `Infinity`.
+- The conversion error is `TO_NUMBER() cannot convert 'x' to number` (was
+  `Cannot convert 'x' to number`), quoting the argument as given; the js runtime uses the same
+  text.
+
+Fixtures 136 (`136_to_number_numerals` — numerals, then the rejected forms caught as worker error
+Results) and 137 (`137_error_to_number_hex`), byte-identical with the JavaScript runtime. The
+non-ASCII cases stay out of the ASCII `.expected` files and are covered by
+`BuiltinsTest.toNumberNumerals` (and the same list in propertee-js `test/run_to_number_test.js`).
+No new built-in, so TeeBox needs only the usual engine pickup and editor-asset refresh (inlined
+bundle, `TO_NUMBER` reference entry).
+
+**134 conformance fixtures / 460 tests green (both modules), 5× deterministic; dist rebuilt +
+smoke-tested.**
+
 ## 0.32.0
 
 **Spec v0.24.0 — `WORDS`, a pinned whitespace set, and no empty `SPLIT` delimiter** (user report:

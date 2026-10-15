@@ -155,6 +155,46 @@ class BuiltinsTest {
                 assertThrows(TeeError.class, () -> call("WORDS", 42)).getMessage());
     }
 
+    @Test void toNumberNumerals() {                       // 136_to_number_numerals, 137_error_to_number_hex (spec v0.25.0)
+        // integer text that fits 32 bits is an Integer; a fraction, an exponent or a wider value is a Double
+        assertEquals(42, call("TO_NUMBER", "42"));
+        assertEquals(Integer.class, call("TO_NUMBER", "+5").getClass());
+        assertEquals(-5, call("TO_NUMBER", "-5"));
+        assertEquals(7, call("TO_NUMBER", "007"));
+        assertEquals(0, call("TO_NUMBER", "-0"));
+        assertEquals(Integer.MAX_VALUE, call("TO_NUMBER", "2147483647"));
+        assertEquals(Integer.MIN_VALUE, call("TO_NUMBER", "-2147483648"));
+        assertEquals(2147483648.0, call("TO_NUMBER", "2147483648"));
+        assertEquals(5.0, call("TO_NUMBER", "5.0"));
+        assertEquals(Double.class, call("TO_NUMBER", "5.0").getClass());
+        assertEquals(Double.class, call("TO_NUMBER", "1e3").getClass());
+        assertEquals(0.5, call("TO_NUMBER", ".5"));
+        assertEquals(5.0, call("TO_NUMBER", "5."));
+        assertEquals(0.001, call("TO_NUMBER", "1E-3"));
+        assertEquals(50.0, call("TO_NUMBER", "+.5e+2"));
+        assertEquals(0.0, call("TO_NUMBER", "1e-999"));                      // too small: rounds to 0
+        // only the six TRIM whitespace characters around the numeral are ignored
+        assertEquals(42, call("TO_NUMBER", " \t\n\u000B\f\r42\r\n"));
+        // everything else fails: one runtime's host-parser extras, non-numerals, infinity
+        for (String bad : new String[] {
+                "0x10", "0X10", "0o17", "0b101",                             // js Number() read these
+                "1f", "1.5d", "1D", "0x1p3", "NaN", "１２", "١٢", // Java's parsers read these
+                "Infinity", "-Infinity", "+Infinity",                        // both read these
+                "", "   ", "1_000", "1,000", ".", "+", "e5", "1e", "1e+", "- 5", "1 000", "++5", "5..0",
+                " 42", "﻿42", "42 ", "\u000142", "42\u001F"}) {     // not TRIM whitespace
+            assertEquals("TO_NUMBER() cannot convert '" + bad + "' to number",
+                    assertThrows(TeeError.class, () -> call("TO_NUMBER", bad), bad).getMessage());
+        }
+        assertEquals("TO_NUMBER() value out of range: '1e999'",
+                assertThrows(TeeError.class, () -> call("TO_NUMBER", "1e999")).getMessage());
+        assertEquals("TO_NUMBER() value out of range: ' -1e999 '",
+                assertThrows(TeeError.class, () -> call("TO_NUMBER", " -1e999 ")).getMessage());
+        assertEquals("TO_NUMBER() value out of range: '" + "9".repeat(400) + "'",
+                assertThrows(TeeError.class, () -> call("TO_NUMBER", "9".repeat(400))).getMessage());
+        assertEquals("TO_NUMBER() requires a string argument",
+                assertThrows(TeeError.class, () -> call("TO_NUMBER", 42)).getMessage());
+    }
+
     @Test void arrayFns() {                               // 11_arrays
         assertEquals(list(99, 2, 3, 4, 5), call("PUSH", list(99, 2, 3), 4, 5));
         assertEquals(list(99, 2, 3, 4), call("POP", list(99, 2, 3, 4, 5)));

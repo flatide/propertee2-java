@@ -840,16 +840,26 @@ public final class Builtins {
         return p;
     }
 
+    // Spec v0.25.0: TO_NUMBER reads exactly a decimal numeral (sign, ASCII digits with an optional
+    // fraction — ".5" and "5." included — and an optional exponent) inside the TRIM whitespace.
+    // Validating first keeps Integer.valueOf's non-ASCII digits and Double.parseDouble's "1f",
+    // "0x1p3", "NaN" and "Infinity" out; the JavaScript runtime's Number() accepts a different set.
+    private static final Pattern DECIMAL_NUMERAL =
+            Pattern.compile("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?");
+
     private static Object toNumber(String s) {
-        String t = s.trim();
-        try {
-            return Integer.valueOf(t);
-        } catch (NumberFormatException ignored) {
+        String t = trimWhitespace(s);
+        if (!DECIMAL_NUMERAL.matcher(t).matches()) throw new TeeError("TO_NUMBER() cannot convert '" + s + "' to number");
+        boolean fractional = t.indexOf('.') >= 0 || t.indexOf('e') >= 0 || t.indexOf('E') >= 0;
+        if (!fractional) {
             try {
-                return Double.valueOf(t);
-            } catch (NumberFormatException e) {
-                throw new TeeError("Cannot convert '" + s + "' to number");
+                return Integer.valueOf(t);
+            } catch (NumberFormatException outside32Bits) {
+                // integer text beyond the 32-bit range is a decimal (spec v0.13.0)
             }
         }
+        double d = Double.parseDouble(t);
+        if (Double.isInfinite(d)) throw new TeeError("TO_NUMBER() value out of range: '" + s + "'");
+        return d;
     }
 }

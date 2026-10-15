@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **132쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **134쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -122,6 +122,19 @@ language/runtime 계약만 고정한다.
 VT·FF와 그 밖의 제어/비 ASCII 문자는 소스에 그대로 넣지 않고 `ch(hex)` 헬퍼
 (`UNWRAP(JSON_PARSE("\"\\u" + hex + "\""))`)로 만들며, 그런 문자가 든 결과는 `LEN`으로만 출력해
 `.expected`를 ASCII로 유지한다. Java와 JavaScript가 같은 파일을 사용한다.
+
+## spec v0.25.0 `TO_NUMBER` 10진수 표기 (136-137)
+
+| fixture | 검증 내용 |
+|---|---|
+| `136_to_number_numerals` | 부호·앞자리 0·소수부(`.5`, `5.` 포함)·지수 표기의 변환 결과, 32비트 경계(`2147483647`/`2147483648`), 정밀도를 넘는 자릿수의 반올림과 지수 표시(`1.2345678901234568e+29`), 언더플로(`1e-999` → `0`), 앞뒤 6개 공백 문자 무시. 거부되는 표기(16진수·8진수·2진수 접두사, 타입 접미사, 16진 부동소수점, `NaN`, `Infinity`, 자릿수 구분자, 중간 공백, 지수나 소수점만 있는 표기, 빈 텍스트, 공백뿐인 텍스트)와 범위를 넘는 `1e999`는 각각 쓰레드 에러 Result로 받아 메시지를 출력 |
+| `137_error_to_number_hex` | 앞뒤 공백이 있는 `" 16 "` 변환 후 `TO_NUMBER("0x10")` → `TO_NUMBER() cannot convert '0x10' to number` |
+
+에러가 나는 경우는 `multi` 워커로 실행해 런을 끝내지 않고 메시지를 모은다(fixture 65·67과 같은 방식).
+에러 메시지에는 인자가 그대로 들어가므로 비 ASCII 숫자(`"１２"`)나 6개 밖의 공백 문자(U+00A0,
+BOM, C0 제어 문자 등)를 둘러싼 경우는 `.expected`를 ASCII로 유지하려고 fixture에서 빼고,
+`BuiltinsTest.toNumberNumerals`와 propertee-js의 `test/run_to_number_test.js`가 같은 목록으로
+검사한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

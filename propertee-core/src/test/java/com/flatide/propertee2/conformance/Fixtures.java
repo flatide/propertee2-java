@@ -7,8 +7,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * The canonical conformance fixture set (130 .tee/.expected pairs under
- * src/test/resources/tests, from the v1 baseline through spec v0.23.0). The list is HARDCODED — not
+ * The canonical conformance fixture set (134 .tee/.expected pairs under
+ * src/test/resources/tests, from the v1 baseline through spec v0.25.0). The list is HARDCODED — not
  * directory-discovered — matching the v1 ScriptTest convention so a missing or
  * stray fixture shows up as a test failure (conformance-tests.md §하네스 TODO).
  *
@@ -84,7 +84,9 @@ public final class Fixtures {
             // spec v0.23.0: function-only imports (resolver supplied by the host harness)
             "133_import_modules",
             // spec v0.24.0: WORDS, the pinned TRIM/WORDS whitespace set, non-empty SPLIT delimiter
-            "134_words_whitespace", "135_error_split_empty_delimiter");
+            "134_words_whitespace", "135_error_split_empty_delimiter",
+            // spec v0.25.0: TO_NUMBER reads exactly a decimal numeral
+            "136_to_number_numerals", "137_error_to_number_hex");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {
