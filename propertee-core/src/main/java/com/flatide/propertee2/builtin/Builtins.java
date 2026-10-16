@@ -2,6 +2,7 @@ package com.flatide.propertee2.builtin;
 
 import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.value.JsonParser;
+import com.flatide.propertee2.value.LazyLines;
 import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeResult;
@@ -20,6 +21,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -52,6 +55,41 @@ public final class Builtins {
 
     private final Map<String, Entry> registry = new HashMap<>();
     private Shell shell;
+
+    // FILE_LINES (spec v0.26.0): how its arrays reach the file. The interpreter installs the gate
+    // that releases the scheduler baton around reads; the limits are host-configurable; the
+    // rewrite counters let an array notice that this run rewrote its file (same size, same
+    // millisecond — nothing else would tell).
+    private LazyLines.Gate ioGate = LazyLines.Gate.DIRECT;
+    private long fileLinesLoadLimit = LazyLines.DEFAULT_LOAD_LIMIT;
+    private int fileLinesMaxLine = LazyLines.DEFAULT_MAX_LINE;
+    private final Map<String, AtomicLong> rewrites = new ConcurrentHashMap<>();
+
+    /** The gate every FILE_LINES read goes through (the interpreter's baton-releasing one). */
+    public void setIoGate(LazyLines.Gate gate) { if (gate != null) this.ioGate = gate; }
+
+    /** FILE_LINES limits: the whole-use limit and the longest line, in bytes (non-positive keeps the current). */
+    public void setFileLinesLimits(long loadLimitBytes, int maxLineBytes) {
+        if (loadLimitBytes > 0) this.fileLinesLoadLimit = loadLimitBytes;
+        if (maxLineBytes > 0) this.fileLinesMaxLine = maxLineBytes;
+    }
+
+    private static String rewriteKey(String path) {
+        try {
+            return java.nio.file.Path.of(path).toAbsolutePath().normalize().toString();
+        } catch (java.nio.file.InvalidPathException e) {
+            return path;
+        }
+    }
+
+    long rewriteCount(String path) {
+        AtomicLong c = rewrites.get(rewriteKey(path));
+        return c == null ? 0 : c.get();
+    }
+
+    void noteRewrite(String path) {
+        rewrites.computeIfAbsent(rewriteKey(path), k -> new AtomicLong()).incrementAndGet();
+    }
 
     /**
      * Progress seam for a SHELL call made by a monitored {@code multi} worker. The blocking SHELL
@@ -509,8 +547,9 @@ public final class Builtins {
         }));
 
         b.register("WRITE_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
-            platform.writeFile(string("WRITE_FILE", arg("WRITE_FILE", args, 0)),
-                    string("WRITE_FILE", arg("WRITE_FILE", args, 1)));
+            String path = string("WRITE_FILE", arg("WRITE_FILE", args, 0));
+            platform.writeFile(path, string("WRITE_FILE", arg("WRITE_FILE", args, 1)));
+            b.noteRewrite(path);
             return Result.ok(Values.emptyObject());
         }));
 
@@ -526,6 +565,7 @@ public final class Builtins {
             StringBuilder sb = new StringBuilder();
             for (Object line : lines) sb.append(string("WRITE_LINES", line)).append('\n'); // each followed by newline
             platform.writeFile(path, sb.toString());
+            b.noteRewrite(path);
             return Result.ok(Values.emptyObject());
         }));
 
@@ -541,6 +581,7 @@ public final class Builtins {
         b.register("WRITE_JSON_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
             String path = string("WRITE_JSON_FILE", arg("WRITE_JSON_FILE", args, 0));
             platform.writeFile(path, TeeFormat.json(arg("WRITE_JSON_FILE", args, 1)) + "\n");
+            b.noteRewrite(path);
             return Result.ok(Values.emptyObject());
         }));
 
@@ -600,9 +641,45 @@ public final class Builtins {
         }));
 
         b.register("DELETE_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
-            platform.deleteFile(string("DELETE_FILE", arg("DELETE_FILE", args, 0)));
+            String path = string("DELETE_FILE", arg("DELETE_FILE", args, 0));
+            platform.deleteFile(path);
+            b.noteRewrite(path);
             return Result.ok(Values.emptyObject());
         }));
+
+        // FILE_LINES (spec v0.26.0): the file's lines as an array that reads the file as it is used
+        // (value/LazyLines). Not a Result — a file that cannot be read is a runtime error, which,
+        // raised here in the catalog, is positionless like every other builtin error. The call
+        // itself only checks the file (existence, type, a content sample); a loop later streams it.
+        LazyLines.Io io = new LazyLines.Io() {
+            @Override public LazyLines.Stat stat(String path) throws IOException {
+                if (!platform.fileExists(path)) return LazyLines.Stat.MISSING;
+                PlatformProvider.FileStat s;
+                try {
+                    s = platform.fileInfo(path);
+                } catch (java.nio.file.NoSuchFileException e) {
+                    return LazyLines.Stat.MISSING;          // gone between the two calls
+                }
+                return new LazyLines.Stat(true, "dir".equals(s.type()), s.size(), s.modified());
+            }
+            @Override public int readAt(String path, long offset, byte[] buf, int len) throws IOException {
+                return platform.readAt(path, offset, buf, len);
+            }
+            @Override public <T> T blocking(LazyLines.Work<T> work) throws IOException {
+                return b.ioGate.run(work);
+            }
+            @Override public long rewrites(String path) { return b.rewriteCount(path); }
+            @Override public long loadLimit() { return b.fileLinesLoadLimit; }
+            @Override public int maxLine() { return b.fileLinesMaxLine; }
+        };
+        b.register("FILE_LINES", Kind.HOST_GATED, args -> {
+            String path = string("FILE_LINES", arg("FILE_LINES", args, 0));
+            try {
+                return LazyLines.of(path, io);
+            } catch (IOException e) {
+                throw new TeeError("FILE_LINES() cannot read '" + path + "': " + e.getMessage());
+            }
+        });
     }
 
     private static boolean isWhole(Object v) {

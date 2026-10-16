@@ -71,6 +71,7 @@ public final class Values {
             }
             return out;
         }
+        if (v instanceof LazyLines lazy) return lazy.copy();   // FILE_LINES: the recipe is shared until read
         if (v instanceof List) {
             List<Object> src = (List<Object>) v;
             List<Object> out = new ArrayList<>(src.size());
@@ -78,6 +79,29 @@ public final class Values {
             return out;
         }
         return v; // Integer, Double, String, Boolean, JsonNull are immutable
+    }
+
+    /**
+     * The copy for a host boundary — a run's result, an external function's arguments, the v1
+     * façade's {@code TypeChecker.deepCopy}: {@link #deepCopy} except that a {@code FILE_LINES}
+     * array is read in full (its whole-use limit applies), so the host only ever holds plain values.
+     */
+    @SuppressWarnings("unchecked")
+    public static Object materialize(Object v) {
+        if (v instanceof Map) {
+            Map<String, Object> src = (Map<String, Object>) v;
+            Map<String, Object> out = (v instanceof TeeResult) ? new TeeResult() : new LinkedHashMap<>(src.size());
+            for (Map.Entry<String, Object> e : src.entrySet()) out.put(e.getKey(), materialize(e.getValue()));
+            return out;
+        }
+        if (v instanceof LazyLines lazy) return new ArrayList<Object>(lazy);   // iterating reads the file
+        if (v instanceof List) {
+            List<Object> src = (List<Object>) v;
+            List<Object> out = new ArrayList<>(src.size());
+            for (Object e : src) out.add(materialize(e));
+            return out;
+        }
+        return v;
     }
 
     /**

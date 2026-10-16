@@ -1,0 +1,4 @@
+// spec v0.26.0: FILE_LINES is not a Result — a file that cannot be read is a runtime error at the call
+PRINT("before")
+lines = FILE_LINES("/no/such/dir/users.csv")
+PRINT("never")

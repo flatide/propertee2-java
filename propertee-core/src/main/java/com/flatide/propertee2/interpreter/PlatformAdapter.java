@@ -42,6 +42,10 @@ final class PlatformAdapter implements com.flatide.propertee2.host.PlatformProvi
         return io(() -> v1.readLines(path, saturate(start), saturate(count)));
     }
 
+    @Override public int readAt(String path, long offset, byte[] buf, int len) throws IOException {
+        return io(() -> v1.readAt(path, offset, buf, len));   // FILE_LINES chunks go through the host's provider too
+    }
+
     @Override public FileStat fileInfo(String path) throws IOException {
         return io(() -> {
             com.flatide.propertee2.platform.PlatformProvider.FileInfo fi = v1.fileInfo(path);

@@ -1,0 +1,19 @@
+2 Alice,30
+3 Bob,25
+lines: 4 4
+array 4 name,age Carol,41
+true false false
+[ 'Alice,30', 'Bob,25' ] Alice,30|Bob,25|Carol,41|name,age true
+[ 'name,age', 'Alice,30', 'Bob,25', 'Carol,41' ]
+["name,age","Alice,30","Bob,25","Carol,41"]
+Zed,99 Alice,30
+ages: 96
+4 1 2
+4 5
+last of the old array: Carol,41
+1 "one"
+2 "two"
+3 ""
+4 "four"
+5 "five"
+0 true

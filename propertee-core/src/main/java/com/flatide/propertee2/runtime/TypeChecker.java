@@ -51,5 +51,6 @@ public final class TypeChecker {
 
     public static Object jsonParse(String text) { return JsonParser.parse(text); }
 
-    public static Object deepCopy(Object value) { return Values.deepCopy(value); }
+    /** A host-boundary copy: a FILE_LINES array is read in full here (spec v0.26.0), so hosts hold plain values. */
+    public static Object deepCopy(Object value) { return Values.materialize(value); }
 }

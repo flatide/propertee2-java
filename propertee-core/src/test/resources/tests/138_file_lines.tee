@@ -1,0 +1,78 @@
+// spec v0.26.0: FILE_LINES — a file's lines as an ordinary array, read as it is used.
+// Uses ::testDir injected as a builtin property (like 85_file_io).
+p = ::testDir + "/users.csv"
+WRITE_LINES(p, ["name,age", "Alice,30", "Bob,25", "Carol,41"])
+
+// loops read the file as they go: key-value loop, value loop, continue and break
+loop n, line in FILE_LINES(p) do
+    if n == 1 then continue end        // the header
+    if line == "Carol,41" then break end
+    PRINT(n, line)
+end
+rows = FILE_LINES(p)
+total = 0
+loop line in rows do
+    total = total + 1
+end
+PRINT("lines:", total, LEN(rows))
+
+// to everything else it is an ordinary array
+lines = FILE_LINES(p)
+PRINT(TYPE_OF(lines), LEN(lines), lines.1, lines.4)
+PRINT(lines == UNWRAP(READ_LINES(p)), lines == [], IS_RESULT(lines))
+PRINT(SLICE(lines, 2, 2), JOIN(SORT(lines), "|"), CONTAINS(lines, "Bob,25"))
+PRINT(lines)
+PRINT(JSON_FORMAT(lines))
+
+// value semantics: a copy is independent, whether or not the file has been read yet
+copy = rows
+copy.2 = "Zed,99"
+PRINT(copy.2, rows.2)
+function ages(table) do
+    sum = 0
+    loop n, row in table do
+        if n > 1 then
+            sum = sum + TO_NUMBER(SPLIT(row, ",").2)
+        end
+    end
+    return sum
+end
+PRINT("ages:", ages(FILE_LINES(p)))
+
+// workers share the snapshot; each loop reads the file on its own
+function count(table, word) do
+    n = 0
+    loop row in table infinite do
+        if CONTAINS(row, word) then
+            n = n + 1
+        end
+    end
+    return n
+end
+fresh = FILE_LINES(p)
+multi r do
+    thread a: count(::fresh, ",")
+    thread b: count(::fresh, "Alice")
+    thread c: count(FILE_LINES(::p), "o")
+end
+PRINT(r.a.value, r.b.value, r.c.value)
+
+// the array is the file as it was at the call: a line appended afterwards is not part of it
+APPEND_FILE(p, "Dave,19\n")
+PRINT(LEN(fresh), LEN(FILE_LINES(p)))
+loop n, line in fresh do
+    if n == 4 then PRINT("last of the old array:", line) end
+end
+
+// line endings: \r\n, a bare \r, an empty line, a last line without a terminator; an empty file
+q = ::testDir + "/mixed.txt"
+WRITE_FILE(q, "one\r\ntwo\r\n\r\nfour\rfive")
+loop n, line in FILE_LINES(q) do
+    PRINT(n, JSON_FORMAT(line))
+end
+e = ::testDir + "/empty.txt"
+WRITE_FILE(e, "")
+PRINT(LEN(FILE_LINES(e)), FILE_LINES(e) == [])
+loop line in FILE_LINES(e) do
+    PRINT("never")
+end

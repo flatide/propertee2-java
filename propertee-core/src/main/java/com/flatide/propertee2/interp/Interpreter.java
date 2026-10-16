@@ -5,11 +5,14 @@ import com.flatide.propertee2.builtin.Builtins;
 import com.flatide.propertee2.coop.AbortError;
 import com.flatide.propertee2.coop.Coop;
 import com.flatide.propertee2.coop.Fiber;
+import com.flatide.propertee2.coop.FiberState;
 import com.flatide.propertee2.coop.Scheduler;
 import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.module.ModuleResolver;
 import com.flatide.propertee2.parser.ProperTeeParser.*;
 import com.flatide.propertee2.value.JsonNull;
+import com.flatide.propertee2.value.LazyLines;
+import com.flatide.propertee2.value.LineReader;
 import com.flatide.propertee2.value.Result;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.TeeFormat;
@@ -79,6 +82,7 @@ public final class Interpreter {
         this.err = out;   // single merged channel unless the host separates them (Engine.run buffers both in order)
         this.coop = coop;
         this.builtins = Builtins.standard(platform, taskRunner, runId);
+        this.builtins.setIoGate(ioGate);   // FILE_LINES reads release the baton where that is safe
         this.externals = externals;
         this.hiddenKeywords = hiddenKeywords;
         this.ignoredFunctions = ignoredFunctions;
@@ -122,7 +126,7 @@ public final class Interpreter {
             for (StatementContext s : root.statement()) { exec(s); coop.yield_(); }
         } catch (Signals.Return r) {
             hasExplicitReturn = true;          // top-level return: stop, remember the value (value-model §8)
-            returnValue = r.value;
+            returnValue = Values.materialize(r.value);   // the host's result: a FILE_LINES array is read in full
         } catch (Signals.Break | Signals.Continue b) {
             // break/continue outside a loop: ignore
         }
@@ -232,8 +236,8 @@ public final class Interpreter {
             return last;
         } catch (Signals.Return r) {
             hasExplicitReturn = true;
-            returnValue = r.value;
-            return r.value;
+            returnValue = Values.materialize(r.value);
+            return returnValue;
         } catch (Signals.Break | Signals.Continue b) {
             return null;                       // break/continue outside a loop: ignore (as in run)
         }
@@ -252,6 +256,11 @@ public final class Interpreter {
 
     /** Configure the maximum loop iterations (v1 maxIterations). */
     public void setLoopLimit(int limit) { if (limit > 0) this.maxIterations = limit; }
+
+    /** FILE_LINES limits (spec v0.26.0): the whole-use limit and the longest line, in bytes. */
+    public void setFileLinesLimits(long loadLimitBytes, int maxLineBytes) {
+        builtins.setFileLinesLimits(loadLimitBytes, maxLineBytes);
+    }
 
     /**
      * Route runtime diagnostics — {@code [THREAD ERROR]}, {@code [MONITOR ERROR]}, and loop-limit
@@ -852,11 +861,69 @@ public final class Interpreter {
         }
     }
 
+    /**
+     * FILE_LINES reads (value/LazyLines) release the baton only where that is safe: on a fiber that
+     * holds it, outside a debugger pause (all-stop — a pause must not let siblings run). A host
+     * thread, code already off the baton inside a gated builtin, and a paused fiber read in place.
+     */
+    private final LazyLines.Gate ioGate = new LazyLines.Gate() {
+        @Override
+        public <T> T run(LazyLines.Work<T> work) throws java.io.IOException {
+            Fiber me = coop.scheduler().self();
+            if (me == null || inDebugSession || me.state() != FiberState.RUNNING) return work.call();
+            try {
+                return coop.blocking(() -> {
+                    try {
+                        return work.call();
+                    } catch (java.io.IOException e) {
+                        throw new java.io.UncheckedIOException(e);
+                    }
+                });
+            } catch (java.io.UncheckedIOException e) {
+                throw e.getCause();
+            }
+        }
+    };
+
+    // A FILE_LINES array not yet read is streamed: one pass, chunk by chunk, no file open between
+    // chunks — nothing is held across statement switches, SLEEPs or debugger pauses, and nothing
+    // needs closing however the loop ends. Its read errors carry the loop's position (an
+    // interpreter-raised error); the same errors through a builtin are positionless as usual.
+    private void streamLoop(LazyLines lazy, String keyVar, String valVar, boolean infinite,
+                            BlockContext body, IterationStmtContext loop) {
+        LineReader reader;
+        try {
+            reader = lazy.lines();
+        } catch (java.io.IOException e) {
+            throw err("FILE_LINES() cannot read '" + lazy.path() + "': " + e.getMessage(), loop);
+        }
+        int count = 0;
+        while (true) {
+            String line;
+            try {
+                line = reader.next();
+            } catch (java.io.IOException e) {
+                throw err("FILE_LINES() cannot read '" + lazy.path() + "': " + e.getMessage(), loop);
+            }
+            if (line == null) break;
+            if (!infinite && count >= maxIterations && loopLimitExceeded(loop)) break;
+            if (keyVar != null) bindLocal(keyVar, count + 1);   // 1-based line number
+            bindLocal(valVar, line);
+            if (runBody(body)) break;
+            count++;
+        }
+    }
+
     private void valueLoop(ValueLoopContext v) {
         boolean infinite = v.K_INFINITE() != null;
         String var = v.value.getText();
+        Object coll = eval(v.expression());
+        if (coll instanceof LazyLines lazy && !lazy.isLoaded()) {
+            streamLoop(lazy, null, var, infinite, v.block(), v);
+            return;
+        }
         int count = 0;
-        for (Object element : iterableValues(eval(v.expression()), v)) {
+        for (Object element : iterableValues(coll, v)) {
             if (!infinite && count >= maxIterations && loopLimitExceeded(v)) break;
             bindLocal(var, element);                // deepCopy => loop var is independent (68 test 7)
             if (runBody(v.block())) break;
@@ -869,6 +936,10 @@ public final class Interpreter {
         String keyVar = kv.key.getText();
         String valVar = kv.value.getText();
         Object coll = eval(kv.expression());
+        if (coll instanceof LazyLines lazy && !lazy.isLoaded()) {
+            streamLoop(lazy, keyVar, valVar, infinite, kv.block(), kv);
+            return;
+        }
         int count = 0;
         for (Map.Entry<Object, Object> entry : iterableEntries(coll, kv)) {
             if (!infinite && count >= maxIterations && loopLimitExceeded(kv)) break;
@@ -1277,7 +1348,7 @@ public final class Interpreter {
      */
     private static Object callExternal(ExternalFunction ext, List<Object> args) {
         List<Object> isolated = new ArrayList<>(args.size());
-        for (Object a : args) isolated.add(Values.deepCopy(a));
+        for (Object a : args) isolated.add(Values.materialize(a));   // the host gets plain values (a FILE_LINES array read in full)
         try {
             return Result.ok(Values.deepCopy(ext.body().apply(isolated)));
         } catch (TeeError e) {

@@ -1,6 +1,10 @@
 package com.flatide.propertee2.host;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Map;
 
@@ -47,6 +51,24 @@ public interface PlatformProvider {
     List<DirEntry> listDir(String path) throws IOException;    // sorted by name ascending
 
     void deleteFile(String path) throws IOException;           // throws if a directory or not found
+
+    /**
+     * Up to {@code len} bytes of the file at {@code offset} into {@code buf} (FILE_LINES, spec
+     * v0.26.0): the count read — fewer than {@code len} only at end of file — or -1 when
+     * {@code offset} is at or past the end. The file is opened and closed inside the call, so a
+     * loop suspended between chunks holds no descriptor. The default reads the file directly; a
+     * provider that virtualizes or restricts files overrides it ({@link #fileExists} and
+     * {@link #fileInfo}, which FILE_LINES also uses, likewise).
+     */
+    default int readAt(String path, long offset, byte[] buf, int len) throws IOException {
+        try (FileChannel ch = FileChannel.open(Path.of(path), StandardOpenOption.READ)) {
+            ByteBuffer bb = ByteBuffer.wrap(buf, 0, len);
+            while (bb.hasRemaining()) {
+                if (ch.read(bb, offset + bb.position()) < 0) break;
+            }
+            return bb.position() == 0 ? -1 : bb.position();
+        }
+    }
 
     /**
      * Perform an HTTP request. Hosts may restrict URLs/headers or throw on transport failures.

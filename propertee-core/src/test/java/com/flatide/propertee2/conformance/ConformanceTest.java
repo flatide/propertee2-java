@@ -18,13 +18,13 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Semantic conformance: run each fixture through the {@link Engine} and diff stdout against
- * {@code .expected} (design §10.1 PE). All 134 fixtures pass — including multi/thread/monitor and the
+ * {@code .expected} (design §10.1 PE). All 136 fixtures pass — including multi/thread/monitor and the
  * host tail, with the documented host injections (-p properties, ENV/file via the default platform,
  * external functions, hidden keywords / ignored functions) configured per fixture below.
  */
 class ConformanceTest {
 
-    /** All 134 fixtures now pass; nothing is deferred. */
+    /** All 136 fixtures now pass; nothing is deferred. */
     static final Set<String> PENDING = Set.of();
 
     /** Host-injected built-in properties (the {@code -p} flag) for fixtures that need them. */
@@ -47,7 +47,7 @@ class ConformanceTest {
     @MethodSource("allFixtures")
     void matchesExpected(String name) throws IOException {
         String expected = Fixtures.expected(name);
-        String actual = Set.of("85_file_io", "124_read_json_file", "125_read_file_write_json").contains(name)
+        String actual = Set.of("85_file_io", "124_read_json_file", "125_read_file_write_json", "138_file_lines").contains(name)
                 ? runWithTempDir(name)
                 : engineFor(name).run(Fixtures.source(name), PROPS.getOrDefault(name, Map.of()));
         if (name.equals(NO_TRAILING_NEWLINE_ARTIFACT)) {
@@ -118,7 +118,7 @@ class ConformanceTest {
 
     @Test
     void allFixturesCovered() {
-        assertEquals(134, allFixtures().size());
-        assertEquals(134, Fixtures.ALL.size());
+        assertEquals(136, allFixtures().size());
+        assertEquals(136, Fixtures.ALL.size());
     }
 }

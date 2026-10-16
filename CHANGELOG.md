@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.35.0
+
+**Spec v0.26.0 — `FILE_LINES`: a file as an array, read as it is used** (user report: going
+through a large file with `READ_LINES` windows is awkward for non-programmers and quadratic —
+every window re-reads the file from the start, 19.6 s for a million lines. The design discussion
+rejected a file handle (nothing closes it; a shared mutable position breaks value semantics and
+worker purity), an offset cursor (chunk-and-inner-loop is hard for the audience) and a loop-only
+form (a call that is legal in one expression position and not another), and settled on an array
+that reads itself lazily).
+
+- **`FILE_LINES(path)`** (catalog, host-gated like the other file builtins) returns a
+  `value/LazyLines`: to a script an ordinary array — `TYPE_OF` `"array"`, `LEN`, indexing,
+  `SLICE`, `==`, display, JSON, loops, copies — that holds only the path and the file's identity
+  at the call and reads the file when used. A `loop` over an unread one streams it
+  (`Interpreter.streamLoop`, 64 KB chunks through `value/LineReader`, only the current line
+  kept); `LEN` counts without keeping; a copy shares the recipe; anything else loads the lines into
+  a plain list first, refused above the whole-use limit (64 MB) with `FILE_LINES() 'x' is too large
+  to use as a whole (494 MB, the limit is 64 MB) — go through it with a loop: loop line in ... do`.
+  A million lines stream in 0.65 s (the window idiom took 19.6 s); ten million lines (495 MB)
+  run in a 32 MB heap in 4.5 s.
+- The array is the file as it was at the call: appended bytes are not part of it (a live log can
+  be read; appending to the file being looped over does not prolong the loop), and a file
+  truncated, rewritten — by this run (`WRITE_FILE`/`WRITE_LINES`/`WRITE_JSON_FILE`/`DELETE_FILE`
+  are counted per path in `Builtins.noteRewrite`, since a same-size rewrite in the same
+  millisecond leaves no other trace) or by anyone else — or deleted since fails the next read with
+  `FILE_LINES() cannot read 'x': it was modified after FILE_LINES() was called — call FILE_LINES()
+  again` (`truncated` / `rewritten` / `deleted` when the runtime can tell). The check compares
+  size, modification time and a CRC32C of the first and last 4 KB, before every chunk and after
+  the last.
+- Not a Result: a missing file, a directory or an unreadable file is a runtime error at the call
+  (`FILE_LINES() cannot read 'x': no such file`); invalid UTF-8 and a line over the line limit
+  (16 MB) fail when reached, so a loop has processed the lines before. Lines end at `\n`,
+  `\r\n` or `\r`; a leading UTF-8 BOM is dropped (`READ_LINES` keeps it). The loop-iteration cap
+  applies as to any array. Loop-raised read errors carry the loop's position; through a builtin
+  (`LEN`, an index) they are positionless as every catalog error is.
+- Concurrency (reviewed against `multi` before the design was accepted): no file stays open
+  between chunks, so a loop suspended at a statement switch, a `SLEEP` or a debugger pause holds
+  no descriptor — 600 workers streaming at once fit a 256-descriptor limit; every read goes
+  through `Interpreter.ioGate`, which releases the baton (`Coop.blocking`) on a running fiber
+  outside a debugger pause and reads in place otherwise (a host thread, code already off the
+  baton inside a gated builtin, the all-stop pause), so a worker's `LEN` over ten million lines
+  no longer freezes the monitor (worst tick gap 59 ms at a 50 ms interval; 700 ms when the load
+  held the baton); a snapshot value shared by workers is loaded once under its own monitor, which
+  is only ever taken off the baton; `LineReader` buffers are sized to the file.
+- Host boundaries get plain values: the top-level `return` value, `Engine.Outcome.result()`,
+  the arguments of host external functions, and `TypeChecker.deepCopy` (the v1 façade's copy
+  that TeeBox uses for run results) read a `FILE_LINES` array in full (`Values.materialize`) — a
+  too-large one fails there with the whole-use error, inside the run for `return`.
+  `Engine.setFileLinesLimits(loadLimitBytes, maxLineBytes)` and the façade's
+  `setFileLinesLimits` configure the limits per run.
+- `PlatformProvider.readAt(path, offset, buf, len)` — on the host interface and, for façade hosts
+  like TeeBox, the v1 one (both default to direct file access, `PlatformAdapter` delegates) — is
+  the chunk seam, so a provider that virtualizes or restricts files covers `FILE_LINES` too;
+  `fileExists`/`fileInfo` supply the identity.
+
+Fixtures 138_file_lines (host-injected `testDir`, like 85) and 139_error_file_lines_missing;
+`interp/FileLinesTest` covers the change detection, the limits, the BOM, the host boundaries,
+twenty workers sharing one value and the loop cap. `docs/LANGUAGE.md` synced with the spec
+(runtime note on the gate and the boundaries). **136 conformance fixtures / 481 tests green (both
+modules); dist rebuilt. TeeBox is unaffected until it picks the engine up (its lint enumerates
+the catalog, so `FILE_LINES` is known to it automatically).**
+
 ## 0.34.0
 
 **`:load` only loads, and `--result-only` prints a script's result** (host/CLI only, zero

@@ -33,6 +33,25 @@ public interface PlatformProvider {
     /** Read lines from file. start is 1-based, count limits lines returned. */
     List<String> readLines(String path, int start, int count) ;
 
+    /**
+     * Up to {@code len} bytes of the file at {@code offset} into {@code buf} (FILE_LINES, spec
+     * v0.26.0): the count read — fewer than {@code len} only at end of file — or -1 at or past the
+     * end. Opened and closed inside the call. The default reads the file directly, failing with the
+     * v1-style unchecked "Failed to read file: ..."; a provider that restricts paths overrides it.
+     */
+    default int readAt(String path, long offset, byte[] buf, int len) {
+        try (java.nio.channels.FileChannel ch = java.nio.channels.FileChannel.open(
+                java.nio.file.Path.of(path), java.nio.file.StandardOpenOption.READ)) {
+            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(buf, 0, len);
+            while (bb.hasRemaining()) {
+                if (ch.read(bb, offset + bb.position()) < 0) break;
+            }
+            return bb.position() == 0 ? -1 : bb.position();
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Failed to read file: " + e.getMessage(), e);
+        }
+    }
+
     // --- File write ---
 
     void writeFile(String path, String content) ;

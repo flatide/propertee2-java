@@ -6,6 +6,7 @@ import com.flatide.propertee2.host.DefaultPlatformProvider;
 import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.module.ModuleResolver;
 import com.flatide.propertee2.parser.ProperTeeParser;
+import com.flatide.propertee2.value.LazyLines;
 import com.flatide.propertee2.value.TeeError;
 import com.flatide.propertee2.value.Values;
 
@@ -34,6 +35,19 @@ public final class Engine {
     private com.flatide.propertee2.task.TaskRunner taskRunner = new com.flatide.propertee2.task.UnsupportedTaskRunner();
     private ModuleResolver moduleResolver;
     private String sourceId = "<memory>";
+    private long fileLinesLoadLimit = LazyLines.DEFAULT_LOAD_LIMIT;
+    private int fileLinesMaxLine = LazyLines.DEFAULT_MAX_LINE;
+
+    /**
+     * FILE_LINES limits (spec v0.26.0), in bytes: a file larger than {@code loadLimitBytes} can be
+     * gone through with a loop but not used as a whole (64 MB by default); a line longer than
+     * {@code maxLineBytes} fails the read (16 MB by default). Non-positive keeps the current value.
+     */
+    public Engine setFileLinesLimits(long loadLimitBytes, int maxLineBytes) {
+        if (loadLimitBytes > 0) this.fileLinesLoadLimit = loadLimitBytes;
+        if (maxLineBytes > 0) this.fileLinesMaxLine = maxLineBytes;
+        return this;
+    }
 
     /** Host-specific module lookup used by {@code import}; absent by default. */
     public Engine setModuleResolver(ModuleResolver moduleResolver) {
@@ -193,6 +207,7 @@ public final class Engine {
         interp.resolveModules(root, moduleResolver);
         interp.setArgs(args);
         interp.setErrorSink(err);
+        interp.setFileLinesLimits(fileLinesLoadLimit, fileLinesMaxLine);
         coop.run("main", () -> interp.run(root));   // the program is the root logical thread
         return new Outcome(interp.hasExplicitReturn(), interp.returnValue(),
                 Collections.unmodifiableMap(interp.globals()));
@@ -209,8 +224,8 @@ public final class Engine {
          * object — absence is {@code {}}, never Java null ("no implicit null").
          */
         public Object result() {
-            if (hasExplicitReturn) return returnValue;
-            if (globals.containsKey("result")) return globals.get("result");
+            if (hasExplicitReturn) return returnValue;                          // materialized at the return
+            if (globals.containsKey("result")) return Values.materialize(globals.get("result"));
             return Values.emptyObject();
         }
     }
@@ -244,6 +259,7 @@ public final class Engine {
                     externals, hiddenKeywords, ignoredFunctions, taskRunner);
             interp.setArgs(args);
             interp.setErrorSink(err);
+            interp.setFileLinesLimits(fileLinesLoadLimit, fileLinesMaxLine);
         }
 
         /**

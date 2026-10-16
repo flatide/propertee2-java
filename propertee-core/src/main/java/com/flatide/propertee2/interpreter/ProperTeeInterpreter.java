@@ -38,6 +38,8 @@ public class ProperTeeInterpreter {
     private final Coop coop = new Coop();      // per-interpreter runtime; a field so abort() has a target
     private DebugHandler debugHandler;
     private ModuleResolver moduleResolver;
+    private long fileLinesLoadLimit = com.flatide.propertee2.value.LazyLines.DEFAULT_LOAD_LIMIT;
+    private int fileLinesMaxLine = com.flatide.propertee2.value.LazyLines.DEFAULT_MAX_LINE;
     private final java.util.Set<Integer> debugBreakLines = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Map<String, java.util.Set<Integer>> moduleDebugBreakLines =
             new java.util.concurrent.ConcurrentHashMap<>();
@@ -93,6 +95,16 @@ public class ProperTeeInterpreter {
     }
 
     /**
+     * FILE_LINES limits (spec v0.26.0), in bytes: the whole-use limit (64 MB by default — a larger
+     * file can only be gone through with a loop) and the longest line (16 MB by default).
+     * Non-positive keeps the current value.
+     */
+    public void setFileLinesLimits(long loadLimitBytes, int maxLineBytes) {
+        if (loadLimitBytes > 0) this.fileLinesLoadLimit = loadLimitBytes;
+        if (maxLineBytes > 0) this.fileLinesMaxLine = maxLineBytes;
+    }
+
+    /**
      * Live, mutable set of 1-based source lines that break before executing (only consulted
      * while a {@link DebugHandler} is attached). The interpreter created by {@link #execute}
      * adopts this very set, so mutations before or during the run — it is a concurrent set,
@@ -132,6 +144,7 @@ public class ProperTeeInterpreter {
         interp.setErrorSink(errSink);
         interp.setLoopLimit(maxIterations);
         interp.setLoopLimitWarns("warn".equals(iterationLimitBehavior));
+        interp.setFileLinesLimits(fileLinesLoadLimit, fileLinesMaxLine);
         interp.setDebugHandler(debugHandler);              // no-op when null (normal execution)
         interp.setDebugBreakpoints(debugBreakLines);       // share the façade's live set
         moduleDebugBreakLines.forEach(interp::setDebugBreakpoints);

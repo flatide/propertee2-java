@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **134쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **136쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -135,6 +135,18 @@ VT·FF와 그 밖의 제어/비 ASCII 문자는 소스에 그대로 넣지 않�
 BOM, C0 제어 문자 등)를 둘러싼 경우는 `.expected`를 ASCII로 유지하려고 fixture에서 빼고,
 `BuiltinsTest.toNumberNumerals`와 propertee-js의 `test/run_to_number_test.js`가 같은 목록으로
 검사한다.
+
+## spec v0.26.0 `FILE_LINES` 쓰이는 만큼 읽히는 배열 (138-139)
+
+| fixture | 검증 내용 |
+|---|---|
+| `138_file_lines` | (85처럼 `testDir` 주입) 키-값 루프와 값 루프의 스트리밍(헤더 `continue`, `break`), `LEN`, `TYPE_OF`·인덱스·`SLICE`·`SORT`·`JOIN`·`CONTAINS`·표시·`JSON_FORMAT`·`==`·`IS_RESULT`가 `UNWRAP(READ_LINES(path))` 배열과 동일, 아직 읽지 않은 값의 복사본 독립성(요소 할당), 함수 인자로 전달, `multi` 워커가 스냅샷 값과 setup에서 만든 값을 각자 스트리밍, 호출 뒤 `APPEND_FILE`한 줄은 기존 배열에 없고 새 호출에는 있음, `\r\n`·`\r`·빈 줄·끝 줄바꿈 없는 마지막 줄·빈 파일 |
+| `139_error_file_lines_missing` | 없는 파일의 `FILE_LINES("/no/such/dir/users.csv")` → 호출 시점 런타임 에러 `FILE_LINES() cannot read '/no/such/dir/users.csv': no such file` (Result가 아님) |
+
+파일이 호출 뒤 바뀐 경우(잘림·삭제·다시 쓰기·스크립트 자신의 `WRITE_FILE`), 잘못된 UTF-8, 줄 길이
+상한, 통째 사용 상한, BOM 제거, 호스트 경계(`return`·`Engine.Outcome.result()`·외부 함수 인자·
+`TypeChecker.deepCopy`)의 평범한 배열화, 워커 20개가 공유하는 값, 루프 반복 상한은 에러 메시지에
+임시 경로가 들어가거나 상한 설정이 필요해 `interp/FileLinesTest`가 검사한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 
