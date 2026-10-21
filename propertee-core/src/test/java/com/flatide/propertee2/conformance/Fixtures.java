@@ -7,7 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * The canonical conformance fixture set (136 .tee/.expected pairs under
+ * The canonical conformance fixture set (137 .tee/.expected pairs under
  * src/test/resources/tests, from the v1 baseline through spec v0.26.0). The list is HARDCODED — not
  * directory-discovered — matching the v1 ScriptTest convention so a missing or
  * stray fixture shows up as a test failure (conformance-tests.md §하네스 TODO).
@@ -88,7 +88,9 @@ public final class Fixtures {
             // spec v0.25.0: TO_NUMBER reads exactly a decimal numeral
             "136_to_number_numerals", "137_error_to_number_hex",
             // spec v0.26.0: FILE_LINES, a file as an array read as it is used (138 host-injected testDir)
-            "138_file_lines", "139_error_file_lines_missing");
+            "138_file_lines", "139_error_file_lines_missing",
+            // spec v0.27.0: LIST_DIR / LIST_DIR_NAMES name patterns (host-injected testDir)
+            "140_list_dir_pattern");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

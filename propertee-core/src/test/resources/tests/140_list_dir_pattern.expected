@@ -1,0 +1,14 @@
+[ '.hidden.ice', '[x].ice', 'a.ice', 'ab.ice', 'b.ice', 'c.tee', 'data.txt', 'sub' ]
+[ '.hidden.ice', '[x].ice', 'a.ice', 'ab.ice', 'b.ice' ]
+[ 'a.ice', 'b.ice' ]
+[ '.hidden.ice', '[x].ice', 'a.ice', 'ab.ice', 'b.ice', 'c.tee' ]
+[ 'a.ice', 'ab.ice', 'b.ice' ]
+[ '[x].ice', 'data.txt', 'sub' ]
+[ '[x].ice' ]
+[]
+c.tee file 5
+data.txt file 8
+{ "status": 'done', "ok": true, "value": [ { "name": 'sub', "type": 'dir', "size": 0 } ] }
+{ "status": 'error', "ok": false, "value": 'LIST_DIR() pattern must not be empty' }
+{ "status": 'error', "ok": false, "value": 'LIST_DIR_NAMES() pattern is matched against entry names and cannot contain a slash: in/*.ice' }
+{ "status": 'error', "ok": false, "value": 'LIST_DIR() invalid pattern [a-: Missing ']' }

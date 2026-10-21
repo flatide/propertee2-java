@@ -3,8 +3,11 @@ package com.flatide.propertee2.host;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -50,6 +53,35 @@ public interface PlatformProvider {
 
     List<DirEntry> listDir(String path) throws IOException;    // sorted by name ascending
 
+    /**
+     * LIST_DIR with a name pattern (spec v0.27.0): the entries whose names match the glob
+     * {@code pattern}, or all of them when it is null. The default filters {@link #listDir(String)}
+     * so existing providers keep working; {@code DefaultPlatformProvider} matches while it reads.
+     * LIST_DIR without a pattern still calls {@link #listDir(String)}; a provider that restricts
+     * paths there overrides this and {@link #listDirNames} too, as it does {@link #readAt}.
+     */
+    default List<DirEntry> listDir(String path, String pattern) throws IOException {
+        List<DirEntry> all = listDir(path);
+        if (pattern == null) return all;
+        PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+        List<DirEntry> out = new ArrayList<>();
+        for (DirEntry e : all) {
+            if (matcher.matches(Path.of(e.name()))) out.add(e);
+        }
+        return out;
+    }
+
+    /**
+     * LIST_DIR_NAMES (spec v0.27.0): the names alone, sorted. The default takes them from
+     * {@link #listDir(String, String)}; a provider with direct file access overrides it to skip
+     * examining each entry, which is what makes a large directory of links slow to list.
+     */
+    default List<String> listDirNames(String path, String pattern) throws IOException {
+        List<String> out = new ArrayList<>();
+        for (DirEntry e : listDir(path, pattern)) out.add(e.name());
+        return out;
+    }
+
     void deleteFile(String path) throws IOException;           // throws if a directory or not found
 
     /**
@@ -80,6 +112,7 @@ public interface PlatformProvider {
     /** type is "file" or "dir"; size in bytes; modified in epoch millis. */
     record FileStat(String type, long size, long modified) {}
 
+    /** type is "file", "dir" or "link" (a link that cannot be followed, spec v0.27.0); size is 0 for a dir or link. */
     record DirEntry(String name, String type, long size) {}
 
     record HttpResponse(int status, String body, Map<String, String> headers) {}

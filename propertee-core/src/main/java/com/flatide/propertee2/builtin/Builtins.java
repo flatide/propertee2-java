@@ -1,5 +1,6 @@
 package com.flatide.propertee2.builtin;
 
+import com.flatide.propertee2.host.FileErrors;
 import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.value.JsonParser;
 import com.flatide.propertee2.value.LazyLines;
@@ -13,6 +14,7 @@ import com.flatide.propertee2.task.TaskRequest;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileSystems;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -527,13 +529,13 @@ public final class Builtins {
         try {
             return c.call();
         } catch (IOException e) {
-            return Result.error(e.getMessage());
+            return Result.error(FileErrors.message(e));
         } catch (UncheckedIOException e) {
             // Files.lines()/Files.list() defer I/O — a read failure during lazy consumption
             // (e.g. malformed UTF-8, a directory vanishing mid-iteration) surfaces here, not as a
             // checked IOException. Surface it as the v1 Result.error rather than a raw runtime error.
             IOException cause = e.getCause();
-            return Result.error(cause != null ? cause.getMessage() : e.getMessage());
+            return Result.error(cause != null ? FileErrors.message(cause) : e.getMessage());
         }
     }
 
@@ -627,18 +629,36 @@ public final class Builtins {
             return Result.ok(info);
         }));
 
-        b.register("LIST_DIR", Kind.HOST_GATED, args -> ioResult(() -> {
-            List<PlatformProvider.DirEntry> entries = platform.listDir(string("LIST_DIR", arg("LIST_DIR", args, 0)));
-            List<Object> out = new ArrayList<>();
-            for (PlatformProvider.DirEntry e : entries) {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("name", e.name());
-                m.put("type", e.type());
-                m.put("size", numberFromLong(e.size()));
-                out.add(m);
-            }
-            return Result.ok(out);
-        }));
+        b.register("LIST_DIR", Kind.HOST_GATED, args -> {
+            String path = string("LIST_DIR", arg("LIST_DIR", args, 0));
+            String pattern = args.size() > 1 ? string("LIST_DIR", args.get(1)) : null;
+            String problem = pattern != null ? patternProblem("LIST_DIR", pattern) : null;
+            if (problem != null) return Result.error(problem);
+            return ioResult(() -> {
+                // Without a pattern, the one-argument call a provider has always implemented.
+                List<PlatformProvider.DirEntry> entries = pattern == null
+                        ? platform.listDir(path) : platform.listDir(path, pattern);
+                List<Object> out = new ArrayList<>();
+                for (PlatformProvider.DirEntry e : entries) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("name", e.name());
+                    m.put("type", e.type());
+                    m.put("size", numberFromLong(e.size()));
+                    out.add(m);
+                }
+                return Result.ok(out);
+            });
+        });
+
+        // LIST_DIR_NAMES (spec v0.27.0): the names alone. No entry is examined — links are not
+        // followed — so a large directory of links lists without touching what they point to.
+        b.register("LIST_DIR_NAMES", Kind.HOST_GATED, args -> {
+            String path = string("LIST_DIR_NAMES", arg("LIST_DIR_NAMES", args, 0));
+            String pattern = args.size() > 1 ? string("LIST_DIR_NAMES", args.get(1)) : null;
+            String problem = pattern != null ? patternProblem("LIST_DIR_NAMES", pattern) : null;
+            if (problem != null) return Result.error(problem);
+            return ioResult(() -> Result.ok(new ArrayList<Object>(platform.listDirNames(path, pattern))));
+        });
 
         b.register("DELETE_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
             String path = string("DELETE_FILE", arg("DELETE_FILE", args, 0));
@@ -680,6 +700,24 @@ public final class Builtins {
                 throw new TeeError("FILE_LINES() cannot read '" + path + "': " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * Why a LIST_DIR / LIST_DIR_NAMES name pattern cannot be used, or null when it can. A pattern
+     * is a glob over entry names, so an empty one or one with '/' could never match: an error
+     * Result says so rather than an empty listing.
+     */
+    private static String patternProblem(String fn, String pattern) {
+        if (pattern.isEmpty()) return fn + "() pattern must not be empty";
+        if (pattern.indexOf('/') >= 0) {
+            return fn + "() pattern is matched against entry names and cannot contain a slash: " + pattern;
+        }
+        try {
+            FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+        } catch (PatternSyntaxException e) {
+            return fn + "() invalid pattern " + pattern + ": " + e.getDescription();
+        }
+        return null;
     }
 
     private static boolean isWhole(Object v) {

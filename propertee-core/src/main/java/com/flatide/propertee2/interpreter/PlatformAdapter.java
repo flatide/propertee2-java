@@ -54,13 +54,23 @@ final class PlatformAdapter implements com.flatide.propertee2.host.PlatformProvi
     }
 
     @Override public List<DirEntry> listDir(String path) throws IOException {
-        return io(() -> {
-            List<DirEntry> out = new ArrayList<>();
-            for (com.flatide.propertee2.platform.PlatformProvider.FileEntry e : v1.listDir(path)) {
-                out.add(new DirEntry(e.name, e.type, e.size));
-            }
-            return out;
-        });
+        return io(() -> entries(v1.listDir(path)));
+    }
+
+    @Override public List<DirEntry> listDir(String path, String pattern) throws IOException {
+        return io(() -> entries(v1.listDir(path, pattern)));
+    }
+
+    @Override public List<String> listDirNames(String path, String pattern) throws IOException {
+        return io(() -> v1.listDirNames(path, pattern));
+    }
+
+    private static List<DirEntry> entries(List<com.flatide.propertee2.platform.PlatformProvider.FileEntry> v1Entries) {
+        List<DirEntry> out = new ArrayList<>();
+        for (com.flatide.propertee2.platform.PlatformProvider.FileEntry e : v1Entries) {
+            out.add(new DirEntry(e.name, e.type, e.size));
+        }
+        return out;
     }
 
     @Override

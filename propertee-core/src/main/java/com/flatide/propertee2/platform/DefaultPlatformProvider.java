@@ -1,5 +1,8 @@
 package com.flatide.propertee2.platform;
 
+import com.flatide.propertee2.host.DirListing;
+import com.flatide.propertee2.host.FileErrors;
+
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -37,28 +40,33 @@ public class DefaultPlatformProvider implements PlatformProvider {
 
     @Override
     public List<FileEntry> listDir(String path) {
-        File dir = new File(path);
-        if (!dir.isDirectory()) {
-            throw new RuntimeException("Not a directory: " + path);
-        }
-        File[] files = dir.listFiles();
-        List<FileEntry> entries = new ArrayList<FileEntry>();
-        if (files != null) {
-            Arrays.sort(files, new Comparator<File>() {
-                @Override
-                public int compare(File a, File b) {
-                    return a.getName().compareTo(b.getName());
-                }
-            });
-            for (File f : files) {
-                entries.add(new FileEntry(
-                    f.getName(),
-                    f.isDirectory() ? "dir" : "file",
-                    f.length()
-                ));
+        return listDir(path, null);
+    }
+
+    /**
+     * The same listing as the CLI's provider (spec v0.27.0): a link that cannot be followed is a
+     * "link", a directory has size 0, and an unreadable directory fails instead of listing empty.
+     */
+    @Override
+    public List<FileEntry> listDir(String path, String pattern) {
+        try {
+            List<FileEntry> entries = new ArrayList<FileEntry>();
+            for (com.flatide.propertee2.host.PlatformProvider.DirEntry e : DirListing.entries(path, pattern)) {
+                entries.add(new FileEntry(e.name(), e.type(), e.size()));
             }
+            return entries;
+        } catch (IOException e) {
+            throw new RuntimeException(FileErrors.message(e), e);
         }
-        return entries;
+    }
+
+    @Override
+    public List<String> listDirNames(String path, String pattern) {
+        try {
+            return DirListing.names(path, pattern);
+        } catch (IOException e) {
+            throw new RuntimeException(FileErrors.message(e), e);
+        }
     }
 
     @Override

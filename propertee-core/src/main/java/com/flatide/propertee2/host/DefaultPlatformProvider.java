@@ -11,8 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,16 +72,17 @@ public final class DefaultPlatformProvider implements PlatformProvider {
 
     @Override
     public List<DirEntry> listDir(String path) throws IOException {
-        List<DirEntry> entries = new ArrayList<>();
-        try (Stream<Path> list = Files.list(Path.of(path))) {
-            for (Path p : (Iterable<Path>) list::iterator) {
-                boolean dir = Files.isDirectory(p);
-                long size = dir ? 0 : Files.size(p);
-                entries.add(new DirEntry(p.getFileName().toString(), dir ? "dir" : "file", size));
-            }
-        }
-        entries.sort(Comparator.comparing(DirEntry::name));
-        return entries;
+        return DirListing.entries(path, null);
+    }
+
+    @Override
+    public List<DirEntry> listDir(String path, String pattern) throws IOException {
+        return DirListing.entries(path, pattern);
+    }
+
+    @Override
+    public List<String> listDirNames(String path, String pattern) throws IOException {
+        return DirListing.names(path, pattern);
     }
 
     @Override

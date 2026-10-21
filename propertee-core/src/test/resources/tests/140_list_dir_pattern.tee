@@ -1,0 +1,29 @@
+// LIST_DIR / LIST_DIR_NAMES name patterns (spec v0.27.0)
+// Uses ::testDir injected as builtin property
+
+dir = ::testDir + "/in"
+MKDIR(dir + "/sub")
+loop name in ["b.ice", "a.ice", ".hidden.ice", "ab.ice", "c.tee", "data.txt", "[x].ice"] do
+    WRITE_FILE(dir + "/" + name, name)
+end
+
+// The names alone, sorted; a pattern is a glob over the names
+PRINT(UNWRAP(LIST_DIR_NAMES(dir)))
+PRINT(UNWRAP(LIST_DIR_NAMES(dir, "*.ice")))
+PRINT(UNWRAP(LIST_DIR_NAMES(dir, "?.ice")))
+PRINT(UNWRAP(LIST_DIR_NAMES(dir, "*.{ice,tee}")))
+PRINT(UNWRAP(LIST_DIR_NAMES(dir, "[ab]*")))
+PRINT(UNWRAP(LIST_DIR_NAMES(dir, "[!.a-c]*")))
+PRINT(UNWRAP(LIST_DIR_NAMES(dir, "\\[x].ice")))
+PRINT(UNWRAP(LIST_DIR_NAMES(dir, "*.csv")))
+
+// LIST_DIR takes the same pattern; a directory has size 0
+loop e in UNWRAP(LIST_DIR(dir, "*.t*")) do
+    PRINT(e.name, e.type, e.size)
+end
+PRINT(LIST_DIR(dir, "s*"))
+
+// A pattern that can never match a name is an error Result, not an empty listing
+PRINT(LIST_DIR(dir, ""))
+PRINT(LIST_DIR_NAMES(dir, "in/*.ice"))
+PRINT(LIST_DIR(dir, "[a-"))

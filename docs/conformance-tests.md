@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **136쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **137쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -147,6 +147,17 @@ BOM, C0 제어 문자 등)를 둘러싼 경우는 `.expected`를 ASCII로 유지
 상한, 통째 사용 상한, BOM 제거, 호스트 경계(`return`·`Engine.Outcome.result()`·외부 함수 인자·
 `TypeChecker.deepCopy`)의 평범한 배열화, 워커 20개가 공유하는 값, 루프 반복 상한은 에러 메시지에
 임시 경로가 들어가거나 상한 설정이 필요해 `interp/FileLinesTest`가 검사한다.
+
+## spec v0.27.0 `LIST_DIR` 이름 패턴과 `LIST_DIR_NAMES` (140)
+
+| fixture | 검증 내용 |
+|---|---|
+| `140_list_dir_pattern` | (85처럼 `testDir` 주입) `LIST_DIR_NAMES`의 이름순 정렬(점으로 시작하는 이름 포함), glob `*`(앞의 `.`도 맞음)·`?`·`{a,b}`·`[ab]`·`[!.a-c]`·`\[`(글자 그대로)·맞는 것 없음(빈 배열), 같은 패턴의 `LIST_DIR`(파일 크기, 디렉터리 size 0), 빈 패턴·`/`가 든 패턴·닫히지 않은 `[`의 error Result 메시지 |
+
+심볼릭 링크(파일·디렉터리를 가리키는 링크, 깨진 링크, 순환 링크, 접근할 수 없는 대상 → `"link"`),
+읽을 수 없는 디렉터리, 이유를 붙인 에러 메시지, v1 provider(TeeBox 경로)와의 출력 일치, 1인자
+`listDir`만 구현한 호스트 provider의 기본 메서드는 링크 생성·권한 설정이 필요하거나 메시지에 임시
+경로가 들어가 `interp/ListDirTest`가 검사한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

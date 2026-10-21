@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.36.0
+
+**Spec v0.27.0 — `LIST_DIR`: links that cannot be followed, name patterns, names only** (user
+report: on the CLI, `LIST_DIR(".")` over a directory of links failed as a whole with only
+`'./VSQ14K2XR.99'` as its message — one link pointed at a file that no longer existed — and a
+directory of many links listed slowly even when it worked).
+
+- **A link that cannot be followed is listed, not fatal.** `host/DirListing` reads each entry once
+  with `Files.readAttributes` (following links; the old code stat'ed twice, `isDirectory` then
+  `size`), and when that fails a `NOFOLLOW_LINKS` read decides: a symbolic link becomes
+  `{type: "link", size: 0}`; an entry gone since the directory was read is left out; anything else
+  still fails the call. Links that resolve are listed as before, as the file or directory they
+  point to.
+- **`LIST_DIR(path, pattern)`**: an optional glob over entry names, applied by
+  `Files.newDirectoryStream(dir, glob)` — Java's `getPathMatcher("glob:...")` syntax (`*` also
+  matches a leading dot, `[!...]` negates, `{a,b}`, `\` escapes; case-insensitive only on
+  Windows). `Builtins.patternProblem` turns an empty pattern, one containing `/` (names never
+  match it) and a malformed one into an error Result before any provider is called; a non-string
+  pattern is the usual `LIST_DIR() requires a string argument` runtime error.
+- **`LIST_DIR_NAMES(path, [pattern])`** (catalog, host-gated): the sorted names alone from the
+  directory stream, with no per-entry stat, so it never touches what links point to.
+- **File error messages name the reason.** NIO's `NoSuchFileException`/`AccessDeniedException`/
+  `NotDirectoryException` carry only the path, which `ioResult` passed through as the whole
+  message. `host/FileErrors.message` now prefixes the reason (`No such file or directory: ./x`,
+  `Permission denied: ...`, `Not a directory: ...`) for every Result-returning file builtin on the
+  default provider.
+- **TeeBox lists the same way.** The v1 façade's `platform.DefaultPlatformProvider` (which
+  TeeBox extends) now lists through `DirListing` too. Before, it used `java.io.File`, which listed
+  a link that cannot be followed as an empty `"file"`, gave a directory its on-disk size (64,
+  4096, ...) instead of 0, listed an unreadable directory as empty, and reported a missing path as
+  `Not a directory`.
+- **Host API.** Both `PlatformProvider` interfaces gain default methods
+  `listDir(path, pattern)` (filters the provider's own `listDir(path)`) and
+  `listDirNames(path, pattern)` (names from `listDir(path, pattern)`); the default providers
+  override them, and `PlatformAdapter` forwards them to the v1 provider. `LIST_DIR` without a
+  pattern still calls the one-argument `listDir`, so a provider that restricts paths there keeps
+  doing so; one that restricts paths overrides the new methods too, as for `readAt`.
+- Tests: fixture `140_list_dir_pattern` (testDir-injected) pins the glob rules, sorting, and the
+  pattern error Results; `interp/ListDirTest` covers links (to a file, to a directory, broken,
+  looping, to an unreadable target), an unreadable directory, the reason-first messages, the same
+  output through the v1 façade, and a pre-0.36.0 provider that implements only `listDir(path)`.
+  137 fixtures; core 438 + CLI 51 tests green.
+
 ## 0.35.0
 
 **Spec v0.26.0 — `FILE_LINES`: a file as an array, read as it is used** (user report: going

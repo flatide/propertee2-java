@@ -28,6 +28,35 @@ public interface PlatformProvider {
 
     List<FileEntry> listDir(String path) ;
 
+    /**
+     * LIST_DIR with a name pattern (spec v0.27.0): the entries whose names match the glob
+     * {@code pattern}, or all of them when it is null. The default filters {@link #listDir(String)}
+     * so existing providers keep working; {@code DefaultPlatformProvider} matches while it reads.
+     * LIST_DIR without a pattern still calls {@link #listDir(String)}; a provider that restricts
+     * paths there overrides this and {@link #listDirNames} too, as it does {@link #readAt}.
+     */
+    default List<FileEntry> listDir(String path, String pattern) {
+        List<FileEntry> all = listDir(path);
+        if (pattern == null) return all;
+        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+        List<FileEntry> out = new java.util.ArrayList<FileEntry>();
+        for (FileEntry e : all) {
+            if (matcher.matches(java.nio.file.Path.of(e.name))) out.add(e);
+        }
+        return out;
+    }
+
+    /**
+     * LIST_DIR_NAMES (spec v0.27.0): the names alone, sorted. The default takes them from
+     * {@link #listDir(String, String)}; a provider with direct file access overrides it to skip
+     * examining each entry, which is what makes a large directory of links slow to list.
+     */
+    default List<String> listDirNames(String path, String pattern) {
+        List<String> out = new java.util.ArrayList<String>();
+        for (FileEntry e : listDir(path, pattern)) out.add(e.name);
+        return out;
+    }
+
     // --- File read ---
 
     /** Read lines from file. start is 1-based, count limits lines returned. */
@@ -103,7 +132,7 @@ public interface PlatformProvider {
 
     class FileEntry {
         public final String name;
-        public final String type;  // "file" or "dir"
+        public final String type;  // "file", "dir" or "link" (a link that cannot be followed, spec v0.27.0)
         public final long size;
 
         public FileEntry(String name, String type, long size) {
