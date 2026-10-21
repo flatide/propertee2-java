@@ -50,23 +50,28 @@ public class DefaultPlatformProvider implements PlatformProvider {
     @Override
     public List<FileEntry> listDir(String path, String pattern) {
         try {
-            List<FileEntry> entries = new ArrayList<FileEntry>();
-            for (com.flatide.propertee2.host.PlatformProvider.DirEntry e : DirListing.entries(path, pattern)) {
-                entries.add(new FileEntry(e.name(), e.type(), e.size()));
-            }
-            return entries;
+            return fileEntries(DirListing.entries(path, pattern));
         } catch (IOException e) {
             throw new RuntimeException(FileErrors.message(e), e);
         }
     }
 
+    /** The same names and types as the CLI's provider (spec v0.28.0): links are not followed. */
     @Override
-    public List<String> listDirNames(String path, String pattern) {
+    public List<FileEntry> listDirNames(String path, String pattern) {
         try {
-            return DirListing.names(path, pattern);
+            return fileEntries(DirListing.names(path, pattern));
         } catch (IOException e) {
             throw new RuntimeException(FileErrors.message(e), e);
         }
+    }
+
+    private static List<FileEntry> fileEntries(List<com.flatide.propertee2.host.PlatformProvider.DirEntry> entries) {
+        List<FileEntry> out = new ArrayList<FileEntry>();
+        for (com.flatide.propertee2.host.PlatformProvider.DirEntry e : entries) {
+            out.add(new FileEntry(e.name(), e.type(), e.size()));
+        }
+        return out;
     }
 
     @Override

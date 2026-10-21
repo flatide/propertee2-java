@@ -1,9 +1,16 @@
-[ '.hidden.ice', '[x].ice', 'a.ice', 'ab.ice', 'b.ice', 'c.tee', 'data.txt', 'sub' ]
+.hidden.ice file
+[x].ice file
+a.ice file
+ab.ice file
+b.ice file
+c.tee file
+data.txt file
+sub dir
 [ '.hidden.ice', '[x].ice', 'a.ice', 'ab.ice', 'b.ice' ]
 [ 'a.ice', 'b.ice' ]
 [ '.hidden.ice', '[x].ice', 'a.ice', 'ab.ice', 'b.ice', 'c.tee' ]
 [ 'a.ice', 'ab.ice', 'b.ice' ]
-[ '[x].ice', 'data.txt', 'sub' ]
+[ { "name": '[x].ice', "type": 'file' }, { "name": 'data.txt', "type": 'file' }, { "name": 'sub', "type": 'dir' } ]
 [ '[x].ice' ]
 []
 c.tee file 5

@@ -1,9 +1,9 @@
 # ProperTee2 for Java (Java 25 · virtual-thread runtime)
 
-`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다. 현재는 **스펙 v0.26.0**(`FILE_LINES` — 파일을 쓰이는 만큼 읽히는 배열로; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
+`propertee2-java`는 [ProperTee](https://github.com/flatide/ProperTee) 언어의 **완전 협력형(fully-cooperative) 런타임**이다. [`propertee-java`](https://github.com/flatide/propertee-java) v1(Java 7/8, stepper 기반)이 남긴 eager seam을 **Java 25 virtual thread(Project Loom) 코루틴**으로 근본 해결한다. 값/타입/스코프/에러 메시지 의미는 **스펙에 고정**된다. 현재는 **스펙 v0.28.0**(`LIST_DIR_NAMES`가 각 항목의 종류를 알려줌; [`docs/LANGUAGE.md`](docs/LANGUAGE.md) changelog)을 구현한다. 스케줄링(중단/협력)은 v1의 eager seam을 제거한 완전 협력형이다.
 
 - **베이스라인:** Java 25 LTS, **stable API만** (virtual threads + `ScopedValue`). `StructuredTaskScope`는 25에서도 preview라 회피 — `multi`는 hand-roll. **preview 의존 0.**
-- **상태:** **conformance 스위트 137/137 통과** (byte-for-byte, deterministic). 0.36.0은 스펙 v0.27.0의 `LIST_DIR` 변경을 구현한다: 따라갈 수 없는 링크(대상 없음·접근 불가·순환)는 호출 전체를 실패시키지 않고 type `"link"`, size 0으로 나열되고, 선택 인자 `pattern`(`*`, `?`, `[...]`, `[!...]`, `{a,b}` glob)으로 이름을 거르며, 새 `LIST_DIR_NAMES(path, [pattern])`는 항목을 확인하지 않고 이름만 돌려줘 링크가 많은 큰 디렉터리에서 훨씬 빠르다. 파일 I/O 에러 메시지는 경로만이 아니라 이유를 앞에 붙인다(`No such file or directory: ./x`). TeeBox가 쓰는 v1 provider도 같은 코드로 나열한다. 0.35.0의 `FILE_LINES`, 0.34.0의 REPL `:load`와 `--result-only`, 0.30.0의 depth 1 `import`는 그대로다. Java 7/8 구현체는 갱신하지 않는다.
+- **상태:** **conformance 스위트 137/137 통과** (byte-for-byte, deterministic). 0.37.0은 스펙 v0.28.0을 구현한다: `LIST_DIR_NAMES(path, [pattern])`가 이름만이 아니라 `{name, type}`을 돌려준다 — 링크는 따라가지 않고 `"link"`, 디렉터리는 `"dir"`, 그 밖은 `"file"` — 항목마다 lstat 한 번뿐이라 링크가 많은 큰 디렉터리에서도 `LIST_DIR`보다 훨씬 빠르다. 0.36.0(스펙 v0.27.0)의 `LIST_DIR` 변경 — 따라갈 수 없는 링크(대상 없음·접근 불가·순환)는 호출 전체를 실패시키지 않고 type `"link"`, size 0으로 나열되고, 선택 인자 `pattern`(`*`, `?`, `[...]`, `[!...]`, `{a,b}` glob)으로 이름을 거르며, 파일 I/O 에러 메시지는 이유를 앞에 붙인다(`No such file or directory: ./x`) — 은 그대로이고, TeeBox가 쓰는 v1 provider도 같은 코드로 나열한다. 0.35.0의 `FILE_LINES`, 0.34.0의 REPL `:load`와 `--result-only`, 0.30.0의 depth 1 `import`는 그대로다. Java 7/8 구현체는 갱신하지 않는다.
 
 ## 빌드 / 테스트
 
@@ -16,17 +16,17 @@ JDK 25 toolchain이 필요하다(`~/.gradle/gradle.properties`의 `org.gradle.ja
 ## 실행 (CLI)
 
 ```bash
-./gradlew dist                                  # → dist/propertee2-0.36.0.jar + dist/propertee2.jar(안정 경로 사본)
-java -jar dist/propertee2-0.36.0.jar script.tee
+./gradlew dist                                  # → dist/propertee2-0.37.0.jar + dist/propertee2.jar(안정 경로 사본)
+java -jar dist/propertee2-0.37.0.jar script.tee
 
 # 호스트 프로퍼티 주입(-p, JSON object → 빌트인 프로퍼티 / _PROPS)
-java -jar dist/propertee2-0.36.0.jar -p '{"width":100,"height":200}' script.tee
+java -jar dist/propertee2-0.37.0.jar -p '{"width":100,"height":200}' script.tee
 
 # 스크립트 파일 없이 실행하면 인터랙티브 REPL (0.18.0)
-java -jar dist/propertee2-0.36.0.jar
+java -jar dist/propertee2-0.37.0.jar
 
 # 결과값만 JSON으로 출력 (0.34.0) — PRINT 출력은 버리고 stderr는 그대로
-java -jar dist/propertee2-0.36.0.jar --result-only script.tee
+java -jar dist/propertee2-0.37.0.jar --result-only script.tee
 ```
 
 **`--result-only`:** 스크립트의 결과값을 JSON 한 줄로 stdout에 찍는다. 결과값은 TeeBox가 run 결과로 돌려주는 값과 같다: 최상위 `return` 값, 없으면 마지막 전역 변수 `result`, 둘 다 없으면 `{}`. `PRINT` 출력은 버리고, stderr로 가는 진단(`[THREAD ERROR]` 등)은 그대로 둔다. 런타임 에러는 결과가 없으므로 `Runtime error:` 줄을 stderr에 쓰고 종료 코드 1로 끝난다(기본 모드는 지금처럼 stdout + 종료 코드 0). 옵션은 스크립트 경로 앞에 둔다(뒤는 `_ARGS`). `-i`와는 함께 쓸 수 없다. 임베딩 호스트는 같은 값을 `Engine.execute(...)`가 돌려주는 `Engine.Outcome#result()`로 얻는다.

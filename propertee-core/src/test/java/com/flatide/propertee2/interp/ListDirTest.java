@@ -27,9 +27,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * LIST_DIR / LIST_DIR_NAMES (spec v0.27.0) — what fixture 140 cannot set up: symbolic links,
- * unreadable directories, messages that name the temporary path, and the same listing through the
- * v1 provider TeeBox runs on.
+ * LIST_DIR / LIST_DIR_NAMES (spec v0.27.0, v0.28.0) — what fixture 140 cannot set up: symbolic
+ * links, unreadable directories, messages that name the temporary path, and the same listing
+ * through the v1 provider TeeBox runs on.
  */
 class ListDirTest {
 
@@ -63,11 +63,14 @@ class ListDirTest {
     }
 
     /** A directory nobody but root can read; skips the test where permissions are not enforced. */
-    private Path lockedDir(String name) throws IOException {
+    private Path lockedDir(String name) throws IOException { return lockedDir(name, "---------"); }
+
+    /** A directory holding the file x, with {@code perms}, which must keep its owner from reading x. */
+    private Path lockedDir(String name, String perms) throws IOException {
         assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
         Path p = Files.createDirectory(dir.resolve(name));
         Files.writeString(p.resolve("x"), "x");
-        Files.setPosixFilePermissions(p, PosixFilePermissions.fromString("---------"));
+        Files.setPosixFilePermissions(p, PosixFilePermissions.fromString(perms));
         locked.add(p);
         assumeFalse(Files.isReadable(p.resolve("x")), "running as root");
         return p;
@@ -118,11 +121,33 @@ class ListDirTest {
         assertEquals(expected, teebox(script));
     }
 
-    @Test void namesListEveryEntryIncludingLinksThatCannotBeFollowed() throws IOException {
+    @Test void namesGiveEachEntrysOwnTypeAndFollowNoLink() throws IOException {
         linkedTree();
-        String script = "PRINT(UNWRAP(LIST_DIR_NAMES(d)))\nPRINT(UNWRAP(LIST_DIR_NAMES(d, \"*o*\")))\n";
-        String expected = "[ 'a.txt', 'broken', 'loop1', 'loop2', 'sub', 'to-a', 'to-sub' ]\n"
-                + "[ 'broken', 'loop1', 'loop2', 'to-a', 'to-sub' ]\n";
+        String script = """
+                loop e in UNWRAP(LIST_DIR_NAMES(d)) do
+                    PRINT(e.name, e.type)
+                end
+                PRINT(UNWRAP(LIST_DIR_NAMES(d, "to-*")))
+                """;
+        String expected = """
+                a.txt file
+                broken link
+                loop1 link
+                loop2 link
+                sub dir
+                to-a link
+                to-sub link
+                [ { "name": 'to-a', "type": 'link' }, { "name": 'to-sub', "type": 'link' } ]
+                """;
+        assertEquals(expected, cli(script));
+        assertEquals(expected, teebox(script));
+    }
+
+    @Test void aDirectoryWhoseEntriesCannotBeExaminedFails() throws IOException {
+        Path listable = lockedDir("listable", "r--------");   // names readable, entries not
+        String script = "PRINT(LIST_DIR(d + \"/listable\").value)\nPRINT(LIST_DIR_NAMES(d + \"/listable\").value)\n";
+        String expected = "Permission denied: " + listable.resolve("x") + "\n"
+                + "Permission denied: " + listable.resolve("x") + "\n";
         assertEquals(expected, cli(script));
         assertEquals(expected, teebox(script));
     }
@@ -164,8 +189,8 @@ class ListDirTest {
         assertEquals("""
                 3
                 [ { "name": 'a.ice', "type": 'file', "size": 1 }, { "name": 'c.ice', "type": 'dir', "size": 0 } ]
-                [ 'a.ice', 'b.txt', 'c.ice' ]
-                [ 'b.txt' ]
+                [ { "name": 'a.ice', "type": 'file' }, { "name": 'b.txt', "type": 'file' }, { "name": 'c.ice', "type": 'dir' } ]
+                [ { "name": 'b.txt', "type": 'file' } ]
                 """, new Engine().run(script, Map.of("d", "/virtual"), provider));
     }
 

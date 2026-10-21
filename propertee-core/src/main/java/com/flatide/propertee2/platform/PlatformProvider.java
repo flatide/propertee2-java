@@ -47,14 +47,14 @@ public interface PlatformProvider {
     }
 
     /**
-     * LIST_DIR_NAMES (spec v0.27.0): the names alone, sorted. The default takes them from
-     * {@link #listDir(String, String)}; a provider with direct file access overrides it to skip
-     * examining each entry, which is what makes a large directory of links slow to list.
+     * LIST_DIR_NAMES (spec v0.28.0): each entry's name and its own type, sorted; {@code size} is not
+     * used. A link is not followed — it is a "link" whatever it points to. The default takes the
+     * entries from {@link #listDir(String, String)}, whose links are followed; a provider with direct
+     * file access overrides it so that what links point to is never read, which is what makes a
+     * large directory of links slow to list.
      */
-    default List<String> listDirNames(String path, String pattern) {
-        List<String> out = new java.util.ArrayList<String>();
-        for (FileEntry e : listDir(path, pattern)) out.add(e.name);
-        return out;
+    default List<FileEntry> listDirNames(String path, String pattern) {
+        return listDir(path, pattern);
     }
 
     // --- File read ---
@@ -132,7 +132,7 @@ public interface PlatformProvider {
 
     class FileEntry {
         public final String name;
-        public final String type;  // "file", "dir" or "link" (a link that cannot be followed, spec v0.27.0)
+        public final String type;  // "file", "dir" or "link" (LIST_DIR: one that cannot be followed; LIST_DIR_NAMES: any)
         public final long size;
 
         public FileEntry(String name, String type, long size) {

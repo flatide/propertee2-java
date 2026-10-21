@@ -81,7 +81,7 @@ public final class DefaultPlatformProvider implements PlatformProvider {
     }
 
     @Override
-    public List<String> listDirNames(String path, String pattern) throws IOException {
+    public List<DirEntry> listDirNames(String path, String pattern) throws IOException {
         return DirListing.names(path, pattern);
     }
 

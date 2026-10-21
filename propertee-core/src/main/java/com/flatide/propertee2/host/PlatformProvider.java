@@ -72,14 +72,14 @@ public interface PlatformProvider {
     }
 
     /**
-     * LIST_DIR_NAMES (spec v0.27.0): the names alone, sorted. The default takes them from
-     * {@link #listDir(String, String)}; a provider with direct file access overrides it to skip
-     * examining each entry, which is what makes a large directory of links slow to list.
+     * LIST_DIR_NAMES (spec v0.28.0): each entry's name and its own type, sorted; {@code size} is not
+     * used. A link is not followed — it is a "link" whatever it points to. The default takes the
+     * entries from {@link #listDir(String, String)}, whose links are followed; a provider with direct
+     * file access overrides it so that what links point to is never read, which is what makes a
+     * large directory of links slow to list.
      */
-    default List<String> listDirNames(String path, String pattern) throws IOException {
-        List<String> out = new ArrayList<>();
-        for (DirEntry e : listDir(path, pattern)) out.add(e.name());
-        return out;
+    default List<DirEntry> listDirNames(String path, String pattern) throws IOException {
+        return listDir(path, pattern);
     }
 
     void deleteFile(String path) throws IOException;           // throws if a directory or not found
@@ -112,7 +112,10 @@ public interface PlatformProvider {
     /** type is "file" or "dir"; size in bytes; modified in epoch millis. */
     record FileStat(String type, long size, long modified) {}
 
-    /** type is "file", "dir" or "link" (a link that cannot be followed, spec v0.27.0); size is 0 for a dir or link. */
+    /**
+     * type is "file", "dir" or "link" — from LIST_DIR a link that cannot be followed (spec v0.27.0),
+     * from LIST_DIR_NAMES any link (spec v0.28.0); size is 0 for a dir or link.
+     */
     record DirEntry(String name, String type, long size) {}
 
     record HttpResponse(int status, String body, Map<String, String> headers) {}

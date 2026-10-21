@@ -650,14 +650,24 @@ public final class Builtins {
             });
         });
 
-        // LIST_DIR_NAMES (spec v0.27.0): the names alone. No entry is examined — links are not
-        // followed — so a large directory of links lists without touching what they point to.
+        // LIST_DIR_NAMES (spec v0.28.0): each entry's name and its own type. Links are not followed
+        // — a link is a "link" — so a large directory of links lists without touching what they
+        // point to.
         b.register("LIST_DIR_NAMES", Kind.HOST_GATED, args -> {
             String path = string("LIST_DIR_NAMES", arg("LIST_DIR_NAMES", args, 0));
             String pattern = args.size() > 1 ? string("LIST_DIR_NAMES", args.get(1)) : null;
             String problem = pattern != null ? patternProblem("LIST_DIR_NAMES", pattern) : null;
             if (problem != null) return Result.error(problem);
-            return ioResult(() -> Result.ok(new ArrayList<Object>(platform.listDirNames(path, pattern))));
+            return ioResult(() -> {
+                List<Object> out = new ArrayList<>();
+                for (PlatformProvider.DirEntry e : platform.listDirNames(path, pattern)) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("name", e.name());
+                    m.put("type", e.type());
+                    out.add(m);
+                }
+                return Result.ok(out);
+            });
         });
 
         b.register("DELETE_FILE", Kind.HOST_GATED, args -> ioResult(() -> {

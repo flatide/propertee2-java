@@ -9,14 +9,13 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
 /**
- * LIST_DIR / LIST_DIR_NAMES over the real file system (spec v0.27.0). Both default providers —
- * this package's and the v1 {@code platform.DefaultPlatformProvider} that TeeBox extends — list
- * through here, so a directory reads the same under the CLI and under TeeBox.
+ * LIST_DIR / LIST_DIR_NAMES over the real file system (spec v0.27.0, v0.28.0). Both default
+ * providers — this package's and the v1 {@code platform.DefaultPlatformProvider} that TeeBox
+ * extends — list through here, so a directory reads the same under the CLI and under TeeBox.
  */
 public final class DirListing {
 
@@ -43,15 +42,30 @@ public final class DirListing {
         return out;
     }
 
-    /** The names alone, sorted. No entry is examined, so a directory full of links lists fast. */
-    public static List<String> names(String dir, String pattern) throws IOException {
-        List<String> out = new ArrayList<>();
+    /**
+     * Each entry's name and its own type, sorted by name (LIST_DIR_NAMES, spec v0.28.0). An entry is
+     * examined without following it — a symbolic link is a "link" whatever it points to, even
+     * nothing — so what the links point to is never read, which is what makes {@link #entries} slow
+     * on a directory full of links. Sizes are not read (0); an entry removed while the directory is
+     * read is left out.
+     */
+    public static List<PlatformProvider.DirEntry> names(String dir, String pattern) throws IOException {
+        List<PlatformProvider.DirEntry> out = new ArrayList<>();
         try (DirectoryStream<Path> stream = open(dir, pattern)) {
-            for (Path p : stream) out.add(p.getFileName().toString());
+            for (Path p : stream) {
+                BasicFileAttributes own;
+                try {
+                    own = Files.readAttributes(p, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                } catch (NoSuchFileException gone) {
+                    continue;
+                }
+                String type = own.isSymbolicLink() ? "link" : own.isDirectory() ? "dir" : "file";
+                out.add(new PlatformProvider.DirEntry(p.getFileName().toString(), type, 0));
+            }
         } catch (DirectoryIteratorException e) {
             throw e.getCause();
         }
-        Collections.sort(out);
+        out.sort(Comparator.comparing(PlatformProvider.DirEntry::name));
         return out;
     }
 

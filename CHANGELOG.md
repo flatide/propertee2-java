@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.37.0
+
+**Spec v0.28.0 — `LIST_DIR_NAMES` gives each entry's type** (user feedback on 0.36.0:
+`LIST_DIR_NAMES` was fast, but without a type it could not stand in for `LIST_DIR`).
+
+- **`LIST_DIR_NAMES` returns `{name, type}` objects** instead of name strings.
+  `host/DirListing.names` reads each entry once with a `NOFOLLOW_LINKS` `readAttributes` (an
+  `lstat`): a symbolic link is `"link"` whatever it points to, a directory `"dir"`, anything else
+  `"file"`. An entry gone since the directory was read is left out; any other failure — a
+  directory with read but not execute permission — fails the call, as it does for `LIST_DIR`.
+  What links point to is still never read. 20,000 links on a local SSD, warm cache: names alone
+  15 ms, names and types 60 ms, `LIST_DIR` 97 ms; the gap to `LIST_DIR` widens where the links
+  point into another (network) file system.
+- **Host API (breaking for overriders).** `listDirNames(path, pattern)` on both
+  `PlatformProvider` interfaces returns entries — `List<DirEntry>` / `List<FileEntry>`, `size`
+  unused — instead of `List<String>`. Its default returns `listDir(path, pattern)` as is, so a
+  provider that only lists gives the types of its own listing (links followed there). The default
+  providers and `PlatformAdapter` follow; a provider that overrode the 0.36.0 `List<String>`
+  signature no longer compiles.
+- Tests: fixture `140_list_dir_pattern` prints each entry's name and type and keeps its pattern
+  checks on the names; `interp/ListDirTest` pins that every link is `"link"` (to a file, to a
+  directory, broken, looping), that a directory whose entries cannot be examined fails both
+  listings, and the default for a provider that implements only `listDir(path)`. 137 fixtures;
+  core 439 + CLI 51 tests green.
+
 ## 0.36.0
 
 **Spec v0.27.0 — `LIST_DIR`: links that cannot be followed, name patterns, names only** (user

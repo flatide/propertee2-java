@@ -1,4 +1,4 @@
-// LIST_DIR / LIST_DIR_NAMES name patterns (spec v0.27.0)
+// LIST_DIR / LIST_DIR_NAMES name patterns (spec v0.27.0); LIST_DIR_NAMES entry types (spec v0.28.0)
 // Uses ::testDir injected as builtin property
 
 dir = ::testDir + "/in"
@@ -7,14 +7,26 @@ loop name in ["b.ice", "a.ice", ".hidden.ice", "ab.ice", "c.tee", "data.txt", "[
     WRITE_FILE(dir + "/" + name, name)
 end
 
-// The names alone, sorted; a pattern is a glob over the names
-PRINT(UNWRAP(LIST_DIR_NAMES(dir)))
-PRINT(UNWRAP(LIST_DIR_NAMES(dir, "*.ice")))
-PRINT(UNWRAP(LIST_DIR_NAMES(dir, "?.ice")))
-PRINT(UNWRAP(LIST_DIR_NAMES(dir, "*.{ice,tee}")))
-PRINT(UNWRAP(LIST_DIR_NAMES(dir, "[ab]*")))
+function names(entries) do
+    out = []
+    loop e in entries do
+        out = PUSH(out, e.name)
+    end
+    return out
+end
+
+// Each entry's name and type, sorted by name
+loop e in UNWRAP(LIST_DIR_NAMES(dir)) do
+    PRINT(e.name, e.type)
+end
+
+// A pattern is a glob over the names
+PRINT(names(UNWRAP(LIST_DIR_NAMES(dir, "*.ice"))))
+PRINT(names(UNWRAP(LIST_DIR_NAMES(dir, "?.ice"))))
+PRINT(names(UNWRAP(LIST_DIR_NAMES(dir, "*.{ice,tee}"))))
+PRINT(names(UNWRAP(LIST_DIR_NAMES(dir, "[ab]*"))))
 PRINT(UNWRAP(LIST_DIR_NAMES(dir, "[!.a-c]*")))
-PRINT(UNWRAP(LIST_DIR_NAMES(dir, "\\[x].ice")))
+PRINT(names(UNWRAP(LIST_DIR_NAMES(dir, "\\[x].ice"))))
 PRINT(UNWRAP(LIST_DIR_NAMES(dir, "*.csv")))
 
 // LIST_DIR takes the same pattern; a directory has size 0

@@ -148,14 +148,15 @@ BOM, C0 제어 문자 등)를 둘러싼 경우는 `.expected`를 ASCII로 유지
 `TypeChecker.deepCopy`)의 평범한 배열화, 워커 20개가 공유하는 값, 루프 반복 상한은 에러 메시지에
 임시 경로가 들어가거나 상한 설정이 필요해 `interp/FileLinesTest`가 검사한다.
 
-## spec v0.27.0 `LIST_DIR` 이름 패턴과 `LIST_DIR_NAMES` (140)
+## spec v0.27.0 `LIST_DIR` 이름 패턴과 `LIST_DIR_NAMES` (140, v0.28.0 갱신)
 
 | fixture | 검증 내용 |
 |---|---|
-| `140_list_dir_pattern` | (85처럼 `testDir` 주입) `LIST_DIR_NAMES`의 이름순 정렬(점으로 시작하는 이름 포함), glob `*`(앞의 `.`도 맞음)·`?`·`{a,b}`·`[ab]`·`[!.a-c]`·`\[`(글자 그대로)·맞는 것 없음(빈 배열), 같은 패턴의 `LIST_DIR`(파일 크기, 디렉터리 size 0), 빈 패턴·`/`가 든 패턴·닫히지 않은 `[`의 error Result 메시지 |
+| `140_list_dir_pattern` | (85처럼 `testDir` 주입) `LIST_DIR_NAMES`의 이름순 정렬(점으로 시작하는 이름 포함)과 항목별 `{name, type}`(파일 `"file"`, 디렉터리 `"dir"`, v0.28.0), glob `*`(앞의 `.`도 맞음)·`?`·`{a,b}`·`[ab]`·`[!.a-c]`·`\[`(글자 그대로)·맞는 것 없음(빈 배열), 같은 패턴의 `LIST_DIR`(파일 크기, 디렉터리 size 0), 빈 패턴·`/`가 든 패턴·닫히지 않은 `[`의 error Result 메시지 |
 
-심볼릭 링크(파일·디렉터리를 가리키는 링크, 깨진 링크, 순환 링크, 접근할 수 없는 대상 → `"link"`),
-읽을 수 없는 디렉터리, 이유를 붙인 에러 메시지, v1 provider(TeeBox 경로)와의 출력 일치, 1인자
+심볼릭 링크(`LIST_DIR`: 파일·디렉터리를 가리키는 링크는 대상으로, 깨진 링크·순환 링크·접근할 수
+없는 대상은 `"link"`; `LIST_DIR_NAMES`: 모든 링크가 `"link"`), 읽을 수 없는 디렉터리와 항목을 확인할
+수 없는(실행 권한 없는) 디렉터리, 이유를 붙인 에러 메시지, v1 provider(TeeBox 경로)와의 출력 일치, 1인자
 `listDir`만 구현한 호스트 provider의 기본 메서드는 링크 생성·권한 설정이 필요하거나 메시지에 임시
 경로가 들어가 `interp/ListDirTest`가 검사한다.
 
