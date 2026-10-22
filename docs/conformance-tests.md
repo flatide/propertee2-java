@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **137쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **141쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -159,6 +159,22 @@ BOM, C0 제어 문자 등)를 둘러싼 경우는 `.expected`를 ASCII로 유지
 수 없는(실행 권한 없는) 디렉터리, 이유를 붙인 에러 메시지, v1 provider(TeeBox 경로)와의 출력 일치, 1인자
 `listDir`만 구현한 호스트 provider의 기본 메서드는 링크 생성·권한 설정이 필요하거나 메시지에 임시
 경로가 들어가 `interp/ListDirTest`가 검사한다.
+
+## spec v0.29.0 정규식 매치 객체와 `REGEX_FIND_ALL` (141-144)
+
+`REGEX_FIND`가 배열 대신 매치 객체 `{match, position, groups, named}`를 돌려주므로 `81_string_matching`의
+REGEX_FIND 부분은 `.match`와 `.groups.N`을 읽도록 고쳤다(출력은 그대로).
+
+| fixture | 검증 내용 |
+|---|---|
+| `141_regex_find_object` | 매치 객체 전체 출력(키 순서 `match`·`position`·`groups`·`named`), 1부터 세는 `position`, 이름 붙은 그룹이 `groups`에도 번호로 들어가고 `named`는 패턴 순서, `SUBSTRING(s, position, LEN(match)) == match`, 참여하지 않은 그룹은 `groups`와 `named`에서 `{}`, 그룹 없는 패턴은 `[]`·`{}`, 빈 매치의 위치(끝은 `LEN + 1`), 매치 없음 `{}` |
+| `142_regex_find_all` | 여러 매치의 위치·그룹·이름, 첫 원소와 `REGEX_FIND`의 동등성, 매치 없음 `[]`, 겹치지 않는 매치(겹침을 세는 `FIND`와 비교), 빈 매치 뒤 한 위치 전진(`"baaac"`에 `a*` → 1·2·5·6), `^`는 문자열 맨 앞에서만, 매치마다 따로 정해지는 참여하지 않은 그룹 |
+| `143_error_regex_find_old_index` | v0.28.0식 `res.2` → `Property '2' does not exist` (조용히 다른 값을 읽지 않음) |
+| `144_error_regex_invalid_pattern` | 닫히지 않은 그룹 → `REGEX_FIND_ALL() invalid regex pattern: ([a-z]` (두 런타임 같은 메시지) |
+
+BMP 밖 문자(Java는 한 글자, JavaScript는 UTF-16 반쪽 둘)와 끝 줄바꿈 앞의 `$`는 런타임마다 다르게
+매치되므로(스펙 §Regular expressions에 문서화) fixture로 고정하지 않는다. 필드·이름 순서와 세 정규식
+함수의 에러 메시지는 `builtin/BuiltinsTest`도 검사한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

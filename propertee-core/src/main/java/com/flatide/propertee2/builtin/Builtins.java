@@ -355,16 +355,19 @@ public final class Builtins {
             Pair p = str2("MATCHES", args);
             return compile("MATCHES", p.right).matcher(p.left).find();
         });
-        // REGEX_FIND -> [fullMatch, group1, ...] 1-based; no match -> {}; unmatched group -> {} (81_string_matching).
+        // REGEX_FIND / REGEX_FIND_ALL (spec v0.29.0) -> match objects (matchObject); no match -> {} / [].
+        // ALL repeats Matcher.find(), which resumes where the last match ended (one further after an
+        // empty match), so matches never overlap (141/142).
         b.register("REGEX_FIND", Kind.PURE, args -> {
             Pair p = str2("REGEX_FIND", args);
             Matcher m = compile("REGEX_FIND", p.right).matcher(p.left);
-            if (!m.find()) return Values.emptyObject();
-            List<Object> out = new ArrayList<>(m.groupCount() + 1);
-            for (int g = 0; g <= m.groupCount(); g++) {
-                String grp = m.group(g);
-                out.add(grp == null ? Values.emptyObject() : grp);
-            }
+            return m.find() ? matchObject(m) : Values.emptyObject();
+        });
+        b.register("REGEX_FIND_ALL", Kind.PURE, args -> {
+            Pair p = str2("REGEX_FIND_ALL", args);
+            Matcher m = compile("REGEX_FIND_ALL", p.right).matcher(p.left);
+            List<Object> out = new ArrayList<>();
+            while (m.find()) out.add(matchObject(m));
             return out;
         });
         b.register("REPLACE", Kind.PURE, args -> {
@@ -943,6 +946,30 @@ public final class Builtins {
         while (from < to && isWhitespace(s.charAt(from))) from++;
         while (to > from && isWhitespace(s.charAt(to - 1))) to--;
         return s.substring(from, to);
+    }
+
+    // A regex match as {match, position, groups, named}: position is 1-based (UTF-16 units, like
+    // FIND), groups.N is group N, named lists the named groups in pattern order; a group that took
+    // no part in the match is {}.
+    private static Map<String, Object> matchObject(Matcher m) {
+        List<Object> groups = new ArrayList<>(m.groupCount());
+        for (int g = 1; g <= m.groupCount(); g++) groups.add(groupValue(m, g));
+        // namedGroups() maps names to numbers in no particular order.
+        List<Map.Entry<String, Integer>> names = new ArrayList<>(m.namedGroups().entrySet());
+        names.sort(Map.Entry.comparingByValue());
+        Map<String, Object> named = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> e : names) named.put(e.getKey(), groupValue(m, e.getValue()));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("match", m.group());
+        out.put("position", m.start() + 1);
+        out.put("groups", groups);
+        out.put("named", named);
+        return out;
+    }
+
+    private static Object groupValue(Matcher m, int g) {
+        String s = m.group(g);
+        return s == null ? Values.emptyObject() : s;
     }
 
     private static Pattern compile(String fn, String pattern) {

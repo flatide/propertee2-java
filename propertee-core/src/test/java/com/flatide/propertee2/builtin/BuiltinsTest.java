@@ -94,12 +94,46 @@ class BuiltinsTest {
         assertEquals(true, call("ENDS_WITH", "file.csv", ".csv"));
         assertEquals(true, call("MATCHES", "report_20240101.csv", "^report_\\d{8}\\.csv$"));
         assertEquals(false, call("MATCHES", "info: all ok", "error.*timeout"));
-        // REGEX_FIND: [full, group1, ...]; unmatched optional group -> {}; no match -> {}
-        assertEquals(list("status=200", "200"), call("REGEX_FIND", "status=200 time=45ms", "status=(\\d+)"));
+        // REGEX_FIND (spec v0.29.0): a match object; unmatched optional group -> {}; no match -> {}
+        assertEquals(obj("match", "status=200", "position", 1, "groups", list("200"), "named", obj()),
+                call("REGEX_FIND", "status=200 time=45ms", "status=(\\d+)"));
         assertEquals(new LinkedHashMap<>(), call("REGEX_FIND", "hello world", "xyz(\\d+)"));
-        assertEquals(list("b", new LinkedHashMap<>()), call("REGEX_FIND", "b", "(a)?b"));
+        assertEquals(obj("match", "b", "position", 1, "groups", list(new LinkedHashMap<>()), "named", obj()),
+                call("REGEX_FIND", "b", "(a)?b"));
         assertEquals("hello ProperTee", call("REPLACE", "hello world", "world", "ProperTee"));
         assertEquals("bbbbbb", call("REPLACE", "aaa", "a", "bb"));
+    }
+
+    @Test void regexMatchObjects() {                      // 141-144 (spec v0.29.0)
+        // field order is match, position, groups, named; named lists names in pattern order
+        Object m = call("REGEX_FIND", "date: 2024-01-15", "(?<year>[0-9]{4})-(?<month>[0-9]{2})-([0-9]{2})");
+        assertEquals(obj("match", "2024-01-15", "position", 7, "groups", list("2024", "01", "15"),
+                "named", obj("year", "2024", "month", "01")), m);
+        assertEquals(list("match", "position", "groups", "named"), new ArrayList<>(((Map<?, ?>) m).keySet()));
+        assertEquals(list("b", "a"), new ArrayList<>(((Map<?, ?>) ((Map<?, ?>) call("REGEX_FIND", "xy",
+                "(?<b>x)(?<a>y)")).get("named")).keySet()));
+        assertEquals(obj("match", "b", "position", 1, "groups", list(obj(), "b"), "named", obj("a", obj())),
+                call("REGEX_FIND", "b", "(?<a>a)?(b)"));
+        assertEquals(4, ((Map<?, ?>) call("REGEX_FIND", "abc", "$")).get("position"));     // empty match at the end
+        // REGEX_FIND_ALL: left to right, no overlap, one further after an empty match
+        assertEquals(list(obj("match", "id=4", "position", 1, "groups", list("4"), "named", obj("n", "4")),
+                        obj("match", "id=56", "position", 7, "groups", list("56"), "named", obj("n", "56"))),
+                call("REGEX_FIND_ALL", "id=4, id=56", "id=(?<n>[0-9]+)"));
+        assertEquals(list(), call("REGEX_FIND_ALL", "abc", "[0-9]"));
+        assertEquals(2, ((List<?>) call("REGEX_FIND_ALL", "aaaa", "aa")).size());
+        List<Object> positions = new ArrayList<>();
+        for (Object o : (List<?>) call("REGEX_FIND_ALL", "baaac", "a*")) positions.add(((Map<?, ?>) o).get("position"));
+        assertEquals(list(1, 2, 5, 6), positions);
+        assertEquals(1, ((List<?>) call("REGEX_FIND_ALL", "a\nb", "^.")).size());
+        // the same messages in every regex built-in
+        assertEquals("REGEX_FIND_ALL() invalid regex pattern: ([a-z]",
+                assertThrows(TeeError.class, () -> call("REGEX_FIND_ALL", "abc", "([a-z]")).getMessage());
+        assertEquals("REGEX_FIND_ALL() requires a string argument",
+                assertThrows(TeeError.class, () -> call("REGEX_FIND_ALL", 5, "a")).getMessage());
+        assertEquals("REGEX_FIND() invalid regex pattern: (",
+                assertThrows(TeeError.class, () -> call("REGEX_FIND", "abc", "(")).getMessage());
+        assertEquals("MATCHES() invalid regex pattern: (",
+                assertThrows(TeeError.class, () -> call("MATCHES", "abc", "(")).getMessage());
     }
 
     @Test void findFns() {                                // 122_find_positions, 123_error_find_empty (spec v0.17.0)

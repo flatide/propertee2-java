@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.38.0
+
+**Spec v0.29.0 — regular-expression matches as objects, and `REGEX_FIND_ALL`** (user request:
+`REGEX_FIND`'s `[fullMatch, group1, …]` put group 1 at `.2` in a language that counts from 1, gave
+only the first match, and dropped the names of named groups).
+
+- **`REGEX_FIND` returns a match object** `{match, position, groups, named}` instead of an array.
+  `position` is `Matcher.start() + 1` (UTF-16 units, like `FIND`), `groups.N` is group N, and
+  `named` holds the named groups by name in pattern order (`Matcher.namedGroups()` sorted by group
+  number). A group that took no part in the match is `{}`, and no match is still `{}`. Breaking:
+  a v0.28.0 index access such as `res.2` now fails with `Property '2' does not exist`.
+- **`REGEX_FIND_ALL(s, pattern)`** (new) returns every match as such an object by repeating
+  `Matcher.find()`: left to right, without overlap, one position further after an empty match;
+  `[]` when there is none.
+- Tests: fixture `81_string_matching` reads the new fields (its output is unchanged);
+  `141_regex_find_object` (the fields, named groups, a group that took no part, empty-match
+  positions), `142_regex_find_all` (several matches, no overlap unlike `FIND`, empty matches, `^`),
+  `143_error_regex_find_old_index` (the old `res.2` fails loudly) and
+  `144_error_regex_invalid_pattern` (the message names the pattern). `BuiltinsTest` pins the field
+  and name order and the regex messages. 141 fixtures; core 448 + CLI 51 tests green.
+
 ## 0.37.0
 
 **Spec v0.28.0 — `LIST_DIR_NAMES` gives each entry's type** (user feedback on 0.36.0:
