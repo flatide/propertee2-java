@@ -5,16 +5,16 @@ package com.flatide.propertee2.value;
  * of ECMA-262 {@code Number::toString} (spec v0.14.0), read as {@code ±0.digits × 10^exponent}.
  * {@code digits} has no leading or trailing zeros; zero has no digits and no sign.
  *
- * <p>{@code ROUND}/{@code FLOOR}/{@code CEIL}/{@code TRUNC} with a digits argument and
- * {@code FORMAT}'s {@code .Nf} round these digits, not the binary value (spec v0.30.0). So
- * {@code FLOOR(0.29, 2)} is 0.29 although the double nearest 0.29 is 0.28999…, and the two
- * runtimes agree because they show the same digits.
+ * <p>{@code ROUND}/{@code FLOOR}/{@code CEIL}/{@code TRUNC} with a digits argument (spec v0.30.0)
+ * and the number patterns of {@code TEXT} and {@code FORMAT} (spec v0.31.0) round these digits,
+ * not the binary value. So {@code FLOOR(0.29, 2)} is 0.29 although the double nearest 0.29 is
+ * 0.28999…, and the two runtimes agree because they show the same digits.
  */
 public record DecimalDigits(boolean negative, String digits, int exponent) {
 
     /** Where the dropped digits send the kept ones. */
     public enum Mode {
-        /** {@code ROUND} and {@code .Nf}: to the nearest, a tie away from zero. */
+        /** {@code ROUND} and number patterns: to the nearest, a tie away from zero. */
         HALF_UP,
         /** {@code FLOOR}: toward −∞. */
         FLOOR,
@@ -47,6 +47,11 @@ public record DecimalDigits(boolean negative, String digits, int exponent) {
     }
 
     public boolean isZero() { return digits.isEmpty(); }
+
+    /** This number times 10^{@code power}, exactly: only the point moves ({@code TEXT}'s {@code %}). */
+    public DecimalDigits scaled(int power) {
+        return digits.isEmpty() ? this : new DecimalDigits(negative, digits, exponent + power);
+    }
 
     /**
      * Rounded to {@code places} decimal places in the given direction; a negative {@code places}

@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.40.0
+
+**Spec v0.31.0 — number patterns, `TEXT`, and `ALIGN_LEFT`/`ALIGN_RIGHT`/`ALIGN_CENTER`** (user
+feedback: the Python-style `{:spec}` of 0.39.0 is hard for people who are not programmers to read,
+which goes against what ProperTee is for).
+
+- **Number patterns replace `{:spec}`** (breaking): a `FORMAT`/`PRINTF` placeholder is `{}` or
+  `{pattern}`, a spreadsheet-style number pattern — `0` a digit always written, `#` one written only
+  when there is one, `.`, a `,` in the integer part for groups of three, a final `%` for times
+  100. `Builtins.NumberPattern` parses it in one linear scan (integer part `#`s then `0`s, a comma
+  only between two of them; decimals `0`s then `#`s) — not with a regex, since `java.util.regex`
+  recursed once per repeated symbol and a pattern of a few thousand symbols overflowed the stack;
+  `Builtins.shape` writes the number with
+  `value/DecimalDigits`: the new `scaled(2)` moves the point for `%` (so 0.145 is 15%, not the
+  binary 14.499…%), then `round(decimals, HALF_UP)` and `fixed`, zero-filling the integer digits to
+  the pattern's `0`s after the sign, grouping them, and dropping trailing zeros down to the
+  pattern's `0` decimals. The integer digits are never cut and at least one is written; a value
+  rounded to zero has no sign; Infinity and NaN are written as PRINT shows them. Every v0.30.0
+  spec is now `invalid format: {:.2f}`, so nothing changes silently.
+- **`TEXT(n, pattern)`** (catalog): one number under a pattern — the text `{pattern}` writes. The
+  pattern is checked before the value: `TEXT() requires a string pattern`,
+  `TEXT() invalid pattern: '0.0.0'`, then `TEXT() requires a number, got string`; a third argument
+  is `TEXT() takes at most 2 arguments`.
+- **`ALIGN_LEFT`, `ALIGN_RIGHT`, `ALIGN_CENTER(value, width)`** (catalog): the value as PRINT shows
+  it, padded with spaces to `width` screen columns; longer text is not cut, and centering puts the
+  odd space on the right. `width` is a whole number from 0 to 999
+  (`ALIGN_LEFT() width must be an integer from 0 to 999`); a third argument is an error, kept free
+  for a fill character. The new `value/DisplayWidth` counts columns per code point from two frozen
+  Unicode 16.0 tables: 0 for General_Category Mn/Me/Cf and the Hangul medial/final jamo
+  (U+1160–U+11FF, U+D7B0–U+D7FF), 2 for East_Asian_Width W/F and the CJK blocks and planes whose
+  unassigned code points default to W, 1 otherwise. The JavaScript runtime holds the same tables.
+- Tests: `148_format`, `149_printf`, `150_error_format` rewritten for patterns; new `152_text`
+  (a 4,096-symbol pattern included), `153_align` (the zero-column rule before the wide one, an
+  unpaired surrogate) and `154_error_text_align`; `BuiltinsTest` (`format`, `text`, `align`),
+  `DecimalDigitsTest.scaledMovesOnlyThePoint` and the new `DisplayWidthTest`. Every string of up to
+  seven symbols over `0 # , . % x` (335,922) is accepted or rejected exactly as the pattern regex
+  says, in this runtime and the JavaScript one; 16,000 random pattern cases matched a Python
+  `decimal` model and the JavaScript runtime, and every table edge (±1) plus 3,000 random code
+  points (5,150 in all) matched Python `unicodedata` and the JavaScript runtime. 151 fixtures;
+  core 479 + CLI 51 tests green.
+
 ## 0.39.0
 
 **Spec v0.30.0 — rounding to digits, `TRUNC`, and formatted output** (user request: there was no way

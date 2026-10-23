@@ -65,17 +65,46 @@ class BuiltinsTest {
                 assertThrows(TeeError.class, () -> call("TRUNC", 3000000000.5)).getMessage());
     }
 
-    @Test void format() {                                 // spec v0.30.0: 148_format, 150_error_format
-        assertEquals("3 개, 평균 3.40", call("FORMAT", "{} 개, 평균 {:.2f}", 3, 3.4));
-        assertEquals("[-0003.40] [1,234,567.89] [  ab  ] [{}]",
-                call("FORMAT", "[{:08.2f}] [{:,.2f}] [{:^6}] [{{}}]", -3.4, 1234567.891, "ab"));
-        assertEquals("[0.0] [3] [1.01]", call("FORMAT", "[{:.1f}] [{:.0f}] [{:.2f}]", -0.04, 2.5, 1.005));
+    @Test void format() {                                 // spec v0.31.0: 148_format, 150_error_format
+        assertEquals("3개, 평균 3.40점", call("FORMAT", "{}개, 평균 {0.00}점", 3, 3.4));
+        assertEquals("[-007] [1,234,567.89] [45.7%] [{}]",
+                call("FORMAT", "[{000}] [{#,##0.00}] [{0.0%}] [{{}}]", -7, 1234567.891, 0.4567));
+        assertEquals("[0.0] [3] [1.01]", call("FORMAT", "[{0.0}] [{0}] [{0.00}]", -0.04, 2.5, 1.005));
         assertEquals("FORMAT() format has 1 placeholder, got 2 values",
                 assertThrows(TeeError.class, () -> call("FORMAT", "{}", 1, 2)).getMessage());
-        assertEquals("FORMAT() invalid format: {:x}",
-                assertThrows(TeeError.class, () -> call("FORMAT", "{:x}", 1)).getMessage());
-        assertEquals("FORMAT() {:.2f} requires a number, got string",
-                assertThrows(TeeError.class, () -> call("FORMAT", "{:.2f}", "3.4")).getMessage());
+        assertEquals("FORMAT() invalid format: {:.2f}",                // spec v0.30.0's syntax
+                assertThrows(TeeError.class, () -> call("FORMAT", "{:.2f}", 1)).getMessage());
+        assertEquals("FORMAT() {0.00} requires a number, got string",
+                assertThrows(TeeError.class, () -> call("FORMAT", "{0.00}", "3.4")).getMessage());
+    }
+
+    @Test void text() {                                   // spec v0.31.0: 152_text, 154_error_text_align
+        assertEquals("1,234,567.89", call("TEXT", 1234567.891, "#,##0.00"));
+        assertEquals("3.40", call("TEXT", 3.4, "0.00"));
+        assertEquals("3", call("TEXT", 3, "0.##"));               // no point when no decimal is left
+        assertEquals("0.5", call("TEXT", 0.5, "#.##"));           // at least one integer digit
+        assertEquals("-0,007", call("TEXT", -7, "0,000"));        // zeros after the sign, grouped
+        assertEquals("15%", call("TEXT", 0.145, "0%"));           // the point moves on the shown digits
+        assertEquals("0.00", call("TEXT", -0.004, "0.00"));       // no sign on zero
+        assertEquals("Infinity", call("TEXT", Double.POSITIVE_INFINITY, "0.00"));
+        assertEquals("TEXT() invalid pattern: '0.0.0'",
+                assertThrows(TeeError.class, () -> call("TEXT", 3, "0.0.0")).getMessage());
+        assertEquals("TEXT() invalid pattern: 'y'",               // the pattern is checked first
+                assertThrows(TeeError.class, () -> call("TEXT", "x", "y")).getMessage());
+        assertEquals("TEXT() requires a number, got string",
+                assertThrows(TeeError.class, () -> call("TEXT", "3", "0")).getMessage());
+    }
+
+    @Test void align() {                                  // spec v0.31.0: 153_align, 154_error_text_align
+        assertEquals("ab    ", call("ALIGN_LEFT", "ab", 6));
+        assertEquals("    42", call("ALIGN_RIGHT", 42, 6));
+        assertEquals("  ab   ", call("ALIGN_CENTER", "ab", 7));
+        assertEquals("사과  ", call("ALIGN_LEFT", "사과", 6));      // a Hangul syllable takes two columns
+        assertEquals("long", call("ALIGN_RIGHT", "long", 2));     // not cut
+        assertEquals("ALIGN_LEFT() width must be an integer from 0 to 999",
+                assertThrows(TeeError.class, () -> call("ALIGN_LEFT", "a", 1000)).getMessage());
+        assertEquals("ALIGN_RIGHT() takes at most 2 arguments",
+                assertThrows(TeeError.class, () -> call("ALIGN_RIGHT", "7", 3, "0")).getMessage());
     }
 
     @Test void typeOf() {                                 // 83_type_env

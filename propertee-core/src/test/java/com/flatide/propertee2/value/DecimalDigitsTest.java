@@ -47,4 +47,9 @@ class DecimalDigitsTest {
         assertEquals("1000000000000000000000.00", DecimalDigits.of(1e21).fixed(2));
         assertEquals("0.000", DecimalDigits.of(0.0004).round(3, DecimalDigits.Mode.HALF_UP).fixed(3));
     }
+
+    @Test void scaledMovesOnlyThePoint() {                     // TEXT's % (spec v0.31.0)
+        assertEquals(DecimalDigits.of(14.5), DecimalDigits.of(0.145).scaled(2));   // 0.145 * 100 is 14.499999999999998
+        assertEquals(DecimalDigits.of(-0.0), DecimalDigits.of(0.0).scaled(2));
+    }
 }

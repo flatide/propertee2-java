@@ -3,6 +3,7 @@ package com.flatide.propertee2.builtin;
 import com.flatide.propertee2.host.FileErrors;
 import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.value.DecimalDigits;
+import com.flatide.propertee2.value.DisplayWidth;
 import com.flatide.propertee2.value.JsonParser;
 import com.flatide.propertee2.value.LazyLines;
 import com.flatide.propertee2.value.Result;
@@ -297,6 +298,10 @@ public final class Builtins {
         b.register("TO_STRING", Kind.PURE, args -> TeeFormat.display(arg("TO_STRING", args, 0)));
         b.register("TO_NUMBER", Kind.PURE, args -> toNumber(string("TO_NUMBER", arg("TO_NUMBER", args, 0))));
         b.register("FORMAT", Kind.PURE, args -> format("FORMAT", args));
+        b.register("TEXT", Kind.PURE, Builtins::text);
+        b.register("ALIGN_LEFT", Kind.PURE, args -> align("ALIGN_LEFT", args));
+        b.register("ALIGN_RIGHT", Kind.PURE, args -> align("ALIGN_RIGHT", args));
+        b.register("ALIGN_CENTER", Kind.PURE, args -> align("ALIGN_CENTER", args));
 
         b.register("LEN", Kind.PURE, args -> {
             Object v = arg("LEN", args, 0);
@@ -932,25 +937,71 @@ public final class Builtins {
         b.register("TIME", Kind.PURE, args -> LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
     }
 
-    // ---- FORMAT / PRINTF (spec v0.30.0) ------------------------------------
+    // ---- FORMAT / PRINTF / TEXT / ALIGN_* (spec v0.31.0) -------------------
 
-    // A placeholder's spec: [align][0][width][,][.Nf], each part optional, in this order — a strict
-    // subset of Python's format spec in which each part does what it does in Python, applied to the
-    // text PRINT shows for the value. Width and precision take at most three digits; `0` (zero
-    // padding after the sign) combines with neither an alignment nor `,`, because Python's meaning
-    // there is not plain padding.
-    private static final Pattern FORMAT_SPEC =
-            Pattern.compile("([<>^])?(0)?([1-9][0-9]{0,2})?(,)?(?:\\.([0-9]{1,3})f)?");
+    // A number pattern draws how a number is written, as a spreadsheet's number format does: `0` is
+    // a digit always written, `#` a digit written only when there is one, `.` the decimal point, a
+    // `,` in the integer part groups the digits by three, and a final `%` writes the number times
+    // 100. The integer part is `#`s then `0`s, a single comma allowed between any two of them; the
+    // decimals are `0`s then `#`s — (#(,?#)*(,?0)*|0(,?0)*)(\.(0+#*|#+))?%? as a regex. Spec
+    // v0.30.0's Python-style {:spec} was replaced as hard to read (v0.31.0).
 
-    private record Placeholder(String text, char align, boolean zero, int width, boolean comma, int precision) {
-        boolean numeric() { return zero || comma || precision >= 0; }
+    /** A parsed number pattern: how many integer digits and decimals it always writes, and at most. */
+    private record NumberPattern(int minInt, boolean group, int minFrac, int maxFrac, boolean percent) {
+        /**
+         * The pattern, or null if {@code text} is not one. A plain scan rather than that regex:
+         * java.util.regex recurses once per repetition of a group, so a pattern of a few thousand
+         * symbols overflowed the stack.
+         */
+        static NumberPattern parse(String text) {
+            int n = text.length();
+            int i = 0;
+            int digits = 0;
+            int zeros = 0;
+            boolean group = false;
+            boolean comma = false;                                 // the last symbol was a comma
+            for (; i < n; i++) {
+                char c = text.charAt(i);
+                if (c == ',') {
+                    if (digits == 0 || comma) return null;         // a comma first, or two in a row
+                    group = true;
+                    comma = true;
+                } else if (c == '0' || c == '#') {
+                    if (c == '#' && zeros > 0) return null;        // a # after a 0
+                    if (c == '0') zeros++;
+                    digits++;
+                    comma = false;
+                } else {
+                    break;
+                }
+            }
+            if (digits == 0 || comma) return null;                 // no digit, or a comma last
+            int minFrac = 0;
+            int maxFrac = 0;
+            if (i < n && text.charAt(i) == '.') {
+                for (i++; i < n && (text.charAt(i) == '0' || text.charAt(i) == '#'); i++) {
+                    if (text.charAt(i) == '0') {
+                        if (maxFrac > minFrac) return null;        // a 0 after a #
+                        minFrac++;
+                    }
+                    maxFrac++;
+                }
+                if (maxFrac == 0) return null;                     // a point with no decimal after it
+            }
+            boolean percent = i < n && text.charAt(i) == '%';
+            if (percent) i++;
+            return i == n ? new NumberPattern(zeros, group, minFrac, maxFrac, percent) : null;
+        }
     }
+
+    /** {@code {}} (pattern null) or {@code {pattern}}; {@code text} is the placeholder as written. */
+    private record Placeholder(String text, NumberPattern pattern) {}
 
     /**
      * FORMAT(format, values...) — also PRINTF's text, under PRINTF's name. Each {@code {}} or
-     * {@code {:spec}} takes the next value; {@code {{} and {@code }}} are literal braces. The format
-     * is checked whole before any value is used: an invalid format, then a count mismatch, then a
-     * value a number-only spec cannot take.
+     * {@code {pattern}} takes the next value; {@code {{} and {@code }}} are literal braces. The
+     * format is checked whole before any value is used: an invalid format, then a count mismatch,
+     * then a value that is not a number under a pattern.
      */
     public static String format(String fn, List<Object> args) {
         Object f = arg(fn, args, 0);
@@ -990,74 +1041,95 @@ public final class Builtins {
             if (close < 0) throw new TeeError(fn + "() invalid format: unclosed {");
             String text = format.substring(i, close + 1);
             String inner = text.substring(1, text.length() - 1);
-            Matcher m = inner.isEmpty() ? null : inner.startsWith(":") ? FORMAT_SPEC.matcher(inner.substring(1)) : null;
-            if (!inner.isEmpty() && (m == null || !m.matches()
-                    || (m.group(2) != null && (m.group(1) != null || m.group(4) != null)))) {
-                throw new TeeError(fn + "() invalid format: " + text);
-            }
+            NumberPattern pattern = inner.isEmpty() ? null : NumberPattern.parse(inner);
+            if (!inner.isEmpty() && pattern == null) throw new TeeError(fn + "() invalid format: " + text);
             if (literal.length() > 0) { parts.add(literal.toString()); literal.setLength(0); }
-            parts.add(m == null
-                    ? new Placeholder(text, (char) 0, false, 0, false, -1)
-                    : new Placeholder(text, m.group(1) == null ? (char) 0 : m.group(1).charAt(0), m.group(2) != null,
-                            m.group(3) == null ? 0 : Integer.parseInt(m.group(3)), m.group(4) != null,
-                            m.group(5) == null ? -1 : Integer.parseInt(m.group(5))));
+            parts.add(new Placeholder(text, pattern));
             i = close + 1;
         }
         if (literal.length() > 0) parts.add(literal.toString());
         return parts;
     }
 
-    /**
-     * One value under its placeholder. {@code {}} is the value as PRINT shows it. {@code .Nf}
-     * rounds the shown digits like ROUND(x, N) and writes exactly N decimals without an exponent;
-     * {@code ,} groups the integer digits by three; {@code 0} pads with zeros after the sign. A
-     * value rounded to zero has no sign. Infinity and NaN take only the alignment and width.
-     * Numbers align right by default, everything else left.
-     */
+    /** One value under its placeholder: {@code {}} is the value as PRINT shows it. */
     private static String formatValue(String fn, Placeholder p, Object v) {
-        boolean number = Values.isNumber(v);
-        if (p.numeric() && !number) {
+        if (p.pattern() == null) return TeeFormat.display(v);
+        if (!Values.isNumber(v)) {
             throw new TeeError(fn + "() " + p.text() + " requires a number, got " + Values.typeName(v));
         }
-        String text;
-        if (number && Double.isFinite(Values.toDouble(v))) {
-            String sign;
-            String body;
-            if (p.precision() >= 0) {
-                DecimalDigits d = DecimalDigits.of(Values.toDouble(v)).round(p.precision(), DecimalDigits.Mode.HALF_UP);
-                sign = d.negative() && !d.isZero() ? "-" : "";
-                body = d.fixed(p.precision());
-            } else {
-                String shown = TeeFormat.display(v);
-                sign = shown.startsWith("-") ? "-" : "";
-                body = shown.substring(sign.length());
-            }
-            if (p.comma() && body.indexOf('e') < 0) body = groupThousands(body);
-            if (p.zero()) body = "0".repeat(Math.max(0, p.width() - sign.length() - body.length())) + body;
-            text = sign + body;
-        } else {
-            text = TeeFormat.display(v);
-        }
-        int fill = p.width() - text.length();
-        if (fill <= 0) return text;
-        char align = p.align() != 0 ? p.align() : number ? '>' : '<';
-        return switch (align) {
-            case '<' -> text + " ".repeat(fill);
-            case '^' -> " ".repeat(fill / 2) + text + " ".repeat(fill - fill / 2);
-            default -> " ".repeat(fill) + text;
-        };
+        return shape(Values.toDouble(v), p.pattern());
     }
 
-    /** "1234567.5" → "1,234,567.5": commas in the integer digits only. */
-    private static String groupThousands(String body) {
-        int point = body.indexOf('.');
-        String whole = point < 0 ? body : body.substring(0, point);
+    /**
+     * {@code n} written as the pattern draws it. The digits PRINT shows are rounded to the
+     * pattern's decimals as ROUND(n, decimals) rounds them, a tie away from zero, after a `%`
+     * moves the point two places — so 0.145 is 15%, where the binary value times 100 would give
+     * 14%. The integer digits are never cut and at least one is written; zeros fill up to the
+     * pattern's `0`s, after the sign. A `#` decimal drops a trailing zero, and the point goes when
+     * no decimal is left. A value rounded to zero has no sign, and no exponent is ever written.
+     * Infinity and NaN are written as PRINT shows them.
+     */
+    private static String shape(double n, NumberPattern p) {
+        if (!Double.isFinite(n)) return TeeFormat.display(n);
+        DecimalDigits d = DecimalDigits.of(n);
+        if (p.percent()) d = d.scaled(2);
+        d = d.round(p.maxFrac(), DecimalDigits.Mode.HALF_UP);
+        String text = d.fixed(p.maxFrac());
+        int point = text.indexOf('.');
+        String whole = point < 0 ? text : text.substring(0, point);
+        String frac = point < 0 ? "" : text.substring(point + 1);
+        if (whole.length() < p.minInt()) whole = "0".repeat(p.minInt() - whole.length()) + whole;
+        if (p.group()) whole = groupThousands(whole);
+        int end = frac.length();
+        while (end > p.minFrac() && frac.charAt(end - 1) == '0') end--;
+        return (d.negative() && !d.isZero() ? "-" : "") + whole + (end > 0 ? "." + frac.substring(0, end) : "")
+                + (p.percent() ? "%" : "");
+    }
+
+    /** "1234567" → "1,234,567". */
+    private static String groupThousands(String whole) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < whole.length(); i++) {
             if (i > 0 && (whole.length() - i) % 3 == 0) sb.append(',');
             sb.append(whole.charAt(i));
         }
-        return point < 0 ? sb.toString() : sb + body.substring(point);
+        return sb.toString();
+    }
+
+    /**
+     * TEXT(n, pattern): one number written as the pattern draws it — what {@code {pattern}} writes
+     * in a format. Like a format, the pattern is checked before the value.
+     */
+    private static String text(List<Object> args) {
+        if (args.size() > 2) throw new TeeError("TEXT() takes at most 2 arguments");
+        Object n = arg("TEXT", args, 0);
+        if (!(arg("TEXT", args, 1) instanceof String text)) throw new TeeError("TEXT() requires a string pattern");
+        NumberPattern pattern = NumberPattern.parse(text);
+        if (pattern == null) throw new TeeError("TEXT() invalid pattern: '" + text + "'");
+        if (!Values.isNumber(n)) throw new TeeError("TEXT() requires a number, got " + Values.typeName(n));
+        return shape(Values.toDouble(n), pattern);
+    }
+
+    /**
+     * ALIGN_LEFT/ALIGN_RIGHT/ALIGN_CENTER(value, width): the value as PRINT shows it, padded with
+     * spaces to {@code width} columns — a Hangul syllable or another wide character takes two
+     * (DisplayWidth). Longer text is not cut, and centering puts an odd space on the right. A third
+     * argument is an error, so a fill character can be added later.
+     */
+    private static String align(String fn, List<Object> args) {
+        if (args.size() > 2) throw new TeeError(fn + "() takes at most 2 arguments");
+        String text = TeeFormat.display(arg(fn, args, 0));
+        Object width = arg(fn, args, 1);
+        if (!isWhole(width) || Values.toDouble(width) < 0 || Values.toDouble(width) > 999) {
+            throw new TeeError(fn + "() width must be an integer from 0 to 999");
+        }
+        int fill = (int) Values.toDouble(width) - DisplayWidth.of(text);
+        if (fill <= 0) return text;
+        return switch (fn) {
+            case "ALIGN_LEFT" -> text + " ".repeat(fill);
+            case "ALIGN_RIGHT" -> " ".repeat(fill) + text;
+            default -> " ".repeat(fill / 2) + text + " ".repeat(fill - fill / 2);
+        };
     }
 
     // ---- arg helpers -------------------------------------------------------
