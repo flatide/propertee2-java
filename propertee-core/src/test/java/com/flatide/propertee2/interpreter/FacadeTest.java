@@ -134,9 +134,9 @@ class FacadeTest {
 
         java.util.Set<String> names = builtins.knownFunctionNames();
         // Interpreter-dispatched names (not in the catalog).
-        assertEquals(true, names.containsAll(java.util.Set.of("PRINT", "SLEEP", "FAIL", "UNWRAP")));
+        assertEquals(true, names.containsAll(java.util.Set.of("PRINT", "PRINTF", "SLEEP", "FAIL", "UNWRAP")));
         // Catalog: pure, host-gated, and blocking builtins are all callable names.
-        assertEquals(true, names.containsAll(java.util.Set.of("SUM", "CONTAINS", "JSON_PARSE", "ENV", "SHELL", "HTTP_GET")));
+        assertEquals(true, names.containsAll(java.util.Set.of("SUM", "TRUNC", "FORMAT", "CONTAINS", "JSON_PARSE", "ENV", "SHELL", "HTTP_GET")));
         // Host registrations on this instance.
         assertEquals(true, names.containsAll(java.util.Set.of("STREAM_FILE", "THUMBNAIL")));
         // A typo is not a known name.

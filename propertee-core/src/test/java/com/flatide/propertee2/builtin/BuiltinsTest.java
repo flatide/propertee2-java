@@ -40,6 +40,44 @@ class BuiltinsTest {
         assertEquals(Integer.class, call("FLOOR", 3.9).getClass());
     }
 
+    @Test void rounding_digits() {                        // spec v0.30.0: 145_round_digits, 146_round_ties
+        assertEquals(3.4, call("FLOOR", 3.48, 1));
+        assertEquals(-3.5, call("FLOOR", -3.48, 1));
+        assertEquals(-3.4, call("CEIL", -3.48, 1));
+        assertEquals(-3.4, call("TRUNC", -3.48, 1));
+        assertEquals(3.5, call("ROUND", 3.48, 1));
+        assertEquals(0.29, call("FLOOR", 0.29, 2));            // the shown digits, not 0.28999…
+        assertEquals(1.01, call("ROUND", 1.005, 2));
+        assertEquals(1200.0, call("ROUND", 1234.5, -2));
+        assertEquals(Double.class, call("ROUND", 5, 2).getClass());     // with digits: a decimal
+        assertEquals(Integer.class, call("TRUNC", -3.9).getClass());    // without: an integer
+        assertEquals(-3, call("TRUNC", -3.9));
+        assertEquals(-3, call("ROUND", -2.5));                         // a tie away from zero
+        assertEquals(0, call("ROUND", 0.49999999999999994));
+        assertEquals(3000000001.0, call("ROUND", 3000000000.7, 0));    // no integer overflow
+        assertEquals(Double.POSITIVE_INFINITY, call("CEIL", Double.MAX_VALUE, -308));
+        assertEquals(3.48, call("ROUND", 3.48, 1e300));                // any whole digits
+        assertEquals("ROUND() digits must be an integer",
+                assertThrows(TeeError.class, () -> call("ROUND", 3.48, 1.5)).getMessage());
+        assertEquals("CEIL() takes at most 2 arguments",
+                assertThrows(TeeError.class, () -> call("CEIL", 3.48, 1, 9)).getMessage());
+        assertEquals("Integer overflow",
+                assertThrows(TeeError.class, () -> call("TRUNC", 3000000000.5)).getMessage());
+    }
+
+    @Test void format() {                                 // spec v0.30.0: 148_format, 150_error_format
+        assertEquals("3 개, 평균 3.40", call("FORMAT", "{} 개, 평균 {:.2f}", 3, 3.4));
+        assertEquals("[-0003.40] [1,234,567.89] [  ab  ] [{}]",
+                call("FORMAT", "[{:08.2f}] [{:,.2f}] [{:^6}] [{{}}]", -3.4, 1234567.891, "ab"));
+        assertEquals("[0.0] [3] [1.01]", call("FORMAT", "[{:.1f}] [{:.0f}] [{:.2f}]", -0.04, 2.5, 1.005));
+        assertEquals("FORMAT() format has 1 placeholder, got 2 values",
+                assertThrows(TeeError.class, () -> call("FORMAT", "{}", 1, 2)).getMessage());
+        assertEquals("FORMAT() invalid format: {:x}",
+                assertThrows(TeeError.class, () -> call("FORMAT", "{:x}", 1)).getMessage());
+        assertEquals("FORMAT() {:.2f} requires a number, got string",
+                assertThrows(TeeError.class, () -> call("FORMAT", "{:.2f}", "3.4")).getMessage());
+    }
+
     @Test void typeOf() {                                 // 83_type_env
         assertEquals("number", call("TYPE_OF", 42));
         assertEquals("number", call("TYPE_OF", 3.14));

@@ -69,7 +69,7 @@ public class BuiltinFunctions {
 
     /**
      * Every function name a run configured with this object can call: the interpreter-dispatched
-     * names (PRINT/SLEEP/FAIL/UNWRAP), the full engine catalog (incl. host-gated/blocking — ENV,
+     * names (PRINT/PRINTF/SLEEP/FAIL/UNWRAP), the full engine catalog (incl. host-gated/blocking — ENV,
      * file I/O, HTTP, SHELL), and the host builtins registered on this instance. Lets a host lint
      * scripts for unknown ALL-CAPS calls before running them: all-uppercase names are reserved for
      * builtins/host functions (spec v0.12.0), so an unknown one can never be a script function and

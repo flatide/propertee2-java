@@ -160,7 +160,7 @@ class InterpreterTest {
 
     /** Spec v0.13.0: interpreter-dispatched names are a host-API error at registration time. */
     @Test void interpreterDispatchedNamesCannotBeRegistered() {
-        for (String name : new String[] { "PRINT", "SLEEP", "FAIL", "UNWRAP" }) {
+        for (String name : new String[] { "PRINT", "PRINTF", "SLEEP", "FAIL", "UNWRAP" }) {
             IllegalArgumentException e = org.junit.jupiter.api.Assertions.assertThrows(
                     IllegalArgumentException.class,
                     () -> new Engine().registerExternal(name, args -> 1));

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.39.0
+
+**Spec v0.30.0 — rounding to digits, `TRUNC`, and formatted output** (user request: there was no way
+to keep a number of decimal places — 3.48 → 3.4 —, with every rounding direction and a way to print
+with a format).
+
+- **`ROUND`, `FLOOR`, `CEIL(n, [digits])` and the new `TRUNC(n, [digits])`.** Without `digits` they
+  return an Integer as before (overflow-checked through `intResult`). With `digits` they return a
+  Double: `value/DecimalDigits` takes the shortest digits from `Double.toString` — the digits
+  `TeeFormat` displays, now shared with it — rounds that digit string at the place (`HALF_UP`,
+  `FLOOR`, `CEILING`, `DOWN`) and reads the result back with `Double.parseDouble`. So
+  `FLOOR(0.29, 2)` is 0.29 (the binary value is 0.28999…), places beyond the digits change
+  nothing, a unit above the number leaves 0 or one unit, a result past the double range is
+  Infinity, and Infinity/NaN come back as is. `digits` must be a whole number
+  (`ROUND() digits must be an integer`); a third argument is `ROUND() takes at most 2 arguments`
+  instead of being dropped.
+- **`ROUND` sends a tie away from zero** (breaking): `ROUND(-2.5)` is -3, where `Math.round` gave
+  -2. The no-digits path tests `|n| - floor(|n|) >= 0.5`, which is exact.
+- **`FORMAT(format, values...)`** (catalog) and **`PRINTF(format, values...)`** (interpreter-
+  dispatched beside `PRINT`, writing one line to the same output sink) share `Builtins.format`:
+  `{}`, `{:[<>^][0][width][,][.Nf]}`, `{{`/`}}`; width and precision of at most three digits; `0`
+  combines with neither an alignment nor `,`. `.Nf` rounds the shown digits half away from zero and
+  never uses an exponent; a value rounded to zero has no sign. The format is checked whole first —
+  `invalid format: {:x}`, `unclosed {`, `unmatched }` —, then the count
+  (`format has 2 placeholders, got 3 values`), then number-only specs
+  (`{:.2f} requires a number, got string`); PRINTF's errors carry its name and no position.
+- **Host API:** `PRINTF` joins `Engine.INTERPRETER_DISPATCHED_NAMES`, so registering an external
+  under it is an `IllegalArgumentException`; `BuiltinFunctions.knownFunctionNames()` lists it, and
+  `TRUNC`/`FORMAT` come from the catalog. `setIgnoredFunctions` blocks names one by one, so a host
+  that ignores `PRINT` to silence scripts must ignore `PRINTF` too (TeeBox ignores none).
+- Tests: `145_round_digits`, `146_round_ties`, `147_error_round_args`, `148_format`, `149_printf`,
+  `150_error_format`, `151_error_math_args` (the math built-ins' argument errors, which the
+  JavaScript runtime now matches); `BuiltinsTest` and the new `DecimalDigitsTest` pin the digits,
+  directions, types and messages. A 16,000-case comparison against Python `decimal` on `repr`
+  digits and the JavaScript runtime agreed except at `5e-324`, whose shortest digits are
+  implementation-defined. 148 fixtures; core 468 + CLI 51 tests green.
+
 ## 0.38.0
 
 **Spec v0.29.0 — regular-expression matches as objects, and `REGEX_FIND_ALL`** (user request:

@@ -2,6 +2,7 @@ package com.flatide.propertee2.builtin;
 
 import com.flatide.propertee2.host.FileErrors;
 import com.flatide.propertee2.host.PlatformProvider;
+import com.flatide.propertee2.value.DecimalDigits;
 import com.flatide.propertee2.value.JsonParser;
 import com.flatide.propertee2.value.LazyLines;
 import com.flatide.propertee2.value.Result;
@@ -227,11 +228,48 @@ public final class Builtins {
             }
             return Math.abs((Double) n);
         });
-        // FLOOR/CEIL/ROUND always return an Integer (FLOOR(3.9)->3, CEIL(3.1)->4, ROUND(3.5)->4).
-        // A result outside the 32-bit range is a loud error, never a clamp (spec v0.13.0).
-        b.register("FLOOR", Kind.PURE, args -> intResult(Math.floor(Values.toDouble(number("FLOOR", arg("FLOOR", args, 0))))));
-        b.register("CEIL",  Kind.PURE, args -> intResult(Math.ceil(Values.toDouble(number("CEIL", arg("CEIL", args, 0))))));
-        b.register("ROUND", Kind.PURE, args -> intResult(Math.round(Values.toDouble(number("ROUND", arg("ROUND", args, 0))))));
+        // FLOOR/CEIL/ROUND/TRUNC without digits return an Integer (FLOOR(3.9)->3, CEIL(3.1)->4,
+        // ROUND(3.5)->4, TRUNC(-3.9)->-3); a result outside the 32-bit range is a loud error, never
+        // a clamp (spec v0.13.0). With digits (spec v0.30.0) they return a decimal rounded on the
+        // digits PRINT shows — see rounding().
+        b.register("FLOOR", Kind.PURE, args -> rounding("FLOOR", args, DecimalDigits.Mode.FLOOR));
+        b.register("CEIL",  Kind.PURE, args -> rounding("CEIL", args, DecimalDigits.Mode.CEILING));
+        b.register("ROUND", Kind.PURE, args -> rounding("ROUND", args, DecimalDigits.Mode.HALF_UP));
+        b.register("TRUNC", Kind.PURE, args -> rounding("TRUNC", args, DecimalDigits.Mode.DOWN));
+    }
+
+    /**
+     * {@code FN(n, [digits])} for FLOOR/CEIL/ROUND/TRUNC. A third argument is an error, not dropped
+     * — before spec v0.30.0 the second one was silently ignored. Without digits the result is an
+     * Integer (ROUND's tie goes away from zero, so ROUND(-2.5) is -3); with digits it is a decimal:
+     * DecimalDigits rounds the shortest digits at that place, places the number does not reach
+     * change nothing, a value past the double range is Infinity, and Infinity/NaN come back as is.
+     */
+    private static Object rounding(String fn, List<Object> args, DecimalDigits.Mode mode) {
+        if (args.size() > 2) throw new TeeError(fn + "() takes at most 2 arguments");
+        double n = Values.toDouble(number(fn, arg(fn, args, 0)));
+        if (args.size() == 1) return intResult(wholeRound(n, mode));
+        Object digits = args.get(1);
+        if (!isWhole(digits)) throw new TeeError(fn + "() digits must be an integer");
+        if (!Double.isFinite(n)) return n;
+        return DecimalDigits.of(n).round(Values.toDouble(digits), mode).toDouble();
+    }
+
+    /** n rounded to a whole number; the same value as rounding its shown digits at place 0. */
+    private static double wholeRound(double n, DecimalDigits.Mode mode) {
+        return switch (mode) {
+            case FLOOR -> Math.floor(n);
+            case CEILING -> Math.ceil(n);
+            case DOWN -> n < 0 ? Math.ceil(n) : Math.floor(n);
+            case HALF_UP -> {
+                // |n| - floor(|n|) is exact, so the tie test is too (Math.floor(|n| + 0.5) would
+                // round 0.49999999999999994 up).
+                double a = Math.abs(n);
+                double f = Math.floor(a);
+                double r = a - f >= 0.5 ? f + 1 : f;
+                yield n < 0 ? -r : r;
+            }
+        };
     }
 
     /** The 32-bit integer envelope for integer-producing builtins (spec v0.13.0). */
@@ -258,6 +296,7 @@ public final class Builtins {
         b.register("TYPE_OF",  Kind.PURE, args -> Values.typeName(arg("TYPE_OF", args, 0)));
         b.register("TO_STRING", Kind.PURE, args -> TeeFormat.display(arg("TO_STRING", args, 0)));
         b.register("TO_NUMBER", Kind.PURE, args -> toNumber(string("TO_NUMBER", arg("TO_NUMBER", args, 0))));
+        b.register("FORMAT", Kind.PURE, args -> format("FORMAT", args));
 
         b.register("LEN", Kind.PURE, args -> {
             Object v = arg("LEN", args, 0);
@@ -891,6 +930,134 @@ public final class Builtins {
         b.register("MILTIME", Kind.PURE, args -> (double) System.currentTimeMillis()); // epoch millis exceed int range
         b.register("DATE", Kind.PURE, args -> LocalDate.now().toString());              // yyyy-MM-dd
         b.register("TIME", Kind.PURE, args -> LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+    }
+
+    // ---- FORMAT / PRINTF (spec v0.30.0) ------------------------------------
+
+    // A placeholder's spec: [align][0][width][,][.Nf], each part optional, in this order — a strict
+    // subset of Python's format spec in which each part does what it does in Python, applied to the
+    // text PRINT shows for the value. Width and precision take at most three digits; `0` (zero
+    // padding after the sign) combines with neither an alignment nor `,`, because Python's meaning
+    // there is not plain padding.
+    private static final Pattern FORMAT_SPEC =
+            Pattern.compile("([<>^])?(0)?([1-9][0-9]{0,2})?(,)?(?:\\.([0-9]{1,3})f)?");
+
+    private record Placeholder(String text, char align, boolean zero, int width, boolean comma, int precision) {
+        boolean numeric() { return zero || comma || precision >= 0; }
+    }
+
+    /**
+     * FORMAT(format, values...) — also PRINTF's text, under PRINTF's name. Each {@code {}} or
+     * {@code {:spec}} takes the next value; {@code {{} and {@code }}} are literal braces. The format
+     * is checked whole before any value is used: an invalid format, then a count mismatch, then a
+     * value a number-only spec cannot take.
+     */
+    public static String format(String fn, List<Object> args) {
+        Object f = arg(fn, args, 0);
+        if (!(f instanceof String format)) throw new TeeError(fn + "() requires a string format");
+        List<Object> parts = parseFormat(fn, format);
+        int placeholders = 0;
+        for (Object part : parts) if (part instanceof Placeholder) placeholders++;
+        int values = args.size() - 1;
+        if (placeholders != values) {
+            throw new TeeError(fn + "() format has " + count(placeholders, "placeholder") + ", got " + count(values, "value"));
+        }
+        StringBuilder out = new StringBuilder();
+        int next = 1;
+        for (Object part : parts) {
+            if (part instanceof Placeholder p) out.append(formatValue(fn, p, args.get(next++)));
+            else out.append((String) part);
+        }
+        return out.toString();
+    }
+
+    private static String count(int n, String noun) {
+        return n + " " + noun + (n == 1 ? "" : "s");
+    }
+
+    /** The format as literal text and placeholders, in order. */
+    private static List<Object> parseFormat(String fn, String format) {
+        List<Object> parts = new ArrayList<>();
+        StringBuilder literal = new StringBuilder();
+        int i = 0;
+        while (i < format.length()) {
+            char c = format.charAt(i);
+            if (c == '{' && format.startsWith("{{", i)) { literal.append('{'); i += 2; continue; }
+            if (c == '}' && format.startsWith("}}", i)) { literal.append('}'); i += 2; continue; }
+            if (c == '}') throw new TeeError(fn + "() invalid format: unmatched }");
+            if (c != '{') { literal.append(c); i++; continue; }
+            int close = format.indexOf('}', i + 1);
+            if (close < 0) throw new TeeError(fn + "() invalid format: unclosed {");
+            String text = format.substring(i, close + 1);
+            String inner = text.substring(1, text.length() - 1);
+            Matcher m = inner.isEmpty() ? null : inner.startsWith(":") ? FORMAT_SPEC.matcher(inner.substring(1)) : null;
+            if (!inner.isEmpty() && (m == null || !m.matches()
+                    || (m.group(2) != null && (m.group(1) != null || m.group(4) != null)))) {
+                throw new TeeError(fn + "() invalid format: " + text);
+            }
+            if (literal.length() > 0) { parts.add(literal.toString()); literal.setLength(0); }
+            parts.add(m == null
+                    ? new Placeholder(text, (char) 0, false, 0, false, -1)
+                    : new Placeholder(text, m.group(1) == null ? (char) 0 : m.group(1).charAt(0), m.group(2) != null,
+                            m.group(3) == null ? 0 : Integer.parseInt(m.group(3)), m.group(4) != null,
+                            m.group(5) == null ? -1 : Integer.parseInt(m.group(5))));
+            i = close + 1;
+        }
+        if (literal.length() > 0) parts.add(literal.toString());
+        return parts;
+    }
+
+    /**
+     * One value under its placeholder. {@code {}} is the value as PRINT shows it. {@code .Nf}
+     * rounds the shown digits like ROUND(x, N) and writes exactly N decimals without an exponent;
+     * {@code ,} groups the integer digits by three; {@code 0} pads with zeros after the sign. A
+     * value rounded to zero has no sign. Infinity and NaN take only the alignment and width.
+     * Numbers align right by default, everything else left.
+     */
+    private static String formatValue(String fn, Placeholder p, Object v) {
+        boolean number = Values.isNumber(v);
+        if (p.numeric() && !number) {
+            throw new TeeError(fn + "() " + p.text() + " requires a number, got " + Values.typeName(v));
+        }
+        String text;
+        if (number && Double.isFinite(Values.toDouble(v))) {
+            String sign;
+            String body;
+            if (p.precision() >= 0) {
+                DecimalDigits d = DecimalDigits.of(Values.toDouble(v)).round(p.precision(), DecimalDigits.Mode.HALF_UP);
+                sign = d.negative() && !d.isZero() ? "-" : "";
+                body = d.fixed(p.precision());
+            } else {
+                String shown = TeeFormat.display(v);
+                sign = shown.startsWith("-") ? "-" : "";
+                body = shown.substring(sign.length());
+            }
+            if (p.comma() && body.indexOf('e') < 0) body = groupThousands(body);
+            if (p.zero()) body = "0".repeat(Math.max(0, p.width() - sign.length() - body.length())) + body;
+            text = sign + body;
+        } else {
+            text = TeeFormat.display(v);
+        }
+        int fill = p.width() - text.length();
+        if (fill <= 0) return text;
+        char align = p.align() != 0 ? p.align() : number ? '>' : '<';
+        return switch (align) {
+            case '<' -> text + " ".repeat(fill);
+            case '^' -> " ".repeat(fill / 2) + text + " ".repeat(fill - fill / 2);
+            default -> " ".repeat(fill) + text;
+        };
+    }
+
+    /** "1234567.5" → "1,234,567.5": commas in the integer digits only. */
+    private static String groupThousands(String body) {
+        int point = body.indexOf('.');
+        String whole = point < 0 ? body : body.substring(0, point);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < whole.length(); i++) {
+            if (i > 0 && (whole.length() - i) % 3 == 0) sb.append(',');
+            sb.append(whole.charAt(i));
+        }
+        return point < 0 ? sb.toString() : sb + body.substring(point);
     }
 
     // ---- arg helpers -------------------------------------------------------

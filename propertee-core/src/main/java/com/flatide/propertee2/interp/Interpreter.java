@@ -1318,6 +1318,7 @@ public final class Interpreter {
         UserFunction fn = ec().module == null ? functions.get(name) : ec().module.functions.get(name);
         if (fn != null) return callUser(fn, args, ctx);
         if (name.equals("PRINT")) return doPrint(args);
+        if (name.equals("PRINTF")) return doPrintf(args);
         if (name.equals("SLEEP")) return doSleep(args, ctx);
         // FAIL/UNWRAP (spec v0.10.0) live at this dispatch level — not in the builtin catalog —
         // so their errors carry the call site's line:col (catalog builtin errors are positionless).
@@ -1434,6 +1435,16 @@ public final class Interpreter {
             line.append(TeeFormat.display(args.get(i)));
         }
         out.line(line.toString());
+        return Values.emptyObject();
+    }
+
+    /**
+     * PRINTF(format, values...) — spec v0.30.0: one line, PRINT(FORMAT(format, values...)). It is
+     * dispatched here only because it writes to the output sink; its errors are FORMAT's under the
+     * PRINTF name and, like a catalog builtin's, carry no position.
+     */
+    private Object doPrintf(List<Object> args) {
+        out.line(Builtins.format("PRINTF", args));
         return Values.emptyObject();
     }
 

@@ -85,23 +85,12 @@ public final class TeeFormat {
 
     /** ECMA-262 Number::toString rendering of a finite {@code d > 0}. */
     private static String ecma(double d) {
-        // Decompose Double.toString(d) into shortest significant digits `s` (k of them) and the
-        // ECMA exponent `n` such that value = s × 10^(n-k). Double.toString always yields a mantissa
-        // with a decimal point, optionally an 'E' exponent (e.g. "6.0E9", "0.001", "1.50000005E7").
-        String js = Double.toString(d);
-        int exp = 0;
-        int ei = js.indexOf('E');
-        if (ei >= 0) { exp = Integer.parseInt(js.substring(ei + 1)); js = js.substring(0, ei); }
-        int dot = js.indexOf('.');
-        String digits = js.substring(0, dot) + js.substring(dot + 1);
-        int pointExp = exp - (js.length() - dot - 1);   // value = digits × 10^pointExp
-        int start = 0;
-        while (start < digits.length() - 1 && digits.charAt(start) == '0') start++;   // leading zeros: value-neutral
-        int end = digits.length();
-        while (end - start > 1 && digits.charAt(end - 1) == '0') { end--; pointExp++; } // trailing zeros: bump exponent
-        String s = digits.substring(start, end);
+        // The shortest significant digits `s` (k of them) and the ECMA exponent `n` such that
+        // value = s × 10^(n-k), i.e. 0.s × 10^n.
+        DecimalDigits dd = DecimalDigits.of(d);
+        String s = dd.digits();
         int k = s.length();
-        int n = pointExp + k;
+        int n = dd.exponent();
 
         if (k <= n && n <= 21) return s + "0".repeat(n - k);                 // integer, no point:  6000000000
         if (0 < n && n <= 21)  return s.substring(0, n) + "." + s.substring(n); // point inside:      15000000.5

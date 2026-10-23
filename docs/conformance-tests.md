@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **141쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **148쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -175,6 +175,22 @@ REGEX_FIND 부분은 `.match`와 `.groups.N`을 읽도록 고쳤다(출력은 �
 BMP 밖 문자(Java는 한 글자, JavaScript는 UTF-16 반쪽 둘)와 끝 줄바꿈 앞의 `$`는 런타임마다 다르게
 매치되므로(스펙 §Regular expressions에 문서화) fixture로 고정하지 않는다. 필드·이름 순서와 세 정규식
 함수의 에러 메시지는 `builtin/BuiltinsTest`도 검사한다.
+
+## spec v0.30.0 자릿수 반올림, `TRUNC`, 서식 출력 (145-151)
+
+| fixture | 검증 내용 |
+|---|---|
+| `145_round_digits` | 네 함수의 양수·음수 방향, `digits` 없는 `TRUNC`(정수), 음수 자릿수, 보이는 숫자 기준(`FLOOR(0.29, 2)` → `0.29`, `ROUND(1.005, 2)` → `1.01`, `0.1 + 0.2`), 자릿수가 닿지 않는 자리·수보다 큰 단위, 정합 소수 `digits`, `digits`가 있으면 소수라 overflow 없음, 올림이 자리를 늘리는 경우, 범위를 넘는 결과 `Infinity`, 0으로 반올림된 값의 부호 없음 |
+| `146_round_ties` | 동점은 0에서 먼 쪽(`ROUND(-2.5)` → `-3`, `ROUND(0.125, 2)` → `0.13`), 동점 바로 아래(`0.49999999999999994`), 대칭 `ROUND(-x, d) == -ROUND(x, d)`, `digits` 없는 결과의 32비트 경계 |
+| `147_error_round_args` | 정수가 아닌 `digits`(소수·문자열), 세 번째 인자, 인자 없음, 수가 아닌 `n`, `TRUNC`의 overflow — thread 결과로 한꺼번에 |
+| `148_format` | `{}`의 값 종류별 표기, `.Nf`(반올림·끝자리 0·지수 없음·부호 없는 0), 폭과 정렬(수 오른쪽·나머지 왼쪽·가운데·자르지 않음), `0`과 `,`, `{{`·`}}`, `Infinity`·`NaN`, 반환값 타입 |
+| `149_printf` | 한 줄 출력, `{}` 반환, `PRINT(FORMAT(...))`와 같은 출력, thread 안의 `PRINTF` |
+| `150_error_format` | 문자열이 아닌 서식, 값 개수 불일치(단수·복수), 알 수 없는 서식·위치 자리 표시·닫히지 않은 `{`·짝 없는 `}`, 수 전용 서식에 문자열, 정렬과 함께 쓴 `0`, `PRINTF` 이름의 에러, 최상위 `PRINTF` 실패(위치 없음) |
+| `151_error_math_args` | `SUM`·`MAX`·`MIN`·`ABS`·`FLOOR`·`ROUND`의 인자 에러 — JavaScript 런타임이 이번에 맞춘 메시지 |
+
+`5e-324` 근처의 최단 자릿수는 플랫폼마다 다를 수 있어(스펙 §Number display) 자릿수 반올림 fixture에
+넣지 않는다. Python `decimal`·JavaScript 런타임과의 무작위 비교(16,000건)는 릴리스 전에 수동으로
+했다(CHANGELOG 0.39.0).
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 
