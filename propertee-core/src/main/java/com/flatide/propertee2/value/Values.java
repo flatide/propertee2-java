@@ -10,7 +10,10 @@ import java.util.Map;
  * values are plain Java objects — no wrapper types:
  *
  * <ul>
- *   <li>{@code Integer} / {@code Double} — number (division is always Double)</li>
+ *   <li>{@code Integer} / {@code Long} / {@code Double} — number (division is always Double). An
+ *       integer is boxed as an {@code Integer} when it fits 32 bits and as a {@code Long} beyond
+ *       that, inside the integer range ±{@value #MAX_INTEGER} (spec v0.33.0) —
+ *       {@link #integer(long)} gives that box.</li>
  *   <li>{@code String}, {@code Boolean}</li>
  *   <li>{@code LinkedHashMap<String,Object>} — object (insertion order preserved)</li>
  *   <li>{@code ArrayList<Object>} — array</li>
@@ -26,7 +29,37 @@ public final class Values {
         return new LinkedHashMap<>();
     }
 
-    public static boolean isNumber(Object v)  { return v instanceof Integer || v instanceof Double; }
+    /**
+     * The integer range is ±(2^53 − 1) (spec v0.33.0; 32-bit before): every integer in it is exact
+     * as a decimal too, and it is the range RFC 8259 §6 says JSON readers agree on.
+     */
+    public static final long MAX_INTEGER = 9_007_199_254_740_991L;
+
+    /** The error for an integer result outside the range (spec v0.33.0). */
+    public static final String INTEGER_OVERFLOW = "Integer overflow: the result is outside ±9,007,199,254,740,991";
+
+    /** The error for an integer literal outside the range; tokens are unsigned digits. */
+    public static String literalOutOfRange(String token) {
+        return "Integer literal out of range: " + token + " is larger than 9,007,199,254,740,991";
+    }
+
+    public static boolean isNumber(Object v)  { return v instanceof Integer || v instanceof Long || v instanceof Double; }
+    public static boolean isInteger(Object v) { return v instanceof Integer || v instanceof Long; }
+
+    public static boolean fitsInteger(long v) { return v >= -MAX_INTEGER && v <= MAX_INTEGER; }
+
+    /** The canonical box of an integer the caller has checked with {@link #fitsInteger}. */
+    public static Object integer(long v) {
+        return v == (int) v ? (Object) (int) v : (Object) v;
+    }
+
+    /**
+     * A {@code long} from outside the language — a host, a file size, a time: an integer when it
+     * is inside the range, otherwise the nearest decimal, as JSON data beyond it reads.
+     */
+    public static Object fromLong(long v) {
+        return fitsInteger(v) ? integer(v) : (Object) (double) v;
+    }
     public static boolean isObject(Object v)  { return v instanceof Map; }
     public static boolean isArray(Object v)   { return v instanceof List; }
 
@@ -78,6 +111,7 @@ public final class Values {
             for (Object e : src) out.add(deepCopy(e));
             return out;
         }
+        if (v instanceof Long l) return fromLong(l);   // a host's Long gets its canonical box
         return v; // Integer, Double, String, Boolean, JsonNull are immutable
     }
 

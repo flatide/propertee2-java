@@ -126,6 +126,23 @@ class FacadeTest {
         assertEquals(42, result);
     }
 
+    /** Spec v0.33.0: a raw builtin's Long is an integer inside the range and the nearest decimal beyond it. */
+    @Test void rawBuiltinLongsGetTheirIntegerBox() {
+        BuiltinFunctions.PrintFunction sink = args -> {};
+        BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);
+        builtins.register("BYTES", args -> 5_498_058_138_880L);
+        builtins.register("HUGE", args -> List.of(Long.MIN_VALUE, 7L));
+
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "h = HUGE()\nreturn [BYTES() + 1, h.1 + h.1, h.2]\n", new ArrayList<>());
+        ProperTeeInterpreter visitor =
+                new ProperTeeInterpreter(new LinkedHashMap<>(), sink, sink, 1000, "error", builtins);
+        Object result = new Scheduler(visitor).run(visitor.createRootStepper(tree));
+
+        // Long.MIN_VALUE is past the range, so it is a decimal and its sum cannot wrap around
+        assertEquals(List.of(5_498_058_138_881L, -1.8446744073709552e19, 7), result);
+    }
+
     @Test void knownFunctionNamesCoverDispatchCatalogAndHostRegistrations() {
         BuiltinFunctions.PrintFunction sink = args -> {};
         BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);

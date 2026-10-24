@@ -133,29 +133,59 @@ class InterpreterTest {
         assertEquals(1, props.get("a"));
     }
 
-    /** Spec v0.13.0: every overflowing integer operator fails loudly (fixtures pin + and literals). */
+    /** Spec v0.13.0, v0.33.0: every overflowing integer operator fails loudly (fixtures pin + and literals). */
     @Test void integerOverflowCoversAllOperators() {
-        assertEquals("Runtime error: Runtime Error at line 1:6: Integer overflow\n",
-                engine.run("PRINT(-2147483647 - 2)\n"));
-        assertEquals("Runtime error: Runtime Error at line 1:6: Integer overflow\n",
-                engine.run("PRINT(46341 * 46341)\n"));
-        assertEquals("Runtime error: Runtime Error at line 1:6: Integer overflow\n",
-                engine.run("PRINT(-(-2147483647 - 1))\n"));                       // negate MIN
-        assertEquals("Runtime error: Runtime Error: Integer overflow\n",
-                engine.run("PRINT(ABS(-2147483647 - 1))\n"));                     // |MIN| doesn't fit
-        assertEquals("Runtime error: Runtime Error: Integer overflow\n",
-                engine.run("PRINT(CEIL(2147483648.5))\n"));
-        assertEquals("Runtime error: Runtime Error: Integer overflow\n",
-                engine.run("PRINT(ROUND(-3000000000.4))\n"));
-        // MIN itself is a legal value: reachable, printable, usable.
-        assertEquals("-2147483648\n-2147483647\n",
-                engine.run("min = -2147483647 - 1\nPRINT(min)\nPRINT(min + 1)\n"));
+        String overflow = "Integer overflow: the result is outside ±9,007,199,254,740,991\n";
+        assertEquals("Runtime error: Runtime Error at line 1:6: " + overflow,
+                engine.run("PRINT(-9007199254740991 - 2)\n"));
+        assertEquals("Runtime error: Runtime Error at line 1:6: " + overflow,
+                engine.run("PRINT(4503599627370496 + 4503599627370496)\n"));   // 2^53
+        assertEquals("Runtime error: Runtime Error at line 1:6: " + overflow,
+                engine.run("PRINT(94906266 * 94906266)\n"));
+        assertEquals("Runtime error: Runtime Error at line 1:6: " + overflow,
+                engine.run("PRINT(9007199254740991 * 9007199254740991)\n"));   // past a long too
+        assertEquals("Runtime error: Runtime Error: " + overflow,
+                engine.run("PRINT(CEIL(9007199254740992.5))\n"));
+        assertEquals("Runtime error: Runtime Error: " + overflow,
+                engine.run("PRINT(ROUND(-10000000000000000.4))\n"));
+        // The range is symmetric: negation and ABS cannot overflow, and the ends are usable.
+        assertEquals("9007199254740991 9007199254740991 -9007199136250225\n",
+                engine.run("PRINT(-(-9007199254740991), ABS(-9007199254740991), -94906265 * 94906265)\n"));
     }
 
-    /** Spec v0.13.0: data conversion still promotes out-of-range integrals — JSON round-trips intact. */
+    /** Spec v0.13.0, v0.33.0: data conversion still promotes integrals beyond the range — JSON round-trips intact. */
     @Test void dataConversionStillPromotesBeyondTheIntegerRange() {
-        assertEquals("9999999999\ntrue\n", engine.run(
-                "v = UNWRAP(JSON_PARSE(\"{\\\"n\\\":9999999999}\")).n\nPRINT(v)\nPRINT(v > 2147483647)\n"));
+        // 9999999999 is an integer now, so arithmetic on it is checked; 2^53 + 1 is the nearest decimal
+        assertEquals("9999999999\n9007199254740992 9007199254740992\n", engine.run("""
+                v = UNWRAP(JSON_PARSE("{\\"n\\":9999999999,\\"m\\":9007199254740993}"))
+                PRINT(v.n)
+                PRINT(v.m, v.m + 1)
+                """));
+        assertTrue(engine.run("v = UNWRAP(JSON_PARSE(\"9999999999\"))\nPRINT(v * 1000000)\n")
+                .contains("Integer overflow"));
+    }
+
+    /** Spec v0.33.0: a host's Long is an integer inside the range and the nearest decimal beyond it. */
+    @Test void hostLongsAreIntegersInsideTheRange() {
+        Engine e = new Engine()
+                .registerExternal("BYTES", args -> 5_498_058_138_880L)
+                .registerExternal("SMALL", args -> 7L)
+                .registerExternal("HUGE", args -> Long.MAX_VALUE);
+        assertEquals("5498058138880 true\n7\n9223372036854776000 9223372036854776000\n", e.run("""
+                b = BYTES().value
+                PRINT(b, b * 1000 > b)
+                PRINT(SMALL().value)
+                h = HUGE().value
+                PRINT(h, h + 1)
+                """));
+        Map<String, Object> props = new HashMap<>();
+        props.put("total", 9_007_199_254_740_991L);
+        assertTrue(engine.run("PRINT(total + 1)\n", props).contains("Integer overflow"));
+        // a result keeps the canonical box: Integer when it fits 32 bits, Long beyond
+        Engine.Outcome o = engine.execute("return [1, 1024 * 1024 * 1024 * 1024]\n", Map.of(), s -> {}, s -> {});
+        java.util.List<?> list = (java.util.List<?>) o.result();
+        assertEquals(Integer.class, list.get(0).getClass());
+        assertEquals(Long.class, list.get(1).getClass());
     }
 
     /** Spec v0.13.0: interpreter-dispatched names are a host-API error at registration time. */

@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.42.0
+
+**Spec v0.33.0 — integers up to 9,007,199,254,740,991** (user feedback: 32-bit integers could not
+hold terabyte sizes, so a script had to start a total at `0.0`, which people who are not
+programmers have no reason to know; the user chose 53 bits over arbitrary precision).
+
+- **The integer range is ±(2^53 − 1)** (mildly breaking). Literals, `+`, `-`, `*`, `SUM` and
+  `FLOOR`/`CEIL`/`ROUND`/`TRUNC` without digits are checked against it; unary minus and `ABS` no
+  longer overflow, since the range is symmetric. Every integer in it is exact as a `double`, so
+  `==`, comparison, `SORT`, `FORMAT`/`TEXT` and display stay exact without change. `SUM` of integers
+  checks its running total, as `+` does, so both runtimes agree on every total.
+- **The errors name the limit**: `Integer overflow: the result is outside ±9,007,199,254,740,991`
+  and `Integer literal out of range: 9007199254740992 is larger than 9,007,199,254,740,991` (were
+  `Integer overflow` and `Integer literal out of range: …`).
+- **Host API.** An integer is boxed as an `Integer` when it fits 32 bits, as before, and as a `Long`
+  beyond (`Values.integer(long)`; `Values.isNumber` accepts `Long`, the new `Values.isInteger` tells
+  integers apart, and `Values.MAX_INTEGER`/`fitsInteger`/`INTEGER_OVERFLOW` hold the range). A host's
+  `Long` is now an integer: `Values.deepCopy`, which external results and injected properties pass
+  through, boxes one inside the range and turns one beyond it into the nearest `Double`
+  (`Values.fromLong`); before, a `Long` was not a number at all. The v1 façade's raw builtins
+  (`Interpreter.addRawBuiltin`) now deep-copy their return value the same way, so no `Long` past the
+  range reaches a script. Values that were a `Double` past 32 bits — `MILTIME()`, `FILE_INFO`'s
+  `modified`, file sizes over 2 GiB, `JSON_PARSE`/`TO_NUMBER` integer text, TeeBox props — now reach
+  a host as a `Long`, so a host that cast them to `Double` should read them as a `Number`.
+  `TypeChecker.boxNumber` follows the new range.
+- **Built-ins.** `MILTIME()` and `FILE_INFO`'s `modified` are integers (they were `Double`), and
+  `FILE_INFO`/`LIST_DIR` sizes and the HTTP status are integers up to the range (they turned into
+  `Double` past 32 bits). `JSON_PARSE`/`TO_NUMBER` read integer text inside the range as an integer.
+- **Fixed: `RANDOM(min, max)` with a bound past 32 bits** returned 2147483647 every time — the bounds
+  were cast to `int`. It now takes integer bounds anywhere in the range. A bound that is not one
+  fails (`RANDOM() bounds must be integers within ±9,007,199,254,740,991`), where a fraction was cut
+  toward zero (`RANDOM(1.2, 1.5)` gave `1`), and so does `min` greater than `max`
+  (`RANDOM() min cannot be greater than max`, the JavaScript runtime's error), where it returned a
+  number outside the bounds.
+- **Fixed: `SUBSTRING` and `SLICE` positions past 32 bits** — `SUBSTRING("abcdef", 2, 3000000000)`
+  returned `""`: the position was cast to `int` and the sum wrapped around. Positions now clamp on
+  the `double`.
+- **Fixed: a sleep past about 9.2e12 ms woke at once.** `SLEEP(ms)` and a `monitor` interval computed
+  their wake time as `now + ms * 1_000_000` nanoseconds, which wrapped around into the past — a
+  decimal `SLEEP` argument could do it before, and now so can a `monitor` literal, so a monitor
+  ticked in a busy loop. `Scheduler.wakeAt` saturates the wake time instead.
+- Tests: fixtures `107`–`110`, `115`, `77`, `114`, `136`, `146`, `147` and `152` moved to the new
+  edges, new `157_integer_range_builtins`; `InterpreterTest.integerOverflowCoversAllOperators`,
+  `dataConversionStillPromotesBeyondTheIntegerRange` and the new `hostLongsAreIntegersInsideTheRange`;
+  `ListDirTest.sizesAndTimesPast32BitsAreIntegers`; `FacadeTest.rawBuiltinLongsGetTheirIntegerBox`;
+  `CoopRuntimeTest.aLongSleepWakesNoEarlierThanItShould`;
+  `BuiltinsTest` (`TO_NUMBER`, `JSON_PARSE`, `RANDOM`, `MILTIME`, `TRUNC`). 9,000 random integer
+  expressions near the edges gave the JavaScript runtime's bytes. 154 fixtures; core 493 + CLI 52
+  tests green.
+
 ## 0.41.0
 
 **Spec v0.32.0 — JSON has no Infinity or NaN** (a review of TeeBox 1.40.0 found that a run returning

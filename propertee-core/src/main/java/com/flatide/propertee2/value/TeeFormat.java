@@ -38,7 +38,7 @@ public final class TeeFormat {
         if (v instanceof String s)  return s;
         if (v instanceof JsonNull)  return "null";  // spec v0.8.0 (#4): unquoted, also inside containers
         if (v instanceof Boolean b) return b ? "true" : "false";
-        if (v instanceof Integer i) return i.toString();
+        if (v instanceof Integer || v instanceof Long) return v.toString();
         if (v instanceof Double d)  return formatDouble(d);
         if (v instanceof Map<?, ?> m) {
             if (m.isEmpty()) return "{}";
@@ -190,8 +190,8 @@ public final class TeeFormat {
             sb.append("null");                      // spec v0.8.0 (#4): lossless round-trip
         } else if (v instanceof Boolean b) {
             sb.append(b ? "true" : "false");
-        } else if (v instanceof Integer i) {
-            sb.append(i.toString());
+        } else if (v instanceof Integer || v instanceof Long) {
+            sb.append(v.toString());
         } else if (v instanceof Double d) {
             if (!Double.isFinite(d)) throw new NotJsonException(d);
             sb.append(formatDouble(d));

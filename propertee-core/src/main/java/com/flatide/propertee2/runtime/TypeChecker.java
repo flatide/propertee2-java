@@ -30,9 +30,12 @@ public final class TypeChecker {
         return !Double.isInfinite(d) && !Double.isNaN(d) && d == Math.floor(d);
     }
 
-    /** Whole numbers box to Integer (when in int range), otherwise Double — matching v1 division/format rules. */
+    /**
+     * Whole numbers inside the integer range (±(2^53 − 1), spec v0.33.0) box as an integer — an
+     * Integer when it fits 32 bits, a Long beyond — otherwise Double.
+     */
     public static Object boxNumber(double d) {
-        if (isInteger(d) && Math.abs(d) < Integer.MAX_VALUE) return (int) d;
+        if (isInteger(d) && Math.abs(d) <= Values.MAX_INTEGER) return Values.integer((long) d);
         return d;
     }
 

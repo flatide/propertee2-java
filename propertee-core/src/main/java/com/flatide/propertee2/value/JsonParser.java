@@ -117,10 +117,13 @@ public final class JsonParser {
         if (i == start || (i == start + 1 && s.charAt(start) == '-')) throw err("invalid number");
         String tok = s.substring(start, i);
         boolean fractional = tok.indexOf('.') >= 0 || tok.indexOf('e') >= 0 || tok.indexOf('E') >= 0;
-        try {
-            if (!fractional) return Integer.valueOf(tok);
-        } catch (NumberFormatException tooBig) {
-            return Double.valueOf(tok);
+        if (!fractional) {
+            try {
+                long v = Long.parseLong(tok);
+                if (Values.fitsInteger(v)) return Values.integer(v);
+            } catch (NumberFormatException outsideLong) {
+                // beyond a long: a decimal, like any integer outside the range (spec v0.33.0)
+            }
         }
         return Double.valueOf(tok);
     }

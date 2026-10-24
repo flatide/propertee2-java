@@ -1,4 +1,4 @@
-# ProperTee Language Specification v0.32.0
+# ProperTee Language Specification v0.33.0
 
 ## Overview
 
@@ -29,6 +29,8 @@ Scripts that don't touch JSON `null` never see it; check for it explicitly (`if 
 ### Number Representation
 
 - Integer and decimal are both "number" but stored differently
+- Integers run from −9,007,199,254,740,991 to 9,007,199,254,740,991 and are always exact; integer
+  arithmetic that leaves this range is an error ([The integer range](#the-integer-range-spec-v0130-widened-in-v0330))
 - Arithmetic that produces a whole number result displays without a decimal point: `10 / 2` displays as `5`
 - Division always produces a decimal internally: `7 / 2` → `3.5`
 - Whole-number results of other operations display as integers: `1.0 + 2.0` → `3`
@@ -46,44 +48,66 @@ operation's structure, not by whether the runtime value happens to be whole. A d
 a whole value (`1.5 + 1.5`) stays a decimal; it never turns back into an integer.
 
 - **Integers** come from: integer literals; integer-with-integer `+`, `-`, `*`, `%`, and unary `-`
-  (overflow-checked, below); and integer-producing built-ins (`LEN`, `FLOOR`, `CEIL`, `ROUND` and
+  (`+`, `-` and `*` overflow-checked, below); and integer-producing built-ins (`LEN`, `FLOOR`, `CEIL`, `ROUND` and
   `TRUNC` without `digits`, `ABS` of an integer, and the like).
 - **Decimals** come from: decimal literals (including whole ones like `3.0`); any `/`; any operation
   with a decimal operand (`2 + 3.0` → decimal `5`); decimal-producing built-ins (`RANDOM`, `FLOOR`,
   `CEIL`, `ROUND` and `TRUNC` with `digits`, …); and
   data whose text carries a fraction or exponent — `JSON_PARSE`/`TO_NUMBER` of a token containing
-  `.`, `e`, or `E`, or of an integer literal outside the 32-bit range.
+  `.`, `e`, or `E`, or of an integer numeral outside the integer range.
 
 The only places this distinction is observable are the **integer-overflow rule** (next section) and
 **display of extreme magnitudes** (§Output Formatting): whether an expression *can* overflow is
-decided by its structure, never by the data flowing through it, so `2.0 * 1500000000` is the plain
-decimal `3000000000` while `2 * 1500000000` (both integers) overflows. Everything else treats the two
-alike — `TYPE_OF` is `"number"` for both, `2 == 2.0` is `true`, and a whole value displays the same
+decided by its structure, never by the data flowing through it, so `2.0 * 4503599627370496` is the
+plain decimal `9007199254740992` while `2 * 4503599627370496` (both integers) overflows. Everything
+else treats the two alike — `TYPE_OF` is `"number"` for both, `2 == 2.0` is `true`, and a whole value displays the same
 either way. Where an **integer is required** (indexing, dynamic keys, integer built-in arguments) a
 whole decimal is accepted by coercion; a non-whole decimal is an error, as before. (Runtime note:
-this maps directly onto the `Integer`/`Double` boxing in `value/Values` — the kind is the box.)
+this maps directly onto the boxing in `value/Values` — `Integer`/`Long` against `Double`; the kind
+is the box.)
 
-#### The integer range (spec v0.13.0)
+#### The integer range (spec v0.13.0, widened in v0.33.0)
 
-Integers are **32-bit signed** values: −2,147,483,648 … 2,147,483,647. Like every other type rule
-in ProperTee, leaving the range fails loudly at the point of use — there is no silent wrap-around
-and no silent promotion to a decimal:
+Integers run from **−9,007,199,254,740,991 to 9,007,199,254,740,991** — ±(2⁵³ − 1), about nine
+quadrillion. That holds a file size up to 8 PiB in bytes, a time in epoch milliseconds for the next
+285,000 years, or an amount of money in cents. Every integer in the range is exact and stays exact
+as a decimal, and it is the range JSON readers agree on (RFC 8259 §6), so an integer a script writes
+reads back the same in any of them. (Until v0.32.0 integers were 32-bit, ±2,147,483,647, so a total
+of file sizes past 2 GiB had to start from `0.0`.)
 
-- An integer **literal** must fit the range. Literal tokens are unsigned, so the largest literal is
-  `2147483647`; a larger one is a runtime error: `Integer literal out of range: 9999999999`. The
-  most negative integer −2³¹ cannot be written directly (the minus sign is an operator), but it is
-  a perfectly valid value — reach it with arithmetic: `-2147483647 - 1`.
-- Integer **arithmetic** (`+`, `-`, `*`, unary `-`) whose result leaves the range is a runtime
-  error: `Integer overflow`. (`/` always produces a decimal and cannot overflow; `%` cannot
-  overflow.)
+Like every other type rule in ProperTee, leaving the range fails loudly at the point of use — there
+is no silent wrap-around and no silent promotion to a decimal:
+
+- An integer **literal** must fit the range. A larger one is a runtime error:
+  `Integer literal out of range: 9007199254740992 is larger than 9,007,199,254,740,991`. The range
+  is symmetric, so `-9007199254740991` is written directly.
+- Integer **arithmetic** (`+`, `-`, `*`) whose result leaves the range is a runtime error:
+  `Integer overflow: the result is outside ±9,007,199,254,740,991`. Unary minus and `%` cannot
+  overflow, and `/` always produces a decimal.
+- `SUM` of integers adds them in order, like `+`, and a running total outside the range is the same
+  error, even when later arguments would bring it back: `SUM(9007199254740991, 1, -1)` fails.
 - The built-ins that produce an integer — `FLOOR`, `CEIL`, `ROUND` and `TRUNC` (from a decimal,
-  without `digits`) and `ABS` (|−2³¹| does not fit) — raise the same `Integer overflow` error when
-  the result does not fit. With `digits` the four rounding built-ins produce a decimal and cannot
-  overflow ([Rounding to digits](#rounding-to-digits)).
-- **Data is unaffected**: `JSON_PARSE` and `TO_NUMBER` keep representing integral values beyond
-  the range as decimals — data conversion is not script arithmetic, and JSON keeps round-tripping.
-  (Runtime note: `Interpreter.parseIntLiteral` / `Math.*Exact` in `numeric`; `Builtins.intResult`
-  for FLOOR/CEIL/ROUND/TRUNC without digits; fixtures 107–110.)
+  without `digits`) — raise the same error when the result does not fit. `ABS` cannot overflow. With
+  `digits` the four rounding built-ins produce a decimal and cannot overflow
+  ([Rounding to digits](#rounding-to-digits)).
+- **Data and the host.** `JSON_PARSE` and `TO_NUMBER` read an integer numeral inside the range as an
+  integer, and one outside it as a decimal — data conversion is not script arithmetic, and JSON keeps
+  round-tripping. A decimal holds about 16 significant digits, so such a numeral becomes the nearest
+  decimal: `9007199254740993` reads as `9007199254740992`. Numbers a host supplies — `MILTIME()`, a
+  file's size and time, values passed in — are integers inside the range too.
+
+To go past the range, compute with a decimal: `MILTIME() * 1000000` (nanoseconds) is an overflow,
+while `MILTIME() * 1000000.0` is a decimal of about 16 significant digits. (The JavaScript runtime
+does not yet keep a whole decimal such as `1000000.0` apart from an integer, so there this is still
+an overflow; see the [v0.33.0 changelog](#v0330--integers-up-to-9007199254740991).)
+
+(Runtime note: `Values.MAX_INTEGER`, `fitsInteger` and `integer(long)` — an integer is boxed as an
+`Integer` within 32 bits, as before, and as a `Long` beyond; a value that was a `Double` past 32 bits,
+such as `MILTIME()`, now reaches a host as a `Long`. `Interpreter.parseIntLiteral` and `numeric`
+(`Math.multiplyExact`, then the range check); `Builtins.intResult` for FLOOR/CEIL/ROUND/TRUNC without digits. A host's `Long` gets its box
+in `Values.deepCopy` — on external results, the v1 façade's raw builtin results and injected
+properties — and one beyond the range becomes the nearest `Double`, as `Values.fromLong` does for
+file sizes and times. Fixtures 107–110, 115, 157.)
 
 ### Truthiness
 
@@ -1171,7 +1195,7 @@ zero-width and 123 double-width ranges — the JavaScript runtime holds verbatim
 | `CEIL(n, [digits])` | Round up, toward +∞ |
 | `TRUNC(n, [digits])` | Round toward zero, cutting the digits off (spec v0.30.0) |
 | `RANDOM()` | Random decimal between 0.0 (inclusive) and 1.0 (exclusive) |
-| `RANDOM(min, max)` | Random integer from `min` to `max` (both inclusive). |
+| `RANDOM(min, max)` | Random integer from `min` to `max` (both inclusive). Both must be integers within the [integer range](#the-integer-range-spec-v0130-widened-in-v0330) (a whole decimal such as `2.0` will do), and `min` may not be greater than `max`. |
 
 Without `digits`, `ROUND`, `FLOOR`, `CEIL` and `TRUNC` return an integer; with it they keep that
 many decimal places — see [Rounding to digits](#rounding-to-digits).
@@ -1222,9 +1246,10 @@ and gives the same result in every runtime.
 `ROUND(1.005, 2)` → `1.01`, `ROUND(-1.005, 2)` → `-1.01`. Until v0.29.0 a tie went toward +∞, so
 `ROUND(-2.5)` was `-2`.
 
-**The result.** Without `digits` the result is an integer, and one outside the 32-bit range is an
-`Integer overflow` error, as before. With `digits` it is a decimal — for `digits` `0` too — and
-never overflows: `ROUND(3000000000.7)` is an error, `ROUND(3000000000.7, 0)` is `3000000001`. A
+**The result.** Without `digits` the result is an integer, and one outside the
+[integer range](#the-integer-range-spec-v0130-widened-in-v0330) is an `Integer overflow` error, as
+before. With `digits` it is a decimal — for `digits` `0` too — and never overflows:
+`ROUND(10000000000000000.7)` is an error, `ROUND(10000000000000000.7, 0)` is `10000000000000000`. A
 whole result shows without a fraction (`ROUND(3.0, 2)` → `3`); to show trailing zeros, use
 [`TEXT`](#number-patterns): `TEXT(3.0, "0.00")` → `"3.00"`.
 
@@ -1274,8 +1299,8 @@ converts: not hexadecimal, octal, or binary (`"0x10"`, `"0o17"`, `"0b101"`), not
 non-ASCII digits (`"１２"`), not whitespace inside the numeral (`"- 5"`), and not empty or
 all-whitespace text.
 
-- **Integer or decimal**: a numeral with no `.`, `e`, or `E` whose value fits the 32-bit integer
-  range is an integer; every other numeral is a decimal — `"5.0"`, `"1e3"`, `"2147483648"` (see
+- **Integer or decimal**: a numeral with no `.`, `e`, or `E` whose value fits the integer range is
+  an integer; every other numeral is a decimal — `"5.0"`, `"1e3"`, `"9007199254740992"` (see
   [Number Representation](#number-representation)).
 - **Rounding**: a decimal is the nearest double-precision value, so digits beyond its precision
   are rounded off and a magnitude too small to represent becomes `0` (`"1e-999"` → `0`).
@@ -1291,7 +1316,7 @@ all-whitespace text.
 `x` is the argument exactly as given, surrounding whitespace included. (Runtime note:
 `Builtins.toNumber` matches the trimmed text against `DECIMAL_NUMERAL` first, so the `1f`, `0x1p3`,
 `NaN`, and `Infinity` forms that `Double.parseDouble` reads and the non-ASCII digits that
-`Integer.valueOf` reads never reach them; fixtures 136–137.)
+`Long.parseLong` reads never reach them; fixtures 136–137.)
 
 ### Type
 
@@ -1498,7 +1523,7 @@ JSON cannot represent` — with exit code 1. Fixtures 155–156.)
 | Function | Description |
 |---|---|
 | `FILE_EXISTS(path)` | Returns `true` if file or directory exists. |
-| `FILE_INFO(path)` | Returns Result: `ok` with `{type, size, modified}`, `error` if not found. |
+| `FILE_INFO(path)` | Returns Result: `ok` with `{type, size, modified}` — `size` in bytes and `modified` in epoch milliseconds, both integers — `error` if not found. |
 | `READ_LINES(path, [start], [count])` | Read lines from file. `start` is 1-based (default 1). `count` limits lines read. Returns Result with string array. To go through a whole file line by line, `FILE_LINES` is simpler. |
 | `FILE_LINES(path)` | The file's lines as an array of strings (spec v0.26.0) — a plain array, not a Result: a file that cannot be read is a runtime error. The file is read as the array is used, so a file of any size can be gone through with a loop; see [Going through a file line by line](#going-through-a-file-line-by-line). |
 | `READ_FILE(path)` | Read the whole file as one string (spec v0.18.0). Returns Result: `ok` with the file content (UTF-8, content-exact), `error` on a read failure. The counterpart of `WRITE_FILE`; for large files use `FILE_LINES`. |
@@ -1677,7 +1702,7 @@ is empty or contains `/` is an error Result, as is one that is not well formed (
 | Function | Description |
 |---|---|
 | `SLEEP(ms)` | Pause current thread for `ms` milliseconds |
-| `MILTIME()` | Current time as epoch milliseconds (number) |
+| `MILTIME()` | Current time as epoch milliseconds (an integer) |
 | `DATE()` | Current date as `"YYYY-MM-DD"` string |
 | `TIME()` | Current time of day as `"HH:MM:SS"` string |
 
@@ -2004,6 +2029,8 @@ Common error conditions:
 | Non-boolean `if`/`loop` condition | Condition requires a boolean value |
 | `LEN` on a non-collection | LEN() requires a string, array, or object argument |
 | Single-argument `RANDOM` | RANDOM() requires zero or two arguments |
+| A `RANDOM` bound that is not an integer within the integer range | RANDOM() bounds must be integers within ±9,007,199,254,740,991 |
+| `RANDOM` with `min` greater than `max` | RANDOM() min cannot be greater than max |
 | Division by zero | Division by zero |
 | Missing property | Property 'x' does not exist |
 | Array out of bounds | Array index out of bounds |
@@ -2023,8 +2050,8 @@ Common error conditions:
 | `UNWRAP` on a non-Result | UNWRAP() requires a Result |
 | `FAIL` without a message | FAIL() requires a message argument |
 | All-uppercase function definition | Cannot define function 'X': all-uppercase names are reserved for built-in and host functions |
-| Integer literal too large | Integer literal out of range: 9999999999 |
-| Integer arithmetic overflow (`+` `-` `*`, unary `-`, `FLOOR`/`CEIL`/`ROUND`/`TRUNC` without digits, `ABS`, `SUM`) | Integer overflow |
+| Integer literal too large | Integer literal out of range: 9007199254740992 is larger than 9,007,199,254,740,991 |
+| Integer arithmetic overflow (`+` `-` `*`, `FLOOR`/`CEIL`/`ROUND`/`TRUNC` without digits, `SUM`) | Integer overflow: the result is outside ±9,007,199,254,740,991 |
 | `SUM`/`MAX`/`MIN`/`ABS`/`ROUND`/`FLOOR`/`CEIL`/`TRUNC` given a value that is not a number | SUM() requires numeric arguments |
 | `digits` that is not an integer | ROUND() digits must be an integer |
 | A third argument to `ROUND`/`FLOOR`/`CEIL`/`TRUNC` | ROUND() takes at most 2 arguments |
@@ -2043,6 +2070,45 @@ Common error conditions:
 ---
 
 ## Changelog
+
+### v0.33.0 — Integers up to 9,007,199,254,740,991
+
+Mildly breaking, no grammar change. Since v0.13.0 integers were 32-bit, ±2,147,483,647 — too small
+for everyday sizes. Two files of 1.5 GB added up to an `Integer overflow`, so did
+`2 * 1024 * 1024 * 1024`, and 1 TiB could not be written at all. A script had to start a total at
+`0.0` instead of `0`, which people who are not programmers have no reason to know. Now integers run
+to ±9,007,199,254,740,991 (2⁵³ − 1): the largest range in which every integer is exact as a decimal
+too, and the one JSON readers agree on. See
+[The integer range](#the-integer-range-spec-v0130-widened-in-v0330).
+
+- Literals, `+`, `-`, `*`, `SUM`, and `FLOOR`/`CEIL`/`ROUND`/`TRUNC` without digits follow the new
+  range. The range is symmetric, so unary minus and `ABS` can no longer overflow. `SUM` checks its
+  running total, as `+` does.
+- The errors say where the limit is: `Integer overflow: the result is outside
+  ±9,007,199,254,740,991`, and `Integer literal out of range: 9007199254740992 is larger than
+  9,007,199,254,740,991`. They were `Integer overflow` and `Integer literal out of range: …`.
+- `MILTIME()`, `FILE_INFO`'s `size` and `modified`, `LIST_DIR`'s `size`, and `JSON_PARSE` and
+  `TO_NUMBER` of integer text give integers inside the range, where they gave decimals past 32 bits.
+- `RANDOM(min, max)` takes integer bounds anywhere in the range; the Java 25 runtime cut a bound past
+  32 bits to 2,147,483,647. A bound that is not an integer in the range now fails
+  (`RANDOM() bounds must be integers within ±9,007,199,254,740,991`): the Java 25 runtime cut a
+  fraction toward zero, so `RANDOM(1.2, 1.5)` gave `1`, and the JavaScript runtime returned a
+  decimal. So does `min` greater than `max` (`RANDOM() min cannot be greater than max`), where the
+  Java 25 runtime returned a number outside the bounds.
+- `SUBSTRING` and `SLICE` positions past 32 bits clamp like any other position past the end; the
+  Java 25 runtime wrapped them around and returned nothing.
+
+Migration: a script that stopped at an overflow between 2³¹ and 2⁵³ now runs on. A value that was a
+decimal past 32 bits — `MILTIME()`, a file size over 2 GiB, a JSON integer over 2,147,483,647 — is
+now an integer, so arithmetic on it is checked against the new range: `MILTIME() * 1000000`
+(nanoseconds) is now an overflow, and `MILTIME() * 1000000.0` computes it as a decimal. Code that
+matched the old error text exactly needs the new wording. A total started at `0.0` keeps working.
+
+The Java 25 runtime and the JavaScript runtime implement this; the frozen Java 7/8 runtime does not.
+The JavaScript runtime still treats a whole decimal such as `1000000.0` as an integer
+([Integer vs decimal is nominal](#integer-vs-decimal-is-nominal-spec-v0140)), so past the range it
+reports an overflow where the Java 25 runtime computes a decimal.
+(This runtime: propertee2 0.42.0.)
 
 ### v0.32.0 — JSON has no `Infinity` or `NaN`
 
@@ -2429,7 +2495,8 @@ Fixtures 111 rewritten, 112–115 added; shipped in 0.11.0.
 
 Grown from the v1.0-readiness review (ProperTee `docs/design-draft-v1.0-gate.md`): the corners the
 fixture suite never covered diverged three ways across the runtimes, now specified. **Breaking in
-those corners only.** Integers are pinned to 32-bit signed — out-of-range literals and overflowing
+those corners only.** Integers are pinned to 32-bit signed (widened to ±(2⁵³ − 1) in
+[v0.33.0](#v0330--integers-up-to-9007199254740991)) — out-of-range literals and overflowing
 `+`/`-`/`*`/unary `-` (and integer-producing `FLOOR`/`CEIL`/`ROUND`/`ABS`) are runtime errors
 (this runtime previously wrapped/clamped silently, and an oversized literal even escaped as a raw
 `NumberFormatException`); data conversion (`JSON_PARSE`/`TO_NUMBER`) still promotes to decimals. A

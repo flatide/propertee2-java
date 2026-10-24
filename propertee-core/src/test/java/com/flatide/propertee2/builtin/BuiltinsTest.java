@@ -61,8 +61,9 @@ class BuiltinsTest {
                 assertThrows(TeeError.class, () -> call("ROUND", 3.48, 1.5)).getMessage());
         assertEquals("CEIL() takes at most 2 arguments",
                 assertThrows(TeeError.class, () -> call("CEIL", 3.48, 1, 9)).getMessage());
-        assertEquals("Integer overflow",
-                assertThrows(TeeError.class, () -> call("TRUNC", 3000000000.5)).getMessage());
+        assertEquals(3000000000L, call("TRUNC", 3000000000.5));           // spec v0.33.0: inside the range
+        assertEquals("Integer overflow: the result is outside ±9,007,199,254,740,991",
+                assertThrows(TeeError.class, () -> call("TRUNC", 1e16)).getMessage());
     }
 
     @Test void format() {                                 // spec v0.31.0: 148_format, 150_error_format
@@ -268,7 +269,8 @@ class BuiltinsTest {
     }
 
     @Test void toNumberNumerals() {                       // 136_to_number_numerals, 137_error_to_number_hex (spec v0.25.0)
-        // integer text that fits 32 bits is an Integer; a fraction, an exponent or a wider value is a Double
+        // integer text inside the range is an integer (Integer within 32 bits, Long beyond — spec
+        // v0.33.0); a fraction, an exponent or a wider value is a Double
         assertEquals(42, call("TO_NUMBER", "42"));
         assertEquals(Integer.class, call("TO_NUMBER", "+5").getClass());
         assertEquals(-5, call("TO_NUMBER", "-5"));
@@ -276,7 +278,11 @@ class BuiltinsTest {
         assertEquals(0, call("TO_NUMBER", "-0"));
         assertEquals(Integer.MAX_VALUE, call("TO_NUMBER", "2147483647"));
         assertEquals(Integer.MIN_VALUE, call("TO_NUMBER", "-2147483648"));
-        assertEquals(2147483648.0, call("TO_NUMBER", "2147483648"));
+        assertEquals(2147483648L, call("TO_NUMBER", "2147483648"));
+        assertEquals(9007199254740991L, call("TO_NUMBER", "9007199254740991"));
+        assertEquals(-9007199254740991L, call("TO_NUMBER", "-9007199254740991"));
+        assertEquals(9007199254740992.0, call("TO_NUMBER", "9007199254740992"));
+        assertEquals(1e20, call("TO_NUMBER", "100000000000000000000"));
         assertEquals(5.0, call("TO_NUMBER", "5.0"));
         assertEquals(Double.class, call("TO_NUMBER", "5.0").getClass());
         assertEquals(Double.class, call("TO_NUMBER", "1e3").getClass());
@@ -356,6 +362,8 @@ class BuiltinsTest {
         assertEquals(com.flatide.propertee2.value.JsonNull.NULL,
                 ((Map<?, ?>) call("JSON_PARSE", "null")).get("value")); // spec v0.8.0 (#4): null preserved
         assertEquals(Integer.valueOf(42), ((Map<?, ?>) call("JSON_PARSE", "42")).get("value"));
+        assertEquals(Long.valueOf(5498058138880L), ((Map<?, ?>) call("JSON_PARSE", "5498058138880")).get("value"));
+        assertEquals(9007199254740992.0, ((Map<?, ?>) call("JSON_PARSE", "9007199254740992")).get("value"));
     }
 
     @Test void timing() {                                 // 64_time_functions (range/format only)
@@ -367,7 +375,24 @@ class BuiltinsTest {
         org.junit.jupiter.api.Assertions.assertTrue(ri >= 1 && ri <= 10);
         assertEquals("RANDOM() requires zero or two arguments",              // spec v0.7.0 (#5)
                 assertThrows(TeeError.class, () -> call("RANDOM", 10)).getMessage());
-        org.junit.jupiter.api.Assertions.assertTrue((Double) call("MILTIME") > 0);
+        // spec v0.33.0: bounds anywhere in the range (a bound past 32 bits used to be cut to
+        // 2147483647), the ends included; min may not be greater than max
+        for (int k = 0; k < 200; k++) {
+            long big = (Long) call("RANDOM", 4_000_000_000L, 5_000_000_000L);
+            org.junit.jupiter.api.Assertions.assertTrue(big >= 4_000_000_000L && big <= 5_000_000_000L, "" + big);
+            long any = ((Number) call("RANDOM", -9007199254740991L, 9007199254740991L)).longValue();
+            org.junit.jupiter.api.Assertions.assertTrue(Math.abs(any) <= 9007199254740991L, "" + any);
+        }
+        assertEquals(9007199254740991L, call("RANDOM", 9007199254740991L, 9007199254740991L));
+        assertEquals(3, call("RANDOM", 3.0, 3));                             // a whole decimal will do
+        for (Object[] bad : new Object[][] {{0, 1e16}, {1.2, 1.5}, {-1.5, -1.2}, {0, Double.NaN}, {0, Double.POSITIVE_INFINITY}}) {
+            assertEquals("RANDOM() bounds must be integers within ±9,007,199,254,740,991",
+                    assertThrows(TeeError.class, () -> call("RANDOM", bad)).getMessage());
+        }
+        assertEquals("RANDOM() min cannot be greater than max",
+                assertThrows(TeeError.class, () -> call("RANDOM", 5, 1)).getMessage());
+        assertEquals(Long.class, call("MILTIME").getClass());               // an integer (spec v0.33.0)
+        org.junit.jupiter.api.Assertions.assertTrue((Long) call("MILTIME") > 1_700_000_000_000L);
         assertEquals(10, ((String) call("DATE")).length());   // yyyy-MM-dd
         assertEquals(8, ((String) call("TIME")).length());    // HH:MM:SS
     }

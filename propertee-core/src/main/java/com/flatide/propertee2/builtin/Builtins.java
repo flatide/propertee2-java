@@ -206,16 +206,22 @@ public final class Builtins {
     private static void registerMath(Builtins b) {
         b.register("SUM", Kind.PURE, args -> {
             boolean allInt = true;
-            double d = 0;
-            long i = 0;                         // widen the integer path so overflow is detected, not wrapped
             for (Object a : args) {
                 number("SUM", a);
-                if (a instanceof Integer n) { i += n; d += n; } else { allInt = false; d += (Double) a; }
+                if (!Values.isInteger(a)) allInt = false;
             }
             if (allInt) {
-                if (i < Integer.MIN_VALUE || i > Integer.MAX_VALUE) throw new TeeError("Integer overflow");  // spec v0.14.0, fail-loud like +/*
-                return (Object) (int) i;
+                // Spec v0.33.0: integers add in order, like +, and a running total outside the
+                // range is the overflow (spec v0.14.0) — so the total is exact in both runtimes.
+                long i = 0;
+                for (Object a : args) {
+                    i += ((Number) a).longValue();
+                    if (!Values.fitsInteger(i)) throw new TeeError(Values.INTEGER_OVERFLOW);
+                }
+                return Values.integer(i);
             }
+            double d = 0;
+            for (Object a : args) d += Values.toDouble(a);
             return (Object) d;
         });
         b.register("MAX", Kind.PURE, args -> minMax("MAX", args, true));
@@ -223,15 +229,12 @@ public final class Builtins {
         b.register("ABS", Kind.PURE, args -> {
             Object n = arg("ABS", args, 0);
             number("ABS", n);
-            if (n instanceof Integer i) {
-                if (i == Integer.MIN_VALUE) throw new TeeError("Integer overflow");   // |MIN| doesn't fit (v0.13.0)
-                return Math.abs(i);
-            }
+            if (Values.isInteger(n)) return Values.integer(Math.abs(((Number) n).longValue()));   // the range is symmetric
             return Math.abs((Double) n);
         });
-        // FLOOR/CEIL/ROUND/TRUNC without digits return an Integer (FLOOR(3.9)->3, CEIL(3.1)->4,
-        // ROUND(3.5)->4, TRUNC(-3.9)->-3); a result outside the 32-bit range is a loud error, never
-        // a clamp (spec v0.13.0). With digits (spec v0.30.0) they return a decimal rounded on the
+        // FLOOR/CEIL/ROUND/TRUNC without digits return an integer (FLOOR(3.9)->3, CEIL(3.1)->4,
+        // ROUND(3.5)->4, TRUNC(-3.9)->-3); a result outside the integer range is a loud error, never
+        // a clamp (spec v0.13.0, v0.33.0). With digits (spec v0.30.0) they return a decimal rounded on the
         // digits PRINT shows — see rounding().
         b.register("FLOOR", Kind.PURE, args -> rounding("FLOOR", args, DecimalDigits.Mode.FLOOR));
         b.register("CEIL",  Kind.PURE, args -> rounding("CEIL", args, DecimalDigits.Mode.CEILING));
@@ -242,7 +245,7 @@ public final class Builtins {
     /**
      * {@code FN(n, [digits])} for FLOOR/CEIL/ROUND/TRUNC. A third argument is an error, not dropped
      * — before spec v0.30.0 the second one was silently ignored. Without digits the result is an
-     * Integer (ROUND's tie goes away from zero, so ROUND(-2.5) is -3); with digits it is a decimal:
+     * integer (ROUND's tie goes away from zero, so ROUND(-2.5) is -3); with digits it is a decimal:
      * DecimalDigits rounds the shortest digits at that place, places the number does not reach
      * change nothing, a value past the double range is Infinity, and Infinity/NaN come back as is.
      */
@@ -273,10 +276,15 @@ public final class Builtins {
         };
     }
 
-    /** The 32-bit integer envelope for integer-producing builtins (spec v0.13.0). */
-    private static int intResult(double d) {
-        if (d < Integer.MIN_VALUE || d > Integer.MAX_VALUE) throw new TeeError("Integer overflow");
-        return (int) d;
+    /** A whole number inside the integer range (spec v0.33.0); NaN and the infinities are not. */
+    private static boolean isRangeInteger(double d) {
+        return d == Math.floor(d) && Math.abs(d) <= Values.MAX_INTEGER;
+    }
+
+    /** The integer range for integer-producing builtins (spec v0.13.0, v0.33.0). */
+    private static Object intResult(double d) {
+        if (d < -Values.MAX_INTEGER || d > Values.MAX_INTEGER) throw new TeeError(Values.INTEGER_OVERFLOW);
+        return Values.integer((long) d);
     }
 
     private static Object minMax(String fn, List<Object> args, boolean max) {
@@ -318,8 +326,8 @@ public final class Builtins {
         // SUBSTRING(s, start, [length]) — start is 1-based; 3rd arg is LENGTH (13_strings).
         b.register("SUBSTRING", Kind.PURE, args -> {
             String s = string("SUBSTRING", arg("SUBSTRING", args, 0));
-            int from = clamp((int) intArg("SUBSTRING", args, 1) - 1, 0, s.length());
-            int to = args.size() > 2 ? clamp(from + (int) intArg("SUBSTRING", args, 2), from, s.length()) : s.length();
+            int from = clamp(intArg("SUBSTRING", args, 1) - 1, 0, s.length());
+            int to = args.size() > 2 ? clamp(from + intArg("SUBSTRING", args, 2), from, s.length()) : s.length();
             return s.substring(from, to);
         });
         // SPLIT keeps every field — leading, interior and trailing empties — so JOIN(SPLIT(s, d), d)
@@ -444,8 +452,8 @@ public final class Builtins {
         // SUBSTRING and READ_LINES (spec v0.7.0 #6; until v0.6.0 it was an end bound instead).
         b.register("SLICE", Kind.PURE, args -> {
             List<Object> arr = array("SLICE", arg("SLICE", args, 0));
-            int from = clamp((int) intArg("SLICE", args, 1) - 1, 0, arr.size());
-            int to = args.size() > 2 ? clamp(from + (int) intArg("SLICE", args, 2), from, arr.size()) : arr.size();
+            int from = clamp(intArg("SLICE", args, 1) - 1, 0, arr.size());
+            int to = args.size() > 2 ? clamp(from + intArg("SLICE", args, 2), from, arr.size()) : arr.size();
             List<Object> out = new ArrayList<>(to - from);
             for (int i = from; i < to; i++) out.add(Values.deepCopy(arr.get(i)));
             return out;
@@ -688,8 +696,8 @@ public final class Builtins {
             PlatformProvider.FileStat s = platform.fileInfo(string("FILE_INFO", arg("FILE_INFO", args, 0)));
             Map<String, Object> info = new LinkedHashMap<>();
             info.put("type", s.type());
-            info.put("size", numberFromLong(s.size()));
-            info.put("modified", (double) s.modified());
+            info.put("size", Values.fromLong(s.size()));
+            info.put("modified", Values.fromLong(s.modified()));   // epoch millis: an integer (spec v0.33.0)
             return Result.ok(info);
         }));
 
@@ -707,7 +715,7 @@ public final class Builtins {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("name", e.name());
                     m.put("type", e.type());
-                    m.put("size", numberFromLong(e.size()));
+                    m.put("size", Values.fromLong(e.size()));
                     out.add(m);
                 }
                 return Result.ok(out);
@@ -799,10 +807,6 @@ public final class Builtins {
                 && !Double.isInfinite(Values.toDouble(v));
     }
 
-    private static Object numberFromLong(long v) {
-        return (v >= Integer.MIN_VALUE && v <= Integer.MAX_VALUE) ? (Object) (int) v : (Object) (double) v;
-    }
-
     // ---- HTTP (host-backed blocking I/O; v1 Result shape) -----------------
 
     private static void registerHttp(Builtins b, PlatformProvider platform) {
@@ -841,7 +845,7 @@ public final class Builtins {
         Map<String, Object> value = new LinkedHashMap<>();
         try {
             PlatformProvider.HttpResponse resp = platform.httpRequest(method, url, headers, body, timeoutMs);
-            value.put("status", numberFromLong(resp.status()));
+            value.put("status", Values.fromLong(resp.status()));
             value.put("body", resp.body() != null ? resp.body() : "");
             Map<String, Object> hdrs = new LinkedHashMap<>();
             if (resp.headers() != null) {
@@ -945,11 +949,19 @@ public final class Builtins {
                 // convention clashed with the inclusive two-argument form. Fails loudly by design.
                 throw new TeeError("RANDOM() requires zero or two arguments");
             }
-            int lo = (int) intArg("RANDOM", args, 0);
-            int hi = (int) intArg("RANDOM", args, 1);
-            return lo + (int) (Math.random() * (hi - lo + 1));        // lo .. hi inclusive
+            // Spec v0.33.0: the bounds are integers in the range — before, a bound past 32 bits was
+            // cut to 2147483647 and a fraction cut toward zero — and min may not be greater than max
+            // (this runtime used to return a number outside them).
+            double min = intArg("RANDOM", args, 0), max = intArg("RANDOM", args, 1);
+            if (!(isRangeInteger(min) && isRangeInteger(max))) {
+                throw new TeeError("RANDOM() bounds must be integers within ±9,007,199,254,740,991");
+            }
+            long lo = (long) min, hi = (long) max;
+            if (lo > hi) throw new TeeError("RANDOM() min cannot be greater than max");
+            long r = lo + (long) Math.floor(Math.random() * ((double) (hi - lo) + 1));
+            return Values.integer(Math.min(r, hi));                  // lo .. hi inclusive
         });
-        b.register("MILTIME", Kind.PURE, args -> (double) System.currentTimeMillis()); // epoch millis exceed int range
+        b.register("MILTIME", Kind.PURE, args -> Values.integer(System.currentTimeMillis()));   // an integer (spec v0.33.0)
         b.register("DATE", Kind.PURE, args -> LocalDate.now().toString());              // yyyy-MM-dd
         b.register("TIME", Kind.PURE, args -> LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
     }
@@ -1189,7 +1201,14 @@ public final class Builtins {
         return out;
     }
 
-    private static int clamp(int x, int lo, int hi) { return Math.max(lo, Math.min(hi, x)); }
+    /**
+     * A position clamped to lo..hi, truncated toward zero. It is computed on the double, so a
+     * position past 32 bits — SUBSTRING(s, 2, 3000000000) — clamps instead of wrapping around.
+     */
+    private static int clamp(double x, int lo, int hi) {
+        if (!(x > lo)) return lo;   // NaN too
+        return x >= hi ? hi : (int) x;
+    }
 
     // Spec v0.24.0 whitespace (TRIM, WORDS): exactly space, \t, \n, VT, \f, \r. String.trim()
     // would also strip the other C0 controls — characters the JavaScript runtime keeps.
@@ -1250,7 +1269,7 @@ public final class Builtins {
 
     // Spec v0.25.0: TO_NUMBER reads exactly a decimal numeral (sign, ASCII digits with an optional
     // fraction — ".5" and "5." included — and an optional exponent) inside the TRIM whitespace.
-    // Validating first keeps Integer.valueOf's non-ASCII digits and Double.parseDouble's "1f",
+    // Validating first keeps Long.parseLong's non-ASCII digits and Double.parseDouble's "1f",
     // "0x1p3", "NaN" and "Infinity" out; the JavaScript runtime's Number() accepts a different set.
     private static final Pattern DECIMAL_NUMERAL =
             Pattern.compile("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?");
@@ -1261,10 +1280,12 @@ public final class Builtins {
         boolean fractional = t.indexOf('.') >= 0 || t.indexOf('e') >= 0 || t.indexOf('E') >= 0;
         if (!fractional) {
             try {
-                return Integer.valueOf(t);
-            } catch (NumberFormatException outside32Bits) {
-                // integer text beyond the 32-bit range is a decimal (spec v0.13.0)
+                long v = Long.parseLong(t);
+                if (Values.fitsInteger(v)) return Values.integer(v);
+            } catch (NumberFormatException outsideLong) {
+                // longer still
             }
+            // integer text beyond the integer range is a decimal (spec v0.13.0, v0.33.0)
         }
         double d = Double.parseDouble(t);
         if (Double.isInfinite(d)) throw new TeeError("TO_NUMBER() value out of range: '" + s + "'");

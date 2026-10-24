@@ -173,7 +173,7 @@ public final class Scheduler {
         lock.lock();
         try {
             me.state = FiberState.SLEEPING;
-            me.wakeNanos = System.nanoTime() + ms * 1_000_000L;
+            me.wakeNanos = wakeAt(System.nanoTime(), ms);
             sleepers.add(me);
             releaseAndPick(me);
             timerCond.signalAll();
@@ -182,6 +182,16 @@ public final class Scheduler {
         }
         parkUntilRunning(me);                       // stack preserved across the sleep — no replay
         pollAbort();                                // covers both force-woken and naturally-expired sleeps
+    }
+
+    /**
+     * The wake time for a sleep of {@code ms} from {@code now}, saturated at {@code Long.MAX_VALUE}:
+     * since spec v0.33.0 a literal reaches 9e15 ms, and {@code now + ms * 1_000_000} would wrap
+     * around to a time already past — a sleep that returns at once, a monitor that ticks in a loop.
+     */
+    static long wakeAt(long now, long ms) {
+        long delay = ms > Long.MAX_VALUE / 1_000_000L ? Long.MAX_VALUE : ms * 1_000_000L;
+        return now > 0 && delay > Long.MAX_VALUE - now ? Long.MAX_VALUE : now + delay;
     }
 
     /**

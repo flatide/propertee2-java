@@ -13,7 +13,7 @@ import java.util.List;
  * <ul>
  *   <li>Bounds and step must be numbers; step must be positive; direction is inferred.</li>
  *   <li>All-integer ranges iterate in {@code long} (no int overflow — 77_range_int_overflow)
- *       and yield {@code Integer} elements.</li>
+ *       and yield integer elements.</li>
  *   <li>Any fractional bound/step iterates in {@link BigDecimal} so float noise does not drop
  *       the endpoint ({@code [0.0..0.3, 0.1]} → {@code [0, 0.1, 0.2, 0.3]} — 62) nor over-include
  *       a tiny one (76_range_tiny_float_bound).</li>
@@ -26,7 +26,7 @@ final class Ranges {
         if (!Values.isNumber(startV) || !Values.isNumber(endV)) {
             throw new TeeError("Range bounds must be numbers", line, col);
         }
-        boolean allInt = startV instanceof Integer && endV instanceof Integer;
+        boolean allInt = Values.isInteger(startV) && Values.isInteger(endV);
         double start = Values.toDouble(startV);
         double end = Values.toDouble(endV);
 
@@ -37,15 +37,15 @@ final class Ranges {
             if (!Values.isNumber(stepV)) throw new TeeError("Range step must be a number", line, col);
             step = Values.toDouble(stepV);
             if (step <= 0) throw new TeeError("Range step must be positive", line, col);
-            if (!(stepV instanceof Integer)) allInt = false;
+            if (!Values.isInteger(stepV)) allInt = false;
         }
 
         boolean ascending = start <= end;
         List<Object> out = new ArrayList<>();
         if (allInt) {
             long s = (long) start, e = (long) end, st = (long) step;
-            if (ascending) for (long v = s; v <= e; v += st) out.add((int) v);
-            else           for (long v = s; v >= e; v -= st) out.add((int) v);
+            if (ascending) for (long v = s; v <= e; v += st) out.add(Values.integer(v));
+            else           for (long v = s; v >= e; v -= st) out.add(Values.integer(v));
         } else {
             BigDecimal s = BigDecimal.valueOf(start), e = BigDecimal.valueOf(end), st = BigDecimal.valueOf(step);
             if (ascending) for (BigDecimal v = s; v.compareTo(e) <= 0; v = v.add(st)) out.add(v.doubleValue());

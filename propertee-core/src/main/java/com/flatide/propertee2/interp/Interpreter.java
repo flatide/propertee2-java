@@ -274,9 +274,13 @@ public final class Interpreter {
      */
     public void setLoopLimitWarns(boolean warns) { this.loopLimitWarns = warns; }
 
-    /** Register a host builtin whose return value is used as-is (no Result wrapper), e.g. STREAM_FILE. */
+    /**
+     * Register a host builtin whose return value is used without a Result wrapper, e.g. STREAM_FILE.
+     * The value is deep-copied like an external's, which also gives a host's {@code Long} its
+     * integer box — one beyond the range becomes the nearest decimal (spec v0.33.0).
+     */
     public void addRawBuiltin(String name, java.util.function.Function<List<Object>, Object> fn) {
-        builtins.register(Engine.requireReplaceableName(name), Builtins.Kind.PURE, fn::apply);
+        builtins.register(Engine.requireReplaceableName(name), Builtins.Kind.PURE, args -> Values.deepCopy(fn.apply(args)));
     }
 
     /**
@@ -368,8 +372,8 @@ public final class Interpreter {
         int limit = Integer.MAX_VALUE;
         if (m.limitExpr != null) {
             Object v = eval(m.limitExpr);
-            if (!(v instanceof Integer i) || i <= 0) throw err("multi limit must be a positive integer", m.limitExpr);
-            limit = i;
+            if (!Values.isInteger(v) || ((Number) v).longValue() <= 0) throw err("multi limit must be a positive integer", m.limitExpr);
+            limit = (int) Math.min(((Number) v).longValue(), Integer.MAX_VALUE);
         }
 
         // 1. read-only global snapshot all threads share (design §4, thread purity), taken at
@@ -487,7 +491,7 @@ public final class Interpreter {
 
         if (hasMonitor) {
             MonitorClauseContext mc = m.monitorClause();
-            long interval = parseIntLiteral(mc.INTEGER().getText(), mc);   // an INTEGER literal (32-bit rule)
+            long interval = parseIntLiteral(mc.INTEGER().getText(), mc);   // an INTEGER literal (the integer range)
             String resultVarName = m.resultVar != null ? m.resultVar.getText() : null;
             s.spawn("monitor", () -> {
                 try {
@@ -1105,7 +1109,7 @@ public final class Interpreter {
             case GlobalVarReferenceContext g -> lookupGlobal(g.ID().getText(), g);
             case VarReferenceContext v -> lookupVar(v.ID().getText(), v);
             case DecimalAtomContext d -> Double.parseDouble(d.INTEGER(0).getText() + "." + d.INTEGER(1).getText());
-            case IntegerAtomContext i -> parseIntLiteral(i.INTEGER().getText(), i);
+            case IntegerAtomContext i -> Values.integer(parseIntLiteral(i.INTEGER().getText(), i));
             case StringAtomContext s -> unescape(s.STRING().getText());
             case BooleanAtomContext b -> b.K_TRUE() != null;
             case NullAtomContext n -> JsonNull.NULL;            // spec v0.8.0 (#4): the null literal
@@ -1146,22 +1150,27 @@ public final class Interpreter {
     }
 
     /**
-     * +,-,*,% with v1 type rule: both Integer -> Integer, otherwise Double. Integer results must
-     * stay in the 32-bit range (spec v0.13.0) — overflow is a loud runtime error, never a wrap.
+     * +,-,*,% with v1 type rule: both integers -> integer, otherwise Double. Integer results must
+     * stay in the integer range ±(2^53 − 1) (spec v0.13.0, v0.33.0) — overflow is a loud runtime
+     * error, never a wrap.
      */
     private Object numeric(Object l, Object r, char op, ParserRuleContext ctx) {
-        if (l instanceof Integer li && r instanceof Integer ri) {
+        if (Values.isInteger(l) && Values.isInteger(r)) {
+            long a = ((Number) l).longValue(), b = ((Number) r).longValue();
+            long v;
             try {
-                return switch (op) {
-                    case '+' -> Math.addExact(li, ri);
-                    case '-' -> Math.subtractExact(li, ri);
-                    case '*' -> Math.multiplyExact(li, ri);
-                    case '%' -> li % ri;   // cannot overflow (Integer.MIN_VALUE % -1 == 0 in Java)
+                v = switch (op) {
+                    case '+' -> a + b;                      // operands within ±2^53 cannot leave a long
+                    case '-' -> a - b;
+                    case '*' -> Math.multiplyExact(a, b);
+                    case '%' -> a % b;                      // cannot overflow
                     default -> throw new IllegalStateException();
                 };
             } catch (ArithmeticException overflow) {
-                throw err("Integer overflow", ctx);
+                throw err(Values.INTEGER_OVERFLOW, ctx);
             }
+            if (!Values.fitsInteger(v)) throw err(Values.INTEGER_OVERFLOW, ctx);
+            return Values.integer(v);
         }
         double a = Values.toDouble(l), b = Values.toDouble(r);
         return switch (op) {
@@ -1174,21 +1183,21 @@ public final class Interpreter {
     }
 
     private Object negate(Object v, ParserRuleContext ctx) {
-        if (v instanceof Integer i) {
-            if (i == Integer.MIN_VALUE) throw err("Integer overflow", ctx);   // spec v0.13.0
-            return -i;
-        }
+        if (Values.isInteger(v)) return Values.integer(-((Number) v).longValue());   // the range is symmetric
         if (v instanceof Double d) return -d;
         throw err("Unary minus requires a numeric operand. Got " + Values.typeName(v), ctx);
     }
 
-    /** Integer literals must fit the 32-bit range (spec v0.13.0); tokens are unsigned digits. */
-    private Integer parseIntLiteral(String token, ParserRuleContext ctx) {
+    /** Integer literals must fit the integer range (spec v0.13.0, v0.33.0); tokens are unsigned digits. */
+    private long parseIntLiteral(String token, ParserRuleContext ctx) {
+        long v;
         try {
-            return Integer.parseInt(token);
+            v = Long.parseLong(token);
         } catch (NumberFormatException tooBig) {
-            throw err("Integer literal out of range: " + token, ctx);
+            v = -1;
         }
+        if (v < 0 || v > Values.MAX_INTEGER) throw err(Values.literalOutOfRange(token), ctx);
+        return v;
     }
 
     // ---- comparison / logic ------------------------------------------------
@@ -1481,7 +1490,7 @@ public final class Interpreter {
     }
 
     private int arrayIndex(AccessContext a, ParserRuleContext ctx) {
-        if (a instanceof ArrayAccessContext ar) return parseIntLiteral(ar.INTEGER().getText(), ar);
+        if (a instanceof ArrayAccessContext ar) return (int) Math.min(parseIntLiteral(ar.INTEGER().getText(), ar), Integer.MAX_VALUE);
         Object v = switch (a) {
             case VarEvalAccessContext ve -> evalVarEval(ve);
             case EvalAccessContext ev -> eval(ev.expression());

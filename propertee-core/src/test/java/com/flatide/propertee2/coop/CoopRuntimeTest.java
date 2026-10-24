@@ -17,6 +17,16 @@ import org.junit.jupiter.api.Test;
  */
 class CoopRuntimeTest {
 
+    /** Spec v0.33.0: a sleep of up to 9e15 ms saturates its wake time instead of wrapping into the past. */
+    @Test void aLongSleepWakesNoEarlierThanItShould() {
+        assertEquals(5_000_000_000L + 2_000_000L, Scheduler.wakeAt(5_000_000_000L, 2));
+        assertEquals(-7L, Scheduler.wakeAt(-7L, 0));
+        assertEquals(Long.MAX_VALUE, Scheduler.wakeAt(1_000L, 10_000_000_000_000L));        // 1e13 ms
+        assertEquals(Long.MAX_VALUE, Scheduler.wakeAt(1_000L, 9_007_199_254_740_991L));     // the largest literal
+        assertEquals(-1_000L + 9_000_000_000_000_000_000L, Scheduler.wakeAt(-1_000L, 9_000_000_000_000L));
+        assertTrue(Scheduler.wakeAt(Long.MAX_VALUE - 10, 1) == Long.MAX_VALUE);
+    }
+
     /** Spawn child fibers, run them cooperatively, and wait for all to finish (a PD-style mini-multi). */
     private static void runParallel(Coop coop, List<Runnable> tasks) {
         coop.run("root", () -> {

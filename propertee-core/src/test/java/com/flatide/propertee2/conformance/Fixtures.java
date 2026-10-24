@@ -101,7 +101,9 @@ public final class Fixtures {
             // spec v0.31.0: number patterns in FORMAT/PRINTF and TEXT; ALIGN_* by screen columns
             "152_text", "153_align", "154_error_text_align",
             // spec v0.32.0: JSON has no Infinity or NaN (156 host-injected testDir)
-            "155_error_json_nonfinite", "156_error_write_json_nonfinite");
+            "155_error_json_nonfinite", "156_error_write_json_nonfinite",
+            // spec v0.33.0: the integer range is ±9,007,199,254,740,991
+            "157_integer_range_builtins");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

@@ -194,8 +194,34 @@ class ListDirTest {
                 """, new Engine().run(script, Map.of("d", "/virtual"), provider));
     }
 
+    /**
+     * Spec v0.33.0: a file size or time past 32 bits is an integer, so sizes add up from 0 — before,
+     * a total over 2 GiB of files under 2 GiB each was "Integer overflow" unless it began at 0.0.
+     */
+    @Test void sizesAndTimesPast32BitsAreIntegers() {
+        long tb = 1L << 40;
+        PlatformProvider provider = new OnlyListDir(List.of(
+                new PlatformProvider.DirEntry("a.img", "file", 1_500_000_000),
+                new PlatformProvider.DirEntry("b.img", "file", 1_500_000_000),
+                new PlatformProvider.DirEntry("c.img", "file", 3 * tb))) {
+            @Override public FileStat fileInfo(String path) { return new FileStat("file", 3 * tb, 1_792_834_328_647L); }
+        };
+        String script = """
+                total = 0
+                loop e in UNWRAP(LIST_DIR(d)) do
+                    total = total + e.size
+                end
+                info = UNWRAP(FILE_INFO(d + "/c.img"))
+                PRINT(total, info.size, info.modified, info.modified % 1000)
+                """;
+        assertEquals("3301534883328 3298534883328 1792834328647 647\n",
+                new Engine().run(script, Map.of("d", "/virtual"), provider));
+    }
+
     /** A host provider written before spec v0.27.0: it implements only the one-argument listDir. */
-    private record OnlyListDir(List<PlatformProvider.DirEntry> entries) implements PlatformProvider {
+    private static class OnlyListDir implements PlatformProvider {
+        private final List<DirEntry> entries;
+        OnlyListDir(List<DirEntry> entries) { this.entries = entries; }
         @Override public List<DirEntry> listDir(String path) { return entries; }
         @Override public String env(String name) { return null; }
         @Override public boolean fileExists(String path) { return false; }
