@@ -11,7 +11,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 /**
  * PA parser smoke test: every fixture in the corpus must lex+parse with the vanilla
  * grammar (runtime-error and host-feature fixtures are still syntactically valid).
- * This validates grammar/ProperTee.g4 + the ANTLR codegen against all 151 inputs
+ * This validates grammar/ProperTee.g4 + the ANTLR codegen against all 153 inputs
  * before the interpreter exists. Semantic conformance (diff vs .expected) lands in PE.
  */
 class ParseAllFixturesTest {
@@ -27,7 +27,7 @@ class ParseAllFixturesTest {
 
     @Test
     void corpusIsComplete() {
-        assertEquals(151, Fixtures.ALL.size(), "expected 151 fixtures");
+        assertEquals(153, Fixtures.ALL.size(), "expected 153 fixtures");
         // every listed fixture has both a .tee and a .expected on the classpath
         for (String name : Fixtures.ALL) {
             assertDoesNotThrow(() -> Fixtures.source(name), () -> name + ".tee missing");

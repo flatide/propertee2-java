@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.41.0
+
+**Spec v0.32.0 — JSON has no Infinity or NaN** (a review of TeeBox 1.40.0 found that a run returning
+`CEIL(TO_NUMBER("1.7976931348623157e308"), -308)`, which is Infinity, could not be saved; the
+language had the same gap).
+
+- **`JSON_FORMAT`, `WRITE_JSON_FILE` and a non-string HTTP request body fail on Infinity, -Infinity
+  and NaN** (mildly breaking). This runtime wrote the tokens `Infinity`/`-Infinity`/`NaN`, which no
+  JSON reader accepts — `READ_JSON_FILE` could not read back what `WRITE_JSON_FILE` had written —
+  and the JavaScript runtime wrote `null`. Now the error names the first such number, in the order
+  the JSON is written, and the path a script reaches it by:
+  `JSON_FORMAT() value.rows.2.rate is Infinity, which JSON cannot represent` (`body` instead of
+  `value` for an HTTP body; positions 1-based; a key that is not a plain ASCII name quoted as JSON
+  writes a string). The value is checked before anything happens, so `WRITE_JSON_FILE` writes
+  nothing and the request is not sent. Display is unchanged.
+- **Host API.** `TeeFormat.json` (and `TypeChecker.jsonStringify`) throws the new
+  `TeeFormat.NotJsonException` instead of writing such a number; the new
+  `TeeFormat.firstNonFinite(value, name)` returns the first one as `NonFinite(path, number)`, or
+  null. It does not walk a `FILE_LINES` array that is still unread, whose lines are strings, so
+  the file is not read again; one the script has changed is already read and is walked.
+- **CLI.** `--result-only` reports a result holding such a number on stderr —
+  `propertee2: the result contains NaN at result.list.2, which JSON cannot represent` — with exit
+  code 1, as for a runtime error, instead of printing text that is not JSON.
+- The `TeeFormat.formatDouble` comment no longer calls NaN unreachable: `Infinity - Infinity` makes
+  it.
+- Tests: new `155_error_json_nonfinite` and `156_error_write_json_nonfinite` (host-injected
+  `testDir`; the file keeps its content, the value is checked before a missing directory, and a
+  `FILE_LINES` array the script changed is checked like any other);
+  `BuiltinsTest.jsonFormatRejectsNonFinite`, `TeeFormatTest.jsonHasNoNonFiniteNumbers` and
+  `firstNonFiniteNamesThePath`, `FacadeHttpBuiltinTest.bodyJsonCannotHoldIsARuntimeErrorAndNothingIsSent`
+  (no request reaches the server), `CliTest.resultOnlyRejectsANumberJsonCannotHold`. 153 fixtures;
+  core 487 + CLI 52 tests green.
+
 ## 0.40.0
 
 **Spec v0.31.0 — number patterns, `TEXT`, and `ALIGN_LEFT`/`ALIGN_RIGHT`/`ALIGN_CENTER`** (user

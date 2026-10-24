@@ -545,7 +545,7 @@ public final class Builtins {
     // ---- JSON --------------------------------------------------------------
 
     private static void registerJson(Builtins b) {
-        b.register("JSON_FORMAT", Kind.PURE, args -> TeeFormat.json(arg("JSON_FORMAT", args, 0)));
+        b.register("JSON_FORMAT", Kind.PURE, args -> json("JSON_FORMAT", "value", arg("JSON_FORMAT", args, 0)));
         b.register("JSON_PARSE", Kind.PURE, args -> {
             String s = string("JSON_PARSE", arg("JSON_PARSE", args, 0));
             try {
@@ -554,6 +554,23 @@ public final class Builtins {
                 return Result.error(e.getMessage());
             }
         });
+    }
+
+
+    /**
+     * {@code v} as JSON text for {@code fn}, which calls it {@code name} ("value", "body"). JSON
+     * has no form for Infinity, -Infinity or NaN (spec v0.32.0), so a value holding one is an
+     * error naming the first and the path a script reaches it by:
+     * {@code JSON_FORMAT() value.list.2 is NaN, which JSON cannot represent}.
+     */
+    private static String json(String fn, String name, Object v) {
+        try {
+            return TeeFormat.json(v);
+        } catch (TeeFormat.NotJsonException e) {
+            TeeFormat.NonFinite found = TeeFormat.firstNonFinite(v, name);
+            if (found == null) throw new TeeError(fn + "() " + e.getMessage());   // not found again: still name the number
+            throw new TeeError(fn + "() " + found.path() + " is " + found.number() + ", which JSON cannot represent");
+        }
     }
 
     // ---- Environment (host-gated via Coop.blocking) ------------------------
@@ -629,7 +646,7 @@ public final class Builtins {
         // file). The round-trip through READ_JSON_FILE is lossless, first-class null included.
         b.register("WRITE_JSON_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
             String path = string("WRITE_JSON_FILE", arg("WRITE_JSON_FILE", args, 0));
-            platform.writeFile(path, TeeFormat.json(arg("WRITE_JSON_FILE", args, 1)) + "\n");
+            platform.writeFile(path, json("WRITE_JSON_FILE", "value", arg("WRITE_JSON_FILE", args, 1)) + "\n");
             b.noteRewrite(path);
             return Result.ok(Values.emptyObject());
         }));
@@ -797,7 +814,7 @@ public final class Builtins {
             }
             Map<String, Object> options = options(args, 2);
             return doHttp(platform, (String) args.get(0), (String) args.get(1),
-                    optionsHeaders(options), optionsBody(options), optionsTimeout(options));
+                    optionsHeaders(options), optionsBody("HTTP", options), optionsTimeout(options));
         });
 
         b.register("HTTP_GET", Kind.BLOCKING, args -> {
@@ -813,7 +830,7 @@ public final class Builtins {
                 return Result.error("HTTP_POST() requires (url, body, [options])");
             }
             Map<String, Object> options = options(args, 2);
-            String body = coerceBody(args.get(1));
+            String body = coerceBody("HTTP_POST", args.get(1));
             return doHttp(platform, "POST", (String) args.get(0), optionsHeaders(options),
                     body != null ? body : "", optionsTimeout(options));
         });
@@ -866,9 +883,9 @@ public final class Builtins {
         return result;
     }
 
-    private static String optionsBody(Map<String, Object> options) {
+    private static String optionsBody(String fn, Map<String, Object> options) {
         if (options == null) return null;
-        return coerceBody(options.get("body"));
+        return coerceBody(fn, options.get("body"));
     }
 
     private static int optionsTimeout(Map<String, Object> options) {
@@ -877,10 +894,10 @@ public final class Builtins {
         return Values.isNumber(t) ? (int) Values.toDouble(t) : 0;
     }
 
-    private static String coerceBody(Object body) {
+    private static String coerceBody(String fn, Object body) {
         if (body == null) return null;
         if (body instanceof String s) return s;
-        return TeeFormat.json(body);
+        return json(fn, "body", body);
     }
 
     // ---- Shell (executes via a host TaskRunner; default UnsupportedTaskRunner — 72/78/80) ----

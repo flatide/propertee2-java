@@ -1,0 +1,31 @@
+// spec v0.32.0: WRITE_JSON_FILE fails on a number JSON has no form for and writes nothing.
+// Uses ::testDir injected as builtin property (like 125).
+path = ::testDir + "/cfg.json"
+PRINT(WRITE_JSON_FILE(path, {"rate": 0.5}).ok)
+
+function write(p, v) do
+    return WRITE_JSON_FILE(p, v)
+end
+
+inf = TO_NUMBER("1e308") * 10
+multi r do
+    thread a: write(::path, {"rate": ::inf})
+end
+PRINT(r.a.ok, r.a.value)
+
+// the value is checked before the file is touched, so a bad path does not matter
+multi r do
+    thread b: write(::testDir + "/no/such/dir/x.json", [::inf])
+end
+PRINT(r.b.ok, r.b.value)
+
+// the file is as it was
+PRINT(READ_FILE(path).value == "{\"rate\":0.5}\n")
+PRINT(FILE_EXISTS(::testDir + "/no"))
+
+// outside a thread the error ends the run; a FILE_LINES array the script changed is checked too
+WRITE_LINES(::testDir + "/lines.txt", ["a", "b"])
+lines = FILE_LINES(::testDir + "/lines.txt")
+lines.2 = inf - inf
+WRITE_JSON_FILE(path, lines)
+PRINT("not reached")

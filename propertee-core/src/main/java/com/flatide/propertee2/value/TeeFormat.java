@@ -1,5 +1,6 @@
 package com.flatide.propertee2.value;
 
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 
@@ -12,7 +13,8 @@ import java.util.Map;
  *       are bare; strings INSIDE arrays/objects are single-quoted. Arrays: {@code [ 1, 2, 'x' ]}
  *       (empty {@code []}). Objects: {@code { "k": 'v' }} (empty {@code {}}). Whole doubles drop {@code .0}.</li>
  *   <li>{@link #json} — what {@code JSON_FORMAT} produces: compact, double-quoted & escaped strings,
- *       no inner spaces: {@code {"k":"v"}}, {@code [1,2,3]}.</li>
+ *       no inner spaces: {@code {"k":"v"}}, {@code [1,2,3]}. Infinity, -Infinity and NaN have no
+ *       JSON form; {@link #firstNonFinite} finds one and says where it is.</li>
  * </ul>
  */
 public final class TeeFormat {
@@ -77,8 +79,8 @@ public final class TeeFormat {
      * the conformance envelope (design-draft-v1.0-gate.md §4).
      */
     public static String formatDouble(double d) {
-        if (Double.isNaN(d)) return "NaN";                                  // unreachable in ProperTee
-        if (Double.isInfinite(d)) return d > 0 ? "Infinity" : "-Infinity";  //   (division by zero errors)
+        if (Double.isNaN(d)) return "NaN";                                  // Infinity - Infinity
+        if (Double.isInfinite(d)) return d > 0 ? "Infinity" : "-Infinity";  // past the double range
         if (d == 0.0) return "0";                                          // covers +0.0 and -0.0 (ECMA String(-0) == "0")
         return d < 0 ? "-" + ecma(-d) : ecma(d);
     }
@@ -102,9 +104,82 @@ public final class TeeFormat {
 
     // ---- json (JSON_FORMAT) ----------------------------------------------
 
+    /**
+     * JSON text of {@code v}. JSON has no form for Infinity, -Infinity or NaN (spec v0.32.0), so a
+     * value holding one throws {@link NotJsonException}; {@link #firstNonFinite} says where it is.
+     */
     public static String json(Object v) {
         StringBuilder sb = new StringBuilder();
         json(v, sb);
+        return sb.toString();
+    }
+
+    /** Thrown by {@link #json} at the first Infinity, -Infinity or NaN in the value. */
+    public static final class NotJsonException extends IllegalArgumentException {
+        NotJsonException(double d) {
+            super("JSON cannot represent " + formatDouble(d));
+        }
+    }
+
+    /**
+     * A number JSON has no form for, as {@code PRINT} shows it ({@code Infinity}, {@code -Infinity},
+     * {@code NaN}), and the path a script reaches it by.
+     */
+    public record NonFinite(String path, String number) {}
+
+    /**
+     * The first Infinity, -Infinity or NaN in {@code v}, in the order {@link #json} writes, or null
+     * when there is none. The path starts at {@code name}, the caller's word for the value, and
+     * goes down one member at a time, 1-based: {@code value.list.2}. A key that is a plain name
+     * ({@code [A-Za-z_][A-Za-z0-9_]*}) is written as it is, any other key as {@link #json} writes
+     * a string: {@code value."my key".1}.
+     */
+    public static NonFinite firstNonFinite(Object v, String name) {
+        ArrayDeque<String> members = new ArrayDeque<>();
+        Double d = nonFinite(v, members);
+        if (d == null) return null;
+        StringBuilder path = new StringBuilder(name);
+        for (String member : members) path.append('.').append(member);
+        return new NonFinite(path.toString(), formatDouble(d));
+    }
+
+    /** The first non-finite number in {@code v}; the members leading to it are added on the way back. */
+    private static Double nonFinite(Object v, ArrayDeque<String> members) {
+        if (v instanceof Double d) return Double.isFinite(d) ? null : d;
+        // A FILE_LINES array still unread holds only its file's lines, which are strings; walking it
+        // would read the file again. Once loaded — always so after a script changed it — it is walked.
+        if (v instanceof LazyLines lines && !lines.isLoaded()) return null;
+        if (v instanceof Map<?, ?> m) {
+            for (Map.Entry<?, ?> e : m.entrySet()) {
+                Double d = nonFinite(e.getValue(), members);
+                if (d != null) {
+                    members.addFirst(member(String.valueOf(e.getKey())));
+                    return d;
+                }
+            }
+        } else if (v instanceof List<?> list) {
+            int index = 0;
+            for (Object e : list) {
+                index++;
+                Double d = nonFinite(e, members);
+                if (d != null) {
+                    members.addFirst(Integer.toString(index));
+                    return d;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String member(String key) {
+        boolean plain = !key.isEmpty();
+        for (int i = 0; i < key.length() && plain; i++) {
+            char c = key.charAt(i);
+            plain = c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (i > 0 && c >= '0' && c <= '9');
+        }
+        if (plain) return key;
+        StringBuilder sb = new StringBuilder();
+        jsonString(key, sb);
         return sb.toString();
     }
 
@@ -118,6 +193,7 @@ public final class TeeFormat {
         } else if (v instanceof Integer i) {
             sb.append(i.toString());
         } else if (v instanceof Double d) {
+            if (!Double.isFinite(d)) throw new NotJsonException(d);
             sb.append(formatDouble(d));
         } else if (v instanceof Map<?, ?> m) {
             sb.append('{');

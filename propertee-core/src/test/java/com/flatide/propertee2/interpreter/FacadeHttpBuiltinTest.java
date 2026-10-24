@@ -2,9 +2,11 @@ package com.flatide.propertee2.interpreter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.flatide.propertee2.core.ScriptParser;
 import com.flatide.propertee2.parser.ProperTeeParser;
+import com.flatide.propertee2.runtime.ProperTeeError;
 import com.flatide.propertee2.platform.DefaultPlatformProvider;
 import com.flatide.propertee2.scheduler.Scheduler;
 import com.sun.net.httpserver.HttpExchange;
@@ -17,6 +19,7 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 /** Covers v1 HTTP builtins through the same façade path TeeBox uses. */
@@ -84,6 +87,45 @@ class FacadeHttpBuiltinTest {
         }
 
         assertEquals("true body={\"test\":\"ok\"}|ct=application/json|runId=r123", out.get(0));
+    }
+
+    @Test
+    void bodyJsonCannotHoldIsARuntimeErrorAndNothingIsSent() throws Exception {
+        // spec v0.32.0: JSON has no form for Infinity, -Infinity or NaN, so the request is not sent
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/echo", exchange -> {
+            requests.incrementAndGet();
+            respond(exchange, 200, "got:" + readBody(exchange));
+        });
+        server.start();
+        String base = "http://127.0.0.1:" + server.getAddress().getPort();
+
+        List<String> out = new ArrayList<>();
+        try {
+            ProperTeeError post = assertThrows(ProperTeeError.class, () -> run("""
+                    big = TO_NUMBER("1e308") * 10
+                    res = HTTP_POST("%s/echo", {"rows": [1, big - big]})
+                    PRINT("unreachable")
+                    """.formatted(base), out));
+            assertEquals("Runtime Error: HTTP_POST() body.rows.2 is NaN, which JSON cannot represent",
+                    post.getMessage());
+            ProperTeeError general = assertThrows(ProperTeeError.class, () -> run("""
+                    big = TO_NUMBER("1e308") * 10
+                    res = HTTP("PUT", "%s/echo", {"body": [-big]})
+                    """.formatted(base), out));
+            assertEquals("Runtime Error: HTTP() body.1 is -Infinity, which JSON cannot represent",
+                    general.getMessage());
+            run("""
+                    res = HTTP_POST("%s/echo", {"rate": TO_NUMBER("1.7976931348623157e308")})
+                    PRINT(res.value.body)
+                    """.formatted(base), out);
+        } finally {
+            server.stop(0);
+        }
+
+        assertEquals(List.of("got:{\"rate\":1.7976931348623157e+308}"), out);
+        assertEquals(1, requests.get());
     }
 
     private static void run(String script, List<String> out) {

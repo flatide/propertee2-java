@@ -7,8 +7,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * The canonical conformance fixture set (151 .tee/.expected pairs under
- * src/test/resources/tests, from the v1 baseline through spec v0.31.0). The list is HARDCODED — not
+ * The canonical conformance fixture set (153 .tee/.expected pairs under
+ * src/test/resources/tests, from the v1 baseline through spec v0.32.0). The list is HARDCODED — not
  * directory-discovered — matching the v1 ScriptTest convention so a missing or
  * stray fixture shows up as a test failure (conformance-tests.md §하네스 TODO).
  *
@@ -99,7 +99,9 @@ public final class Fixtures {
             "145_round_digits", "146_round_ties", "147_error_round_args", "148_format",
             "149_printf", "150_error_format", "151_error_math_args",
             // spec v0.31.0: number patterns in FORMAT/PRINTF and TEXT; ALIGN_* by screen columns
-            "152_text", "153_align", "154_error_text_align");
+            "152_text", "153_align", "154_error_text_align",
+            // spec v0.32.0: JSON has no Infinity or NaN (156 host-injected testDir)
+            "155_error_json_nonfinite", "156_error_write_json_nonfinite");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

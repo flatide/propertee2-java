@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **151쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **153쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -209,6 +209,15 @@ BMP 밖 문자(Java는 한 글자, JavaScript는 UTF-16 반쪽 둘)와 끝 줄�
 너비 표는 유니코드 16.0의 Python `unicodedata`로 만들었다. 무작위 숫자 모양 16,000건과, 표의 모든
 경계(±1)에 무작위 코드 포인트를 더한 5,150개를 Python 모델·JavaScript 런타임과 비교한 것은 릴리스 전에
 수동으로 했다(CHANGELOG 0.40.0).
+
+## spec v0.32.0 JSON에 없는 수 (155-156)
+
+| fixture | 검증 내용 |
+|---|---|
+| `155_error_json_nonfinite` | `PRINT`·`TO_STRING`의 `Infinity`·`NaN` 표기는 그대로, 유한한 수의 JSON도 그대로(가장 큰 double, `-0.0`), `JSON_FORMAT`이 `Infinity`·`-Infinity`·`NaN`에서 실패하며 그 수와 위치를 알림 — 맨 위 값, 배열 위치(1부터), 객체 키, JSON이 쓰는 순서로 첫 번째, 깊은 위치, 평범한 이름이 아닌 키(공백·숫자·따옴표·한글·빈 키)는 큰따옴표로 — thread 결과로 한꺼번에 |
+| `156_error_write_json_nonfinite` | `WRITE_JSON_FILE`도 같은 에러로 실패하고 파일을 건드리지 않음(기존 내용 유지), 없는 디렉터리보다 값 검사가 먼저, 스크립트가 바꾼 `FILE_LINES` 배열도 검사, thread 밖에서는 실행을 끝냄 — 호스트가 넣는 `testDir` 사용 |
+
+HTTP 요청 본문은 `interpreter/FacadeHttpBuiltinTest`가, `--result-only`는 CLI의 `CliTest`가 검사한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

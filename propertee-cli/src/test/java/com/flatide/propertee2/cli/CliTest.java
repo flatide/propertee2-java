@@ -89,6 +89,14 @@ class CliTest {
                 "Runtime error: Runtime Error at line 2:4: Variable 'nope' is not defined\n"), r);
     }
 
+    @Test void resultOnlyRejectsANumberJsonCannotHold() throws IOException {
+        // spec v0.32.0: stdout carries only JSON, which has no form for Infinity or NaN
+        assertEquals(new Run(1, "", "propertee2: the result is Infinity, which JSON cannot represent\n"),
+                runScript("PRINT(\"noise\")\nreturn TO_NUMBER(\"1e308\") * 10\n", true));
+        assertEquals(new Run(1, "", "propertee2: the result contains NaN at result.list.2, which JSON cannot represent\n"),
+                runScript("big = TO_NUMBER(\"1e308\") * 10\nresult = {\"list\": [1, big - big]}\n", true));
+    }
+
     @Test void defaultModeKeepsOutputAndInlineRuntimeErrors() throws IOException {
         // the conformance contract: no result echo; a runtime error is part of stdout, exit 0
         assertEquals(new Run(0, "hello\n", ""), runScript("PRINT(\"hello\")\nreturn true\n", false));

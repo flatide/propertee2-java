@@ -1,0 +1,8 @@
+true
+[THREAD ERROR] Runtime Error: WRITE_JSON_FILE() value.rate is Infinity, which JSON cannot represent
+false Runtime Error: WRITE_JSON_FILE() value.rate is Infinity, which JSON cannot represent
+[THREAD ERROR] Runtime Error: WRITE_JSON_FILE() value.1 is Infinity, which JSON cannot represent
+false Runtime Error: WRITE_JSON_FILE() value.1 is Infinity, which JSON cannot represent
+true
+false
+Runtime error: Runtime Error: WRITE_JSON_FILE() value.2 is NaN, which JSON cannot represent

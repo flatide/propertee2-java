@@ -143,6 +143,17 @@ class BuiltinsTest {
         assertEquals("{\"name\":\"Alice\",\"age\":30}", call("JSON_FORMAT", obj("name", "Alice", "age", 30)));
     }
 
+    @Test void jsonFormatRejectsNonFinite() {             // spec v0.32.0: 155_error_json_nonfinite
+        double inf = Double.POSITIVE_INFINITY;
+        assertEquals("JSON_FORMAT() value is Infinity, which JSON cannot represent",
+                assertThrows(TeeError.class, () -> call("JSON_FORMAT", inf)).getMessage());
+        assertEquals("JSON_FORMAT() value.list.2 is NaN, which JSON cannot represent",
+                assertThrows(TeeError.class, () -> call("JSON_FORMAT", obj("list", list(1, Double.NaN)))).getMessage());
+        assertEquals("JSON_FORMAT() value.\"my key\".1 is -Infinity, which JSON cannot represent",
+                assertThrows(TeeError.class, () -> call("JSON_FORMAT", obj("my key", list(-inf)))).getMessage());
+        assertEquals("[1.7976931348623157e+308]", call("JSON_FORMAT", list(Double.MAX_VALUE)));
+    }
+
     @Test void stringFns() {                              // 13_strings
         assertEquals("abc", call("SUBSTRING", "abcdef", 1, 3));
         assertEquals("def", call("SUBSTRING", "abcdef", 4));

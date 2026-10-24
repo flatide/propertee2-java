@@ -111,7 +111,7 @@ public final class Main {
      * program's {@code PRINT} output is discarded and {@code out} receives only the run's result —
      * {@link Engine.Outcome#result()} as one line of JSON — while runtime diagnostics stay on
      * {@code err}; a runtime error then goes to {@code err} as well and exits 1, since there is no
-     * result to print.
+     * result to print. So does a result holding Infinity, -Infinity or NaN, which JSON cannot hold.
      */
     static int run(String file, Map<String, Object> props, java.util.List<String> scriptArgs,
                    Path configuredModuleRoot, boolean resultOnly, PrintStream out, PrintStream err) {
@@ -140,7 +140,19 @@ public final class Main {
                     .setSourceId(entry.toString())
                     .setModuleResolver(new FileModuleResolver(moduleRoot))
                     .execute(source, props, resultOnly ? line -> {} : out::println, err::println);
-            if (resultOnly) out.println(TeeFormat.json(outcome.result()));
+            if (resultOnly) {
+                // JSON has no form for Infinity, -Infinity or NaN (spec v0.32.0), so such a result
+                // fails like a runtime error rather than printing text that is not JSON
+                TeeFormat.NonFinite found = TeeFormat.firstNonFinite(outcome.result(), "result");
+                if (found != null) {
+                    err.println("propertee2: " + (found.path().equals("result")
+                            ? "the result is " + found.number()
+                            : "the result contains " + found.number() + " at " + found.path())
+                            + ", which JSON cannot represent");
+                    return 1;
+                }
+                out.println(TeeFormat.json(outcome.result()));
+            }
             return 0;
         } catch (Parsing.SyntaxException e) {
             // malformed input: a concise stderr line + nonzero exit (a script *runtime* error is in stdout)
@@ -199,7 +211,8 @@ public final class Main {
                   --result-only        print only the script's result, as JSON: its top-level
                                        return value (else the final `result` global, else {}).
                                        PRINT output is discarded, stderr output is kept, and
-                                       a runtime error goes to stderr with exit code 1
+                                       a runtime error, or a result JSON cannot hold (Infinity,
+                                       NaN), goes to stderr with exit code 1
                   --module-root <dir>  root used to resolve imported module paths (defaults
                                        to the entry file's directory, or the current directory)
                   --dap                Debug Adapter Protocol server on stdio (for IDEs;
