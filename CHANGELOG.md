@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.45.0
+
+**Spec v0.36.0 — numbers are finite; `SUM`, `MAX` and `MIN` take arrays** (user decision:
+`Infinity` and `NaN` were never designed into the language, only leaked from IEEE 754 doubles, and
+the runtimes disagreed on them — `FLOOR(NaN)` was `0` here and `NaN` in the JavaScript runtime, and
+`NaN == NaN` was `true` here and `false` there — so they are stopped where they arise, as division
+by zero always was).
+
+- **Number overflow** (breaking): decimal `+`, `-`, `*`, `/`, `SUM` and
+  `FLOOR`/`CEIL`/`ROUND`/`TRUNC` with digits fail with
+  `Number overflow: the result is too large to represent` (`Values.NUMBER_OVERFLOW`,
+  `Values.decimal`, `Interpreter.finite`) where they gave `Infinity`. `intResult` also refuses NaN,
+  which it cut to `0`.
+- **Host values are finite** (breaking for a host that passed one): a prop holding Infinity or NaN
+  is a `TeeError` from the `Interpreter` constructor (a `ProperTeeError` through the façade), as is
+  an injected `variables` global; an external's result holding one is an error Result and a raw
+  builtin's a runtime error — `rates.2 is Infinity, which ProperTee numbers cannot represent`
+  (`Values.hostNonFinite`). `globals()` javadoc says not to inject one. The JSON writers' guard
+  (spec v0.32.0) stays, unreachable from a script.
+- **`SUM`/`MAX`/`MIN` take arrays** (`Builtins.numbers`): each argument is a number or an array of
+  numbers. `MAX()`/`MIN([])` fail with `MAX() requires at least one number`, which replaces
+  `… requires at least one argument`.
+- **`SLEEP`**: a negative duration fails with `SLEEP() duration cannot be negative` where it slept
+  0 ms, and a non-number with `SLEEP() requires a number argument` where it said
+  `SLEEP() requires a numeric millisecond argument` — the JavaScript runtime's messages.
+- Tests: new fixtures `161_error_number_overflow` and `162_min_max_sum_lists`; `155_error_json_nonfinite`
+  and `156_error_write_json_nonfinite` removed (a script cannot make such a number); 145, 148, 151
+  and 152 updated; `InterpreterTest`/`FacadeTest.hostInfinityAndNaNAreRefused`; `BuiltinsTest`,
+  `CliTest` and `FacadeHttpBuiltinTest` take the new errors. 157 fixtures; core 508 + CLI 52 tests
+  green. 2,000 random expressions near the largest decimal gave the JavaScript runtime's results,
+  apart from its known whole-decimal limit.
+
 ## 0.44.0
 
 **Spec v0.35.0 — `JSON_PARSE` refuses numbers too large to represent** (user decision after a

@@ -140,7 +140,12 @@ public class ProperTeeInterpreter {
                 ? builtins.taskRunner
                 : new UnsupportedTaskRunner();
 
-        Interpreter interp = new Interpreter(sink, properties, coop, platform, taskRunner, builtins.runId);
+        Interpreter interp;
+        try {
+            interp = new Interpreter(sink, properties, coop, platform, taskRunner, builtins.runId);
+        } catch (com.flatide.propertee2.value.TeeError e) {   // a prop holding Infinity or NaN (spec v0.36.0)
+            throw new com.flatide.propertee2.runtime.ProperTeeError(e.positioned());
+        }
         interp.setErrorSink(errSink);
         interp.setLoopLimit(maxIterations);
         interp.setLoopLimitWarns("warn".equals(iterationLimitBehavior));
@@ -186,8 +191,13 @@ public class ProperTeeInterpreter {
         }
 
         // Inject host globals (e.g. _SYS) before the run, copied as props are: a Long past the
-        // integer range becomes a decimal, so integer arithmetic never sees it (spec v0.33.0).
+        // integer range becomes a decimal, so integer arithmetic never sees it (spec v0.33.0), and
+        // Infinity or NaN is refused, as numbers are finite (spec v0.36.0).
         for (Map.Entry<String, Object> e : this.variables.entrySet()) {
+            String nonFinite = Values.hostNonFinite(e.getValue(), e.getKey());
+            if (nonFinite != null) {
+                throw new com.flatide.propertee2.runtime.ProperTeeError(new com.flatide.propertee2.value.TeeError(nonFinite).positioned());
+            }
             interp.globals().put(e.getKey(), Values.deepCopy(e.getValue()));
         }
 

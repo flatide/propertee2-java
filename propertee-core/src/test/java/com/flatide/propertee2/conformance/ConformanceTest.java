@@ -48,7 +48,7 @@ class ConformanceTest {
     void matchesExpected(String name) throws IOException {
         String expected = Fixtures.expected(name);
         String actual = Set.of("85_file_io", "124_read_json_file", "125_read_file_write_json", "138_file_lines",
-                        "140_list_dir_pattern", "156_error_write_json_nonfinite").contains(name)
+                        "140_list_dir_pattern").contains(name)
                 ? runWithTempDir(name)
                 : engineFor(name).run(Fixtures.source(name), PROPS.getOrDefault(name, Map.of()));
         if (name.equals(NO_TRAILING_NEWLINE_ARTIFACT)) {

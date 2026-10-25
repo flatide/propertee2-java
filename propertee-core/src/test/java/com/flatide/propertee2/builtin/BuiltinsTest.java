@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.flatide.propertee2.value.TeeError;
+import com.flatide.propertee2.value.Values;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -55,7 +56,13 @@ class BuiltinsTest {
         assertEquals(-3, call("ROUND", -2.5));                         // a tie away from zero
         assertEquals(0, call("ROUND", 0.49999999999999994));
         assertEquals(3000000001.0, call("ROUND", 3000000000.7, 0));    // no integer overflow
-        assertEquals(Double.POSITIVE_INFINITY, call("CEIL", Double.MAX_VALUE, -308));
+        // spec v0.36.0: a result too large to represent is an error, not Infinity; NaN is no integer
+        assertEquals("Number overflow: the result is too large to represent",
+                assertThrows(TeeError.class, () -> call("CEIL", Double.MAX_VALUE, -308)).getMessage());
+        assertEquals(1e308, call("FLOOR", Double.MAX_VALUE, -308));
+        for (String fn : new String[] {"FLOOR", "CEIL", "ROUND", "TRUNC"}) {
+            assertEquals(Values.INTEGER_OVERFLOW, assertThrows(TeeError.class, () -> call(fn, Double.NaN)).getMessage(), fn);
+        }
         assertEquals(3.48, call("ROUND", 3.48, 1e300));                // any whole digits
         assertEquals("ROUND() digits must be an integer",
                 assertThrows(TeeError.class, () -> call("ROUND", 3.48, 1.5)).getMessage());

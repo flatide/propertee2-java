@@ -38,6 +38,28 @@ public final class Values {
     /** The error for an integer result outside the range (spec v0.33.0). */
     public static final String INTEGER_OVERFLOW = "Integer overflow: the result is outside ±9,007,199,254,740,991";
 
+    /**
+     * The error for a decimal result too large to represent (spec v0.36.0): numbers are always
+     * finite, as division by zero was always an error, so there is no Infinity or NaN.
+     */
+    public static final String NUMBER_OVERFLOW = "Number overflow: the result is too large to represent";
+
+    /** {@code d}, or the {@link #NUMBER_OVERFLOW} error when it is not finite (spec v0.36.0). */
+    public static double decimal(double d) {
+        if (!Double.isFinite(d)) throw new TeeError(NUMBER_OVERFLOW);
+        return d;
+    }
+
+    /**
+     * The error for a host value holding Infinity or NaN, or null when it holds none (spec
+     * v0.36.0) — a script's numbers are finite, so one cannot come in from the host either.
+     * {@code name} is how the script reaches the value: a property's name, {@code FN() result}.
+     */
+    public static String hostNonFinite(Object v, String name) {
+        TeeFormat.NonFinite f = TeeFormat.firstNonFinite(v, name);
+        return f == null ? null : f.path() + " is " + f.number() + ", which ProperTee numbers cannot represent";
+    }
+
     /** The error for an integer literal outside the range; tokens are unsigned digits. */
     public static String literalOutOfRange(String token) {
         return "Integer literal out of range: " + token + " is larger than 9,007,199,254,740,991";

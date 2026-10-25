@@ -88,7 +88,11 @@ public final class Interpreter {
         this.ignoredFunctions = ignoredFunctions;
         this.builtinProps = new LinkedHashMap<>();
         if (props != null) {
-            for (Map.Entry<String, Object> e : props.entrySet()) builtinProps.put(e.getKey(), Values.deepCopy(e.getValue()));
+            for (Map.Entry<String, Object> e : props.entrySet()) {
+                String nonFinite = Values.hostNonFinite(e.getValue(), e.getKey());   // spec v0.36.0
+                if (nonFinite != null) throw new TeeError(nonFinite);
+                builtinProps.put(e.getKey(), Values.deepCopy(e.getValue()));
+            }
             // _PROPS: all inputs as one object (LANGUAGE.md §_PROPS), unless the caller supplied it.
             if (!builtinProps.containsKey("_PROPS")) {
                 Map<String, Object> all = new LinkedHashMap<>();
@@ -248,7 +252,8 @@ public final class Interpreter {
     /**
      * The program's top-level globals — a host may inject before {@link #run} and read after (e.g.
      * `result`). The map is the live one, so an injected value goes in as is: pass it through
-     * {@link Values#deepCopy} first, which gives a host {@code Long} its integer box.
+     * {@link Values#deepCopy} first, which gives a host {@code Long} its integer box, and do not
+     * inject Infinity or NaN ({@link Values#hostNonFinite}, spec v0.36.0).
      */
     public Map<String, Object> globals() { return globals; }
 
@@ -284,7 +289,12 @@ public final class Interpreter {
      * integer box — one beyond the range becomes the nearest decimal (spec v0.33.0).
      */
     public void addRawBuiltin(String name, java.util.function.Function<List<Object>, Object> fn) {
-        builtins.register(Engine.requireReplaceableName(name), Builtins.Kind.PURE, args -> Values.deepCopy(fn.apply(args)));
+        builtins.register(Engine.requireReplaceableName(name), Builtins.Kind.PURE, args -> {
+            Object v = fn.apply(args);
+            String nonFinite = Values.hostNonFinite(v, name + "() result");     // spec v0.36.0
+            if (nonFinite != null) throw new TeeError(nonFinite);
+            return Values.deepCopy(v);
+        });
     }
 
     /**
@@ -1147,7 +1157,7 @@ public final class Interpreter {
         requireNumbers(String.valueOf(op), l, r, mu);
         if (op == '/') {
             if (Values.toDouble(r) == 0.0) throw err("Division by zero", mu);
-            return Values.toDouble(l) / Values.toDouble(r);                       // always Double
+            return finite(Values.toDouble(l) / Values.toDouble(r), mu);           // always Double
         }
         if (op == '%' && Values.toDouble(r) == 0.0) throw err("Division by zero", mu);
         return numeric(l, r, op, mu);
@@ -1177,13 +1187,22 @@ public final class Interpreter {
             return Values.integer(v);
         }
         double a = Values.toDouble(l), b = Values.toDouble(r);
-        return switch (op) {
+        return finite(switch (op) {
             case '+' -> a + b;
             case '-' -> a - b;
             case '*' -> a * b;
             case '%' -> a % b;
             default -> throw new IllegalStateException();
-        };
+        }, ctx);
+    }
+
+    /**
+     * A decimal result too large to represent is an error (spec v0.36.0), as an integer one outside
+     * the range is: it used to be Infinity, and Infinity - Infinity NaN.
+     */
+    private Double finite(double d, ParserRuleContext ctx) {
+        if (!Double.isFinite(d)) throw err(Values.NUMBER_OVERFLOW, ctx);
+        return d;
     }
 
     private Object negate(Object v, ParserRuleContext ctx) {
@@ -1340,7 +1359,7 @@ public final class Interpreter {
         ExternalFunction ext = externals.get(name);
         if (ext != null) {
             // value -> Result.ok, exception -> Result.error; blocking externals release the baton (§3.1)
-            return ext.blocking() ? coop.blocking(() -> callExternal(ext, args)) : callExternal(ext, args);
+            return ext.blocking() ? coop.blocking(() -> callExternal(name, ext, args)) : callExternal(name, ext, args);
         }
         if (builtins.has(name)) {
             // Built-in errors stay positionless ("Runtime Error: msg" — 67_sort_errors); do not add a
@@ -1360,11 +1379,14 @@ public final class Interpreter {
      * the return value are deep-copied so a host mutating either (possibly off-baton, on another
      * carrier) cannot change script state (LANGUAGE.md §async externals).
      */
-    private static Object callExternal(ExternalFunction ext, List<Object> args) {
+    private static Object callExternal(String name, ExternalFunction ext, List<Object> args) {
         List<Object> isolated = new ArrayList<>(args.size());
         for (Object a : args) isolated.add(Values.materialize(a));   // the host gets plain values (a FILE_LINES array read in full)
         try {
-            return Result.ok(Values.deepCopy(ext.body().apply(isolated)));
+            Object v = ext.body().apply(isolated);
+            String nonFinite = Values.hostNonFinite(v, name + "() result");   // an error Result, as a failure is (spec v0.36.0)
+            if (nonFinite != null) return Result.error(nonFinite);
+            return Result.ok(Values.deepCopy(v));
         } catch (TeeError e) {
             return Result.error(e.getMessage());
         } catch (RuntimeException e) {
@@ -1415,9 +1437,9 @@ public final class Interpreter {
 
     /** SLEEP(ms) — cooperative pause (design §3, seam 1). Releases the baton so other fibers advance. */
     private Object doSleep(List<Object> args, ParserRuleContext ctx) {
-        if (args.isEmpty() || !Values.isNumber(args.get(0))) {
-            throw err("SLEEP() requires a numeric millisecond argument", ctx);
-        }
+        // the JavaScript runtime's messages (spec v0.36.0); a negative duration slept 0 here
+        if (args.isEmpty() || !Values.isNumber(args.get(0))) throw err("SLEEP() requires a number argument", ctx);
+        if (Values.toDouble(args.get(0)) < 0) throw err("SLEEP() duration cannot be negative", ctx);
         coop.sleep((long) Values.toDouble(args.get(0)));
         return Values.emptyObject();
     }

@@ -210,14 +210,9 @@ BMP 밖 문자(Java는 한 글자, JavaScript는 UTF-16 반쪽 둘)와 끝 줄�
 경계(±1)에 무작위 코드 포인트를 더한 5,150개를 Python 모델·JavaScript 런타임과 비교한 것은 릴리스 전에
 수동으로 했다(CHANGELOG 0.40.0).
 
-## spec v0.32.0 JSON에 없는 수 (155-156)
+## spec v0.32.0 JSON에 없는 수 (155-156, v0.36.0에서 삭제)
 
-| fixture | 검증 내용 |
-|---|---|
-| `155_error_json_nonfinite` | `PRINT`·`TO_STRING`의 `Infinity`·`NaN` 표기는 그대로, 유한한 수의 JSON도 그대로(가장 큰 double, `-0.0`), `JSON_FORMAT`이 `Infinity`·`-Infinity`·`NaN`에서 실패하며 그 수와 위치를 알림 — 맨 위 값, 배열 위치(1부터), 객체 키, JSON이 쓰는 순서로 첫 번째, 깊은 위치, 평범한 이름이 아닌 키(공백·숫자·따옴표·한글·빈 키)는 큰따옴표로 — thread 결과로 한꺼번에 |
-| `156_error_write_json_nonfinite` | `WRITE_JSON_FILE`도 같은 에러로 실패하고 파일을 건드리지 않음(기존 내용 유지), 없는 디렉터리보다 값 검사가 먼저, 스크립트가 바꾼 `FILE_LINES` 배열도 검사, thread 밖에서는 실행을 끝냄 — 호스트가 넣는 `testDir` 사용 |
-
-HTTP 요청 본문은 `interpreter/FacadeHttpBuiltinTest`가, `--result-only`는 CLI의 `CliTest`가 검사한다.
+`155_error_json_nonfinite`와 `156_error_write_json_nonfinite`는 `JSON_FORMAT`·`WRITE_JSON_FILE`이 `Infinity`·`NaN`에서 실패하는지 검사했다. 스펙 v0.36.0부터 스크립트는 이런 수를 만들 수 없으므로 두 fixture를 지웠다. 쓰는 쪽의 방어 검사는 남아 있고 `value/TeeFormatTest`와 `builtin/BuiltinsTest`가 `Double.NaN`을 직접 넣어 검사한다.
 
 ## spec v0.33.0 정수 범위 ±9,007,199,254,740,991 (157, 그리고 77·107–110·114·115 등 갱신)
 
@@ -245,6 +240,15 @@ HTTP 요청 본문은 `interpreter/FacadeHttpBuiltinTest`가, `--result-only`는
 | `160_error_loop_limit_hint` | 루프 반복 상한 에러가 어떤 루프든 `loop ... infinite do`를 안내함 — 조건 루프, 값 루프, 키-값 루프(객체와 배열), 정확히 1000번은 통과 — thread 결과로 한꺼번에. `29_error_loop_limit`도 새 문구 |
 
 Java 쪽 문구와 위치는 `value/JsonParserTest`가 검사하고, 무작위로 고친 JSON 5만 개에서 `TeeError` 말고는 어떤 예외도 나오지 않는지도 본다. `READ_JSON_FILE`은 `host/FileIoErrorTest`가 검사한다.
+
+## spec v0.36.0 수는 유한함, 배열을 받는 `SUM`·`MAX`·`MIN` (161-162, 그리고 145·148·151·152 갱신)
+
+| fixture | 검증 내용 |
+|---|---|
+| `161_error_number_overflow` | 가장 큰 소수(`1.7976931348623157e+308`)는 여느 수처럼 계산되고, 그보다 큰 결과는 `+`·`-`·`*`·`/`·`SUM`·자릿수 있는 `CEIL`·`FLOOR`에서 `Number overflow: the result is too large to represent` — 연산자는 위치와 함께, 내장 함수는 위치 없이 — 음수나 수가 아닌 `SLEEP`은 호출 위치와 함께 에러, thread 밖에서는 실행을 끝냄 |
+| `162_min_max_sum_lists` | `SUM`·`MAX`·`MIN`이 수와 수의 배열을 섞어 받음, 빈 배열의 `SUM`은 `0`, 조건에 맞는 값을 모아 `MIN`, 정수 합은 정수로 범위 끝까지 — 그리고 빈 목록·인자 없음(`requires at least one number`), 배열 안의 배열과 글자(`requires numeric arguments`), 정수 넘침 |
+
+`145_round_digits`(가장 큰 소수의 반올림), `148_format`(`1e300`의 퍼센트), `152_text`(가장 큰 소수의 퍼센트도 끝까지), `151_error_math_args`(새 `MAX()` 문구)는 `Infinity` 대신 새 규칙을 쓴다. 호스트가 넣는 `Infinity`·`NaN`은 `interp/InterpreterTest.hostInfinityAndNaNAreRefused`(외부 함수, props)와 `interpreter/FacadeTest.hostInfinityAndNaNAreRefused`(raw 내장 함수, 전역 주입, props)가 검사한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

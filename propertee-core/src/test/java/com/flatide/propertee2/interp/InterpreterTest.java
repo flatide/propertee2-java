@@ -180,6 +180,29 @@ class InterpreterTest {
                 .contains("Integer overflow"));
     }
 
+    /** Spec v0.36.0: numbers are finite, so a host's Infinity or NaN is refused where it comes in. */
+    @Test void hostInfinityAndNaNAreRefused() {
+        Engine e = new Engine()
+                .registerExternal("NOTHING", args -> Double.NaN)
+                .registerExternal("ROWS", args -> java.util.List.of(1, Map.of("rate", Double.NEGATIVE_INFINITY)))
+                .registerExternal("FINE", args -> Double.MAX_VALUE);
+        assertEquals("false NOTHING() result is NaN, which ProperTee numbers cannot represent\n"
+                + "false ROWS() result.2.rate is -Infinity, which ProperTee numbers cannot represent\n"
+                + "true 1.7976931348623157e+308\n", e.run("""
+                r = NOTHING()
+                PRINT(r.ok, r.value)
+                r = ROWS()
+                PRINT(r.ok, r.value)
+                r = FINE()
+                PRINT(r.ok, r.value)
+                """));
+        // a property: the run does not start
+        Map<String, Object> props = new HashMap<>();
+        props.put("rates", java.util.List.of(0.5, Double.POSITIVE_INFINITY));
+        assertEquals("Runtime error: Runtime Error: rates.2 is Infinity, which ProperTee numbers cannot represent\n",
+                engine.run("PRINT(\"not reached\")\n", props));
+    }
+
     /** Spec v0.33.0: a host's Long is an integer inside the range and the nearest decimal beyond it. */
     @Test void hostLongsAreIntegersInsideTheRange() {
         Engine e = new Engine()

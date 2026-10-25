@@ -91,7 +91,8 @@ class FacadeHttpBuiltinTest {
 
     @Test
     void bodyJsonCannotHoldIsARuntimeErrorAndNothingIsSent() throws Exception {
-        // spec v0.32.0: JSON has no form for Infinity, -Infinity or NaN, so the request is not sent
+        // spec v0.32.0: JSON has no form for Infinity, -Infinity or NaN, so the request is not sent;
+        // since spec v0.36.0 a script cannot make one, and the arithmetic fails first
         AtomicInteger requests = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/echo", exchange -> {
@@ -108,13 +109,13 @@ class FacadeHttpBuiltinTest {
                     res = HTTP_POST("%s/echo", {"rows": [1, big - big]})
                     PRINT("unreachable")
                     """.formatted(base), out));
-            assertEquals("Runtime Error: HTTP_POST() body.rows.2 is NaN, which JSON cannot represent",
+            assertEquals("Runtime Error at line 1:6: Number overflow: the result is too large to represent",
                     post.getMessage());
             ProperTeeError general = assertThrows(ProperTeeError.class, () -> run("""
                     big = TO_NUMBER("1e308") * 10
                     res = HTTP("PUT", "%s/echo", {"body": [-big]})
                     """.formatted(base), out));
-            assertEquals("Runtime Error: HTTP() body.1 is -Infinity, which JSON cannot represent",
+            assertEquals("Runtime Error at line 1:6: Number overflow: the result is too large to represent",
                     general.getMessage());
             run("""
                     res = HTTP_POST("%s/echo", {"rate": TO_NUMBER("1.7976931348623157e308")})

@@ -160,6 +160,32 @@ class FacadeTest {
         assertEquals(List.of(1.8446744073709552e19, 9.223372036854776e18, 5_498_058_138_881L, 1.8446744073709552e19), result);
     }
 
+    /** Spec v0.36.0: numbers are finite, so the façade refuses a host's Infinity or NaN wherever it comes in. */
+    @Test void hostInfinityAndNaNAreRefused() {
+        BuiltinFunctions.PrintFunction sink = args -> {};
+        BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);
+        builtins.register("RATE", args -> List.of(1.5, Double.NaN));                 // raw host builtin
+        ProperTeeParser.RootContext call = ScriptParser.parse("x = RATE()\n", new ArrayList<>());
+        ProperTeeInterpreter visitor = new ProperTeeInterpreter(new LinkedHashMap<>(), sink, sink, 1000, "error", builtins);
+        assertEquals("Runtime Error: RATE() result.2 is NaN, which ProperTee numbers cannot represent",
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(visitor).run(visitor.createRootStepper(call))).getMessage());
+
+        ProperTeeParser.RootContext tree = ScriptParser.parse("PRINT(1)\n", new ArrayList<>());
+        ProperTeeInterpreter injected = new ProperTeeInterpreter(new LinkedHashMap<>(), sink, sink, 1000, "error", builtins);
+        injected.variables.put("_SYS", new LinkedHashMap<>(Map.of("limit", Double.POSITIVE_INFINITY)));
+        assertEquals("Runtime Error: _SYS.limit is Infinity, which ProperTee numbers cannot represent",
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(injected).run(injected.createRootStepper(tree))).getMessage());
+
+        Map<String, Object> props = new LinkedHashMap<>();
+        props.put("ratio", Double.NaN);
+        ProperTeeInterpreter withProps = new ProperTeeInterpreter(props, sink, sink, 1000, "error", builtins);
+        assertEquals("Runtime Error: ratio is NaN, which ProperTee numbers cannot represent",
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(withProps).run(withProps.createRootStepper(tree))).getMessage());
+    }
+
     @Test void knownFunctionNamesCoverDispatchCatalogAndHostRegistrations() {
         BuiltinFunctions.PrintFunction sink = args -> {};
         BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);

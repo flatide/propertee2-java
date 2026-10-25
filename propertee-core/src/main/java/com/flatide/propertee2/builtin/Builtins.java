@@ -206,24 +206,24 @@ public final class Builtins {
 
     private static void registerMath(Builtins b) {
         b.register("SUM", Kind.PURE, args -> {
+            List<Object> numbers = numbers("SUM", args);
             boolean allInt = true;
-            for (Object a : args) {
-                number("SUM", a);
+            for (Object a : numbers) {
                 if (!Values.isInteger(a)) allInt = false;
             }
             if (allInt) {
                 // Spec v0.33.0: integers add in order, like +, and a running total outside the
                 // range is the overflow (spec v0.14.0) — so the total is exact in both runtimes.
                 long i = 0;
-                for (Object a : args) {
+                for (Object a : numbers) {
                     i += ((Number) a).longValue();
                     if (!Values.fitsInteger(i)) throw new TeeError(Values.INTEGER_OVERFLOW);
                 }
                 return Values.integer(i);
             }
             double d = 0;
-            for (Object a : args) d += Values.toDouble(a);
-            return (Object) d;
+            for (Object a : numbers) d += Values.toDouble(a);
+            return (Object) Values.decimal(d);                        // too large is an error (spec v0.36.0)
         });
         b.register("MAX", Kind.PURE, args -> minMax("MAX", args, true));
         b.register("MIN", Kind.PURE, args -> minMax("MIN", args, false));
@@ -248,7 +248,7 @@ public final class Builtins {
      * — before spec v0.30.0 the second one was silently ignored. Without digits the result is an
      * integer (ROUND's tie goes away from zero, so ROUND(-2.5) is -3); with digits it is a decimal:
      * DecimalDigits rounds the shortest digits at that place, places the number does not reach
-     * change nothing, a value past the double range is Infinity, and Infinity/NaN come back as is.
+     * change nothing, and a result too large to represent is an error (spec v0.36.0).
      */
     private static Object rounding(String fn, List<Object> args, DecimalDigits.Mode mode) {
         if (args.size() > 2) throw new TeeError(fn + "() takes at most 2 arguments");
@@ -256,8 +256,7 @@ public final class Builtins {
         if (args.size() == 1) return intResult(wholeRound(n, mode));
         Object digits = args.get(1);
         if (!isWhole(digits)) throw new TeeError(fn + "() digits must be an integer");
-        if (!Double.isFinite(n)) return n;
-        return DecimalDigits.of(n).round(Values.toDouble(digits), mode).toDouble();
+        return Values.decimal(DecimalDigits.of(n).round(Values.toDouble(digits), mode).toDouble());   // CEIL(max, -308) (spec v0.36.0)
     }
 
     /** n rounded to a whole number; the same value as rounding its shown digits at place 0. */
@@ -284,16 +283,34 @@ public final class Builtins {
 
     /** The integer range for integer-producing builtins (spec v0.13.0, v0.33.0). */
     private static Object intResult(double d) {
-        if (d < -Values.MAX_INTEGER || d > Values.MAX_INTEGER) throw new TeeError(Values.INTEGER_OVERFLOW);
+        if (!(Math.abs(d) <= Values.MAX_INTEGER)) throw new TeeError(Values.INTEGER_OVERFLOW);   // NaN too: it was cut to 0
         return Values.integer((long) d);
     }
 
+    /**
+     * The numbers SUM, MAX and MIN take (spec v0.36.0): each argument is a number or an array of
+     * numbers, as a spreadsheet's MIN(A1:A10) takes a range — MIN(prices), MAX(sizes, 0). An
+     * array inside an array is not a number. Before, an array was an error, so a script found a
+     * list's least value with a loop that started from a huge number.
+     */
+    private static List<Object> numbers(String fn, List<Object> args) {
+        List<Object> out = new ArrayList<>(args.size());
+        for (Object a : args) {
+            if (a instanceof List<?> list) {
+                for (Object e : list) out.add(number(fn, e));
+            } else {
+                out.add(number(fn, a));
+            }
+        }
+        return out;
+    }
+
     private static Object minMax(String fn, List<Object> args, boolean max) {
-        if (args.isEmpty()) throw new TeeError(fn + "() requires at least one argument");
+        List<Object> numbers = numbers(fn, args);
+        if (numbers.isEmpty()) throw new TeeError(fn + "() requires at least one number");
         Object best = null;
         double bestD = 0;
-        for (Object a : args) {
-            number(fn, a);
+        for (Object a : numbers) {
             double d = Values.toDouble(a);
             if (best == null || (max ? d > bestD : d < bestD)) { best = a; bestD = d; }
         }

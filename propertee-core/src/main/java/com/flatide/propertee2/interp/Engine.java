@@ -298,7 +298,8 @@ public final class Engine {
 
         /**
          * The session's live globals, read or injected between snippets as with {@code
-         * Interpreter.globals()}: pass an injected value through {@code Values.deepCopy} first.
+         * Interpreter.globals()}: pass an injected value through {@code Values.deepCopy} first, and
+         * do not inject Infinity or NaN (spec v0.36.0).
          */
         public Map<String, Object> globals() { return interp.globals(); }
 

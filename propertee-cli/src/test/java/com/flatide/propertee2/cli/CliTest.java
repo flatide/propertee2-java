@@ -90,11 +90,12 @@ class CliTest {
     }
 
     @Test void resultOnlyRejectsANumberJsonCannotHold() throws IOException {
-        // spec v0.32.0: stdout carries only JSON, which has no form for Infinity or NaN
-        assertEquals(new Run(1, "", "propertee2: the result is Infinity, which JSON cannot represent\n"),
+        // spec v0.32.0: stdout carries only JSON, which has no form for Infinity or NaN — and since
+        // spec v0.36.0 a script cannot make one: the arithmetic fails, as any runtime error does
+        assertEquals(new Run(1, "", "Runtime error: Runtime Error at line 2:7: Number overflow: the result is too large to represent\n"),
                 runScript("PRINT(\"noise\")\nreturn TO_NUMBER(\"1e308\") * 10\n", true));
-        assertEquals(new Run(1, "", "propertee2: the result contains NaN at result.list.2, which JSON cannot represent\n"),
-                runScript("big = TO_NUMBER(\"1e308\") * 10\nresult = {\"list\": [1, big - big]}\n", true));
+        assertEquals(new Run(0, "1.7976931348623157e+308\n", ""),
+                runScript("return TO_NUMBER(\"1.7976931348623157e308\")\n", true));
     }
 
     @Test void defaultModeKeepsOutputAndInlineRuntimeErrors() throws IOException {
