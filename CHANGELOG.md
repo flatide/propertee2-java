@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.44.0
+
+**Spec v0.35.0 — `JSON_PARSE` refuses numbers too large to represent** (user decision after a
+review: `1e999` is valid JSON that no number can hold, and it came through as `Infinity` and failed
+only when written back as JSON, far from where it came in; `TO_NUMBER` has refused it since spec
+v0.25.0).
+
+- **`JSON_PARSE` and `READ_JSON_FILE`** (mildly breaking): a numeral too large to represent gives
+  an error Result naming the first one and where it is, through `TeeFormat.firstNonFinite`, as the
+  JSON writers do: `JSON_PARSE() value.rows.2.size is a number too large to represent`
+  (`Builtins.parsedJson`). A numeral too small to represent still reads as `0`.
+- **`JsonParser` reads JSON as RFC 8259 writes it** (fix, breaking for JSON only this runtime took).
+  A malformed number (`1e`, `1e+`, `--1`, `[1, 2e]`) or unicode escape (`\uZZZZ`, `\u41"`) escaped
+  as a `NumberFormatException`, and nesting near 10,000 levels as a `StackOverflowError`, ending the
+  whole run — in `JSON_PARSE`, `READ_JSON_FILE` and CLI `-p` alike — instead of giving an error
+  Result. It also took `01`, `.5`, `1.`, `1.e5` and `-01`, any `Character.isWhitespace` space between
+  tokens (U+000B, U+000C, U+001C–U+001F, U+2002, U+3000 …), raw control characters in a string, and
+  a sign or a fullwidth digit in a `\u` escape; the JavaScript runtime refused them all. Only
+  `TeeError` leaves the parser now.
+- **Nesting is at most 1000 levels** (`JsonParser.MAX_DEPTH`):
+  `Invalid JSON: nested more than 1000 levels deep at position 1000`, the same message and position
+  as the JavaScript runtime.
+- An `expected ','`/`expected ':'` error gives the position of the wrong character, where it gave
+  the one after it.
+- **Loop-limit hint** (the user's choice): every loop suggests `Use 'loop ... infinite do'`, the
+  JavaScript runtime's form for a loop over an array or object. This runtime suggested
+  `loop condition infinite do` for every loop, `FILE_LINES` streaming included.
+- CLI: `-p` refuses a numeral too large to represent —
+  `propertee2: -p value: props.x is a number too large to represent`, exit 2 — and a malformed one
+  is a usage error instead of a stack trace.
+- Tests: new fixtures `159_json_parse_strict` and `160_error_loop_limit_hint`; `value/JsonParserTest` (messages and positions, and
+  50,000 mutated JSON texts that raise nothing but `TeeError`); `BuiltinsTest`, `FileIoErrorTest`
+  for `READ_JSON_FILE`; `FileLinesTest` takes the new hint. 157 fixtures; core 506 + CLI 52 tests green. 15,000 mutated JSON texts gave
+  the JavaScript runtime's results, apart from its known order of integer-like keys.
+
 ## 0.43.0
 
 **Spec v0.34.0 — positions must be integers in range** (user feedback: a start of `0` or below

@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **155쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **157쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -236,6 +236,15 @@ HTTP 요청 본문은 `interpreter/FacadeHttpBuiltinTest`가, `--result-only`는
 | `158_error_positions` | `SUBSTRING`·`SLICE`의 끝을 넘는 위치는 덜 나올 뿐임(길이 0, 끝 다음 위치, `2.0` 같은 정합 소수 포함), 구분자가 마지막 글자일 때 `SUBSTRING(s, p + 1)`은 `""` — 그리고 0·음수·소수·문자열 시작, 음수·소수 길이, `SLICE`의 0 시작과 음수 개수, 배열 인덱스 `1.5`의 읽기와 대입, 문자열 인덱스 `1.5`와 범위 밖을 thread 결과로 한꺼번에 |
 
 `157_integer_range_builtins`는 음수 시작 대신 32비트를 넘는 시작(끝 너머이므로 빈 결과)을 쓴다. 에러 문구는 `builtin/BuiltinsTest.substringAndSlicePositionsAreIntegersInRange`(NaN·Infinity 포함)와 `interp/InterpreterTest.anIndexIsAnIntegerWhenReadingAndWriting`이 검사한다.
+
+## spec v0.35.0 `JSON_PARSE`가 거부하는 큰 수와 엄격한 JSON, 루프 상한 안내 (159-160)
+
+| fixture | 검증 내용 |
+|---|---|
+| `159_json_parse_strict` | 표현할 수 없을 만큼 큰 수(`1e999`, `-1E400`, 310자리 정수)는 첫 번째 수와 위치(`value.rows.2.size`, `value."unit price"`)를 알리는 에러 Result — 작은 수는 `0`, 범위 밖 정수는 소수, 가장 큰 double은 그대로. JSON이 아닌 수(`01`, `.5`, `1.`, `1e`, `[1, 2e]` …), JSON 공백 4개 밖의 공백(VT, FF, U+001C, NBSP, U+2002, U+3000, BOM), 문자열 안의 제어 문자, 잘못된 `\u` 이스케이프는 `ok: false`(문구는 런타임마다 달라 `ok`만 비교). 1000단계는 읽고 1001단계는 `Invalid JSON: nested more than 1000 levels deep at position N`(배열 1000, 객체 5000), 문자열 안의 괄호는 세지 않음 |
+| `160_error_loop_limit_hint` | 루프 반복 상한 에러가 어떤 루프든 `loop ... infinite do`를 안내함 — 조건 루프, 값 루프, 키-값 루프(객체와 배열), 정확히 1000번은 통과 — thread 결과로 한꺼번에. `29_error_loop_limit`도 새 문구 |
+
+Java 쪽 문구와 위치는 `value/JsonParserTest`가 검사하고, 무작위로 고친 JSON 5만 개에서 `TeeError` 말고는 어떤 예외도 나오지 않는지도 본다. `READ_JSON_FILE`은 `host/FileIoErrorTest`가 검사한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

@@ -553,14 +553,25 @@ public final class Builtins {
 
     private static void registerJson(Builtins b) {
         b.register("JSON_FORMAT", Kind.PURE, args -> json("JSON_FORMAT", "value", arg("JSON_FORMAT", args, 0)));
-        b.register("JSON_PARSE", Kind.PURE, args -> {
-            String s = string("JSON_PARSE", arg("JSON_PARSE", args, 0));
-            try {
-                return Result.ok(JsonParser.parse(s));
-            } catch (TeeError e) {
-                return Result.error(e.getMessage());
-            }
-        });
+        b.register("JSON_PARSE", Kind.PURE, args -> parsedJson("JSON_PARSE", string("JSON_PARSE", arg("JSON_PARSE", args, 0))));
+    }
+
+    /**
+     * JSON_PARSE's and READ_JSON_FILE's Result for {@code text}. A numeral too large to represent,
+     * which the parser reads as Infinity, is an error naming the first one and where it is (spec
+     * v0.35.0): {@code JSON_PARSE() value.rows.2.size is a number too large to represent}. Before,
+     * it came through as Infinity and failed only when written back as JSON.
+     */
+    private static Object parsedJson(String fn, String text) {
+        Object v;
+        try {
+            v = JsonParser.parse(text);
+        } catch (TeeError e) {
+            return Result.error(e.getMessage());
+        }
+        TeeFormat.NonFinite big = TeeFormat.firstNonFinite(v, "value");   // JSON has no NaN to read
+        if (big != null) return Result.error(fn + "() " + big.path() + " is a number too large to represent");
+        return Result.ok(v);
     }
 
 
@@ -665,11 +676,7 @@ public final class Builtins {
         b.register("READ_JSON_FILE", Kind.HOST_GATED, args -> ioResult(() -> {
             String content = platform.readFile(string("READ_JSON_FILE", arg("READ_JSON_FILE", args, 0)));
             if (content.startsWith("\uFEFF")) content = content.substring(1);
-            try {
-                return Result.ok(JsonParser.parse(content));
-            } catch (TeeError e) {
-                return Result.error(e.getMessage());
-            }
+            return parsedJson("READ_JSON_FILE", content);
         }));
 
         b.register("READ_LINES", Kind.HOST_GATED, args -> {

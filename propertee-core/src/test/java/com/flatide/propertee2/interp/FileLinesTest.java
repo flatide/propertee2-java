@@ -192,7 +192,7 @@ class FileLinesTest {
         for (int i = 1; i <= 1001; i++) sb.append(i).append('\n');
         Path f = file("many.txt", sb.toString());
         assertEquals("Runtime error: Runtime Error at line 1:0: Loop exceeded maximum iterations (1000)."
-                + " Use 'loop condition infinite do' if you need unlimited iterations.\n",
+                + " Use 'loop ... infinite do' if you need unlimited iterations.\n",
                 run("loop l in FILE_LINES(f) do\n    x = l\nend\n", f));
         assertEquals("1001\n", run("n = 0\nloop l in FILE_LINES(f) infinite do\n    n = n + 1\nend\nPRINT(n)\n", f));
     }

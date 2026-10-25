@@ -12,11 +12,21 @@ import java.util.Map;
  * until spec v0.7.0 it was normalized to {@code {}}).
  * Integers without a fractional/exponent part become {@code Integer}; otherwise {@code Double}.
  *
+ * <p>It reads JSON as RFC 8259 writes it (spec v0.35.0): it used to take {@code 01}, {@code .5},
+ * {@code 1.}, any {@link Character#isWhitespace} space and raw control characters in a string, and a
+ * malformed number or unicode escape escaped as a NumberFormatException that ended the whole run.
+ * Everything wrong is a {@link TeeError} now. A numeral too large to represent is read as Infinity,
+ * as {@link Double#valueOf} reads it; JSON_PARSE and READ_JSON_FILE refuse it.
+ *
  * <p>Used by the {@code JSON_PARSE} builtin, which wraps success/failure in a {@link Result}.
  */
 public final class JsonParser {
+    /** Nesting deeper than this is invalid (spec v0.35.0): each level is a call, so 10,000 overflowed the stack. */
+    public static final int MAX_DEPTH = 1000;
+
     private final String s;
     private int i;
+    private int depth;
 
     private JsonParser(String s) { this.s = s; }
 
@@ -44,10 +54,11 @@ public final class JsonParser {
     }
 
     private Map<String, Object> object() {
+        enter();
         expect('{');
         Map<String, Object> m = new LinkedHashMap<>();
         ws();
-        if (peek() == '}') { i++; return m; }
+        if (peek() == '}') { i++; depth--; return m; }
         while (true) {
             ws();
             if (peek() != '"') throw err("expected object key");
@@ -58,23 +69,24 @@ public final class JsonParser {
             m.put(key, value());
             ws();
             char c = next();
-            if (c == '}') return m;
-            if (c != ',') throw err("expected ',' or '}'");
+            if (c == '}') { depth--; return m; }
+            if (c != ',') { i--; throw err("expected ',' or '}'"); }   // the position is that character's
         }
     }
 
     private List<Object> array() {
+        enter();
         expect('[');
         List<Object> list = new ArrayList<>();
         ws();
-        if (peek() == ']') { i++; return list; }
+        if (peek() == ']') { i++; depth--; return list; }
         while (true) {
             ws();
             list.add(value());
             ws();
             char c = next();
-            if (c == ']') return list;
-            if (c != ',') throw err("expected ',' or ']'");
+            if (c == ']') { depth--; return list; }
+            if (c != ',') { i--; throw err("expected ',' or ']'"); }
         }
     }
 
@@ -85,6 +97,7 @@ public final class JsonParser {
             if (i >= s.length()) throw err("unterminated string");
             char c = s.charAt(i++);
             if (c == '"') return sb.toString();
+            if (c < 0x20) { i--; throw err("control character in string"); }   // JSON escapes them
             if (c == '\\') {
                 if (i >= s.length()) throw err("unterminated escape");
                 char e = s.charAt(i++);
@@ -98,9 +111,13 @@ public final class JsonParser {
                     case 'b' -> sb.append('\b');
                     case 'f' -> sb.append('\f');
                     case 'u' -> {
-                        if (i + 4 > s.length()) throw err("bad unicode escape");
-                        sb.append((char) Integer.parseInt(s.substring(i, i + 4), 16));
-                        i += 4;
+                        int code = 0;
+                        for (int k = 0; k < 4; k++, i++) {
+                            int h = hex(peek());
+                            if (h < 0) throw err("bad unicode escape");
+                            code = code * 16 + h;
+                        }
+                        sb.append((char) code);
                     }
                     default -> throw err("bad escape \\" + e);
                 }
@@ -110,13 +127,25 @@ public final class JsonParser {
         }
     }
 
+    /** -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)? — the position is where it stops being one. */
     private Object number() {
         int start = i;
         if (peek() == '-') i++;
-        while (i < s.length() && isNum(s.charAt(i))) i++;
-        if (i == start || (i == start + 1 && s.charAt(start) == '-')) throw err("invalid number");
+        if (peek() == '0') i++;
+        else digits();
+        boolean fractional = false;
+        if (peek() == '.') {
+            i++;
+            digits();
+            fractional = true;
+        }
+        if (peek() == 'e' || peek() == 'E') {
+            i++;
+            if (peek() == '+' || peek() == '-') i++;
+            digits();
+            fractional = true;
+        }
         String tok = s.substring(start, i);
-        boolean fractional = tok.indexOf('.') >= 0 || tok.indexOf('e') >= 0 || tok.indexOf('E') >= 0;
         if (!fractional) {
             try {
                 long v = Long.parseLong(tok);
@@ -140,10 +169,26 @@ public final class JsonParser {
     }
 
     // ---- low-level ----
-    private boolean isNum(char c) { return (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E'; }
-    private void ws() { while (i < s.length() && Character.isWhitespace(s.charAt(i))) i++; }
+    /** One or more ASCII digits. */
+    private void digits() {
+        if (!isDigit(peek())) throw err("invalid number");
+        while (isDigit(peek())) i++;
+    }
+    private static boolean isDigit(char c) { return c >= '0' && c <= '9'; }
+    /** An ASCII hex digit's value, or -1 (Character.digit would also take a fullwidth 'Ａ'). */
+    private static int hex(char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    }
+    private void enter() { if (++depth > MAX_DEPTH) throw err("nested more than " + MAX_DEPTH + " levels deep"); }
+    /** JSON's four whitespace characters only. */
+    private void ws() {
+        while (i < s.length() && (s.charAt(i) == ' ' || s.charAt(i) == '\t' || s.charAt(i) == '\n' || s.charAt(i) == '\r')) i++;
+    }
     private char peek() { return i < s.length() ? s.charAt(i) : '\0'; }
     private char next() { if (i >= s.length()) throw err("unexpected end of input"); return s.charAt(i++); }
-    private void expect(char c) { if (next() != c) throw err("expected '" + c + "'"); }
+    private void expect(char c) { if (next() != c) { i--; throw err("expected '" + c + "'"); } }
     private TeeError err(String why) { return new TeeError("Invalid JSON: " + why + " at position " + i); }
 }

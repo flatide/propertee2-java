@@ -1593,13 +1593,17 @@ public final class Interpreter {
         return sb.toString();
     }
 
-    /** In warn mode prints the v1 warning (error channel) and returns true = stop the loop; otherwise throws. */
+    /**
+     * In warn mode prints the v1 warning (error channel) and returns true = stop the loop; otherwise
+     * throws. Every loop suggests {@code loop ... infinite do} (spec v0.35.0): this runtime suggested
+     * {@code loop condition infinite do}, which reads wrong for a loop over an array or object.
+     */
     private boolean loopLimitExceeded(ParserRuleContext ctx) {
         if (loopLimitWarns) {
             err.line("Warning: Loop exceeded maximum iterations (" + maxIterations + "), stopping loop");
             return true;
         }
         throw err("Loop exceeded maximum iterations (" + maxIterations
-                + "). Use 'loop condition infinite do' if you need unlimited iterations.", ctx);
+                + "). Use 'loop ... infinite do' if you need unlimited iterations.", ctx);
     }
 }

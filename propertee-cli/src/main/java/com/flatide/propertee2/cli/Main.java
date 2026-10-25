@@ -185,6 +185,9 @@ public final class Main {
             return Map.of();   // unreachable
         }
         if (!(parsed instanceof Map)) fail("-p value must be a JSON object");
+        // a numeral too large to represent is refused, as JSON_PARSE refuses it (spec v0.35.0)
+        TeeFormat.NonFinite big = TeeFormat.firstNonFinite(parsed, "props");
+        if (big != null) fail("-p value: " + big.path() + " is a number too large to represent");
         return (Map<String, Object>) parsed;
     }
 

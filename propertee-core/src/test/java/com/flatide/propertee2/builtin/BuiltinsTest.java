@@ -387,6 +387,12 @@ class BuiltinsTest {
         assertEquals(Integer.valueOf(42), ((Map<?, ?>) call("JSON_PARSE", "42")).get("value"));
         assertEquals(Long.valueOf(5498058138880L), ((Map<?, ?>) call("JSON_PARSE", "5498058138880")).get("value"));
         assertEquals(9007199254740992.0, ((Map<?, ?>) call("JSON_PARSE", "9007199254740992")).get("value"));
+        // spec v0.35.0: a numeral too large to represent is an error naming where it is, not Infinity
+        Map<?, ?> big = (Map<?, ?>) call("JSON_PARSE", "{\"rows\": [1, {\"size\": -1e999}]}");
+        assertEquals(false, big.get("ok"));
+        assertEquals("JSON_PARSE() value.rows.2.size is a number too large to represent", big.get("value"));
+        assertEquals(0.0, ((Map<?, ?>) call("JSON_PARSE", "1e-999")).get("value"));   // too small is 0
+        assertEquals("Invalid JSON: invalid number at position 2", ((Map<?, ?>) call("JSON_PARSE", "1e")).get("value"));
     }
 
     @Test void timing() {                                 // 64_time_functions (range/format only)

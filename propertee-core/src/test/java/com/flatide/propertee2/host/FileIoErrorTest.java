@@ -58,6 +58,12 @@ class FileIoErrorTest {
                     "res = READ_JSON_FILE(f)\nPRINT(res.ok)\nPRINT(STARTS_WITH(res.value, \"Invalid JSON\"))\n",
                     Map.of("f", broken.toString()));
             assertEquals("false\ntrue\n", parseOut);
+
+            // spec v0.35.0: a numeral too large to represent is an error Result naming where it is.
+            Path huge = dir.resolve("huge.json");
+            Files.writeString(huge, "{\"size\": 1e999}");
+            assertEquals("false\nREAD_JSON_FILE() value.size is a number too large to represent\n", new Engine().run(
+                    "res = READ_JSON_FILE(f)\nPRINT(res.ok)\nPRINT(res.value)\n", Map.of("f", huge.toString())));
         } finally {
             try (Stream<Path> walk = Files.walk(dir)) {
                 walk.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
