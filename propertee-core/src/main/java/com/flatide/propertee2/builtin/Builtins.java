@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -326,9 +327,8 @@ public final class Builtins {
         // SUBSTRING(s, start, [length]) — start is 1-based; 3rd arg is LENGTH (13_strings).
         b.register("SUBSTRING", Kind.PURE, args -> {
             String s = string("SUBSTRING", arg("SUBSTRING", args, 0));
-            int from = clamp(intArg("SUBSTRING", args, 1) - 1, 0, s.length());
-            int to = args.size() > 2 ? clamp(from + intArg("SUBSTRING", args, 2), from, s.length()) : s.length();
-            return s.substring(from, to);
+            int[] span = span("SUBSTRING", args, "length", s.length());
+            return s.substring(span[0], span[1]);
         });
         // SPLIT keeps every field — leading, interior and trailing empties — so JOIN(SPLIT(s, d), d)
         // == s; the delimiter is literal and, since spec v0.24.0, non-empty (CHARS splits characters).
@@ -452,10 +452,9 @@ public final class Builtins {
         // SUBSTRING and READ_LINES (spec v0.7.0 #6; until v0.6.0 it was an end bound instead).
         b.register("SLICE", Kind.PURE, args -> {
             List<Object> arr = array("SLICE", arg("SLICE", args, 0));
-            int from = clamp(intArg("SLICE", args, 1) - 1, 0, arr.size());
-            int to = args.size() > 2 ? clamp(from + intArg("SLICE", args, 2), from, arr.size()) : arr.size();
-            List<Object> out = new ArrayList<>(to - from);
-            for (int i = from; i < to; i++) out.add(Values.deepCopy(arr.get(i)));
+            int[] span = span("SLICE", args, "count", arr.size());
+            List<Object> out = new ArrayList<>(span[1] - span[0]);
+            for (int i = span[0]; i < span[1]; i++) out.add(Values.deepCopy(arr.get(i)));
             return out;
         });
         b.register("SORT",      Kind.PURE, args -> sortScalar("SORT", arg("SORT", args, 0), false));
@@ -958,8 +957,9 @@ public final class Builtins {
             }
             long lo = (long) min, hi = (long) max;
             if (lo > hi) throw new TeeError("RANDOM() min cannot be greater than max");
-            long r = lo + (long) Math.floor(Math.random() * ((double) (hi - lo) + 1));
-            return Values.integer(Math.min(r, hi));                  // lo .. hi inclusive
+            // An integer draw: Math.random() * (hi - lo + 1) skipped integers once the span passed
+            // 2^53 (the whole range gave only odd numbers).
+            return Values.integer(ThreadLocalRandom.current().nextLong(lo, hi + 1));   // lo .. hi inclusive
         });
         b.register("MILTIME", Kind.PURE, args -> Values.integer(System.currentTimeMillis()));   // an integer (spec v0.33.0)
         b.register("DATE", Kind.PURE, args -> LocalDate.now().toString());              // yyyy-MM-dd
@@ -1202,12 +1202,23 @@ public final class Builtins {
     }
 
     /**
-     * A position clamped to lo..hi, truncated toward zero. It is computed on the double, so a
-     * position past 32 bits — SUBSTRING(s, 2, 3000000000) — clamps instead of wrapping around.
+     * The from..to span of SUBSTRING and SLICE (spec v0.34.0): start must be an integer of 1 or more
+     * and the length or count one of 0 or more, but past the end there is just less. Positions stay
+     * doubles until they are cut to the size, so one past 32 bits — SUBSTRING(s, 2, 3000000000) —
+     * cannot wrap around.
      */
-    private static int clamp(double x, int lo, int hi) {
-        if (!(x > lo)) return lo;   // NaN too
-        return x >= hi ? hi : (int) x;
+    private static int[] span(String fn, List<Object> args, String countName, int size) {
+        int from = (int) Math.min(position(fn, args, 1, "start", 1) - 1, size);
+        if (args.size() <= 2) return new int[] {from, size};
+        return new int[] {from, (int) Math.min(from + position(fn, args, 2, countName, 0), size)};
+    }
+
+    private static double position(String fn, List<Object> args, int i, String name, int min) {
+        Object v = arg(fn, args, i);
+        if (!isWhole(v) || Values.toDouble(v) < min) {
+            throw new TeeError(fn + "() " + name + " must be an integer of " + min + " or more");
+        }
+        return Values.toDouble(v);
     }
 
     // Spec v0.24.0 whitespace (TRIM, WORDS): exactly space, \t, \n, VT, \f, \r. String.trim()

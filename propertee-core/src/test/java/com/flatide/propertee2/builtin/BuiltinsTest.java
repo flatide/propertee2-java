@@ -165,6 +165,29 @@ class BuiltinsTest {
         assertEquals(list("x", "y", "z"), call("CHARS", "xyz"));
     }
 
+    @Test void substringAndSlicePositionsAreIntegersInRange() {   // spec v0.34.0, 158_error_positions
+        for (Object bad : new Object[] {0, -1, 2.5, Double.NaN, Double.POSITIVE_INFINITY, "2"}) {
+            assertEquals("SUBSTRING() start must be an integer of 1 or more",
+                    assertThrows(TeeError.class, () -> call("SUBSTRING", "hello", bad, 3)).getMessage());
+        }
+        for (Object bad : new Object[] {-1, 1.5, Double.NaN}) {
+            assertEquals("SUBSTRING() length must be an integer of 0 or more",
+                    assertThrows(TeeError.class, () -> call("SUBSTRING", "hello", 2, bad)).getMessage());
+        }
+        assertEquals("SLICE() start must be an integer of 1 or more",
+                assertThrows(TeeError.class, () -> call("SLICE", list(1, 2, 3), 0)).getMessage());
+        assertEquals("SLICE() count must be an integer of 0 or more",
+                assertThrows(TeeError.class, () -> call("SLICE", list(1, 2, 3), 2, -1)).getMessage());
+        // past the end there is just less, and a whole decimal is an integer
+        assertEquals("", call("SUBSTRING", "hello", 2, 0));
+        assertEquals("", call("SUBSTRING", "hello", 6));
+        assertEquals("", call("SUBSTRING", "hello", 1e300));
+        assertEquals("lo", call("SUBSTRING", "hello", 4, 10));
+        assertEquals("ell", call("SUBSTRING", "hello", 2.0, 3.0));
+        assertEquals(list(), call("SLICE", list(1, 2, 3), 4, 1));
+        assertEquals(list(2, 3), call("SLICE", list(1, 2, 3), 2.0, 1e300));
+    }
+
     @Test void stringMatching() {                         // 81_string_matching
         assertEquals(true, call("CONTAINS", "hello world", "world"));
         assertEquals(false, call("CONTAINS", "hello world", "xyz"));
@@ -383,6 +406,13 @@ class BuiltinsTest {
             long any = ((Number) call("RANDOM", -9007199254740991L, 9007199254740991L)).longValue();
             org.junit.jupiter.api.Assertions.assertTrue(Math.abs(any) <= 9007199254740991L, "" + any);
         }
+        // every integer can come up: the whole range used to give only odd numbers, because
+        // Math.random() * 2^54 steps by 2
+        boolean even = false, odd = false;
+        for (int k = 0; k < 200; k++) {
+            if (((Number) call("RANDOM", -9007199254740991L, 9007199254740991L)).longValue() % 2 == 0) even = true; else odd = true;
+        }
+        org.junit.jupiter.api.Assertions.assertTrue(even && odd, "even " + even + ", odd " + odd);
         assertEquals(9007199254740991L, call("RANDOM", 9007199254740991L, 9007199254740991L));
         assertEquals(3, call("RANDOM", 3.0, 3));                             // a whole decimal will do
         for (Object[] bad : new Object[][] {{0, 1e16}, {1.2, 1.5}, {-1.5, -1.2}, {0, Double.NaN}, {0, Double.POSITIVE_INFINITY}}) {

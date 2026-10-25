@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **154쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **155쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -228,6 +228,14 @@ HTTP 요청 본문은 `interpreter/FacadeHttpBuiltinTest`가, `--result-only`는
 32비트 경계를 고정하던 fixture는 새 경계로 옮겼다: `107_integer_limits`(범위 끝, 대칭, 테라바이트 합계, 소수는 범위를 넘어 계산), `108`·`109`·`110`·`115`(새 에러 문구), `77_range_int_overflow`(범위 끝의 정수 범위 배열), `114_number_identity`(정합 소수는 범위를 넘어도 넘치지 않음), `136`·`146`·`147`·`152`. JavaScript 런타임은 정합 소수를 정수로 다루므로 `114`는 그쪽에서 계속 보류이고, 공용 fixture는 범위를 넘는 계산에 정합이 아닌 소수(`+ 0.5`, `* 1000.5`)를 쓴다.
 
 호스트가 넘기는 `Long`(범위 안은 정수, 밖은 가장 가까운 소수)과 결과의 상자(32비트 안은 `Integer`, 밖은 `Long`)는 `interp/InterpreterTest.hostLongsAreIntegersInsideTheRange`가, 32비트를 넘는 파일 크기와 시각은 `interp/ListDirTest.sizesAndTimesPast32BitsAreIntegers`가 검사한다.
+
+## spec v0.34.0 위치와 인덱스는 범위 안의 정수 (158, 그리고 157 갱신)
+
+| fixture | 검증 내용 |
+|---|---|
+| `158_error_positions` | `SUBSTRING`·`SLICE`의 끝을 넘는 위치는 덜 나올 뿐임(길이 0, 끝 다음 위치, `2.0` 같은 정합 소수 포함), 구분자가 마지막 글자일 때 `SUBSTRING(s, p + 1)`은 `""` — 그리고 0·음수·소수·문자열 시작, 음수·소수 길이, `SLICE`의 0 시작과 음수 개수, 배열 인덱스 `1.5`의 읽기와 대입, 문자열 인덱스 `1.5`와 범위 밖을 thread 결과로 한꺼번에 |
+
+`157_integer_range_builtins`는 음수 시작 대신 32비트를 넘는 시작(끝 너머이므로 빈 결과)을 쓴다. 에러 문구는 `builtin/BuiltinsTest.substringAndSlicePositionsAreIntegersInRange`(NaN·Infinity 포함)와 `interp/InterpreterTest.anIndexIsAnIntegerWhenReadingAndWriting`이 검사한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

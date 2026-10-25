@@ -134,6 +134,21 @@ class InterpreterTest {
     }
 
     /** Spec v0.13.0, v0.33.0: every overflowing integer operator fails loudly (fixtures pin + and literals). */
+    @Test void anIndexIsAnIntegerWhenReadingAndWriting() {   // spec v0.34.0
+        assertEquals("Runtime error: Runtime Error at line 2:6: Array index must be an integer\n",
+                engine.run("a = [10, 20, 30]\nPRINT(a.$(1.5))\n"));
+        assertEquals("Runtime error: Runtime Error at line 3:0: Array index must be an integer\n",
+                engine.run("a = [10, 20, 30]\ni = 1.5\na.$i = 99\nPRINT(a)\n"));
+        assertEquals("Runtime error: Runtime Error at line 2:6: String index must be an integer\n",
+                engine.run("s = \"hello\"\nPRINT(s.$(0.5))\n"));
+        assertEquals("Runtime error: Runtime Error at line 2:6: String index out of bounds\n",
+                engine.run("s = \"hello\"\nPRINT(s.6)\n"));
+        assertEquals("Runtime error: Runtime Error at line 2:6: String index must be a number\n",
+                engine.run("s = \"hello\"\nPRINT(s.x)\n"));
+        assertEquals("[ 10, 99, 30 ] 30 e\n",
+                engine.run("a = [10, 20, 30]\ns = \"hello\"\ni = 2.0\na.$i = 99\nPRINT(a, a.$(i + 1), s.$i)\n"));
+    }
+
     @Test void integerOverflowCoversAllOperators() {
         String overflow = "Integer overflow: the result is outside ±9,007,199,254,740,991\n";
         assertEquals("Runtime error: Runtime Error at line 1:6: " + overflow,

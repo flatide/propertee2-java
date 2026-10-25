@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.43.0
+
+**Spec v0.34.0 — positions must be integers in range** (user feedback: a start of `0` or below
+silently became `1`, so a mistake in working out a position went unnoticed, and the JavaScript
+runtime did not even agree — `SUBSTRING("hello", -1, 3)` was `"hel"` here and `"h"` there).
+
+- **`SUBSTRING(s, start, [length])` and `SLICE(arr, start, [count])`** (breaking): `start` must be
+  an integer of 1 or more and `length`/`count` an integer of 0 or more — a whole decimal such as
+  `2.0` will do — or the call fails with `SUBSTRING() start must be an integer of 1 or more`,
+  `SUBSTRING() length must be an integer of 0 or more` (and `SLICE()` with `count`). This runtime
+  clamped a start below 1 to 1, cut a fraction toward zero and treated a negative length as 0. A
+  position past the end still gives less, so `SUBSTRING(s, p + 1)` after the last character is
+  `""`. A start that is not a number now gets the same message, where it was
+  `SUBSTRING() requires numeric arguments`. `Builtins.clamp` is replaced by `span`/`position`.
+- **An array or string index must be an integer** (breaking), when reading and when assigning:
+  `a.$i` with `i = 1.5` fails with `Array index must be an integer`, where it was cut to `1`. A
+  string index error says `String index …` — `String index out of bounds`,
+  `String index must be a number`, `String index must be an integer` — where a string got the
+  array's messages.
+- **`RANDOM(min, max)` gives every integer** (fix, from an independent review): it scaled
+  `Math.random()`, which steps by 2 once the span passes 2⁵³, so
+  `RANDOM(-9007199254740991, 9007199254740991)` gave only odd numbers. It now draws with
+  `ThreadLocalRandom.nextLong(lo, hi + 1)`, every integer equally likely.
+- **Host globals get their integer box** (fix, from the same review): `ProperTeeInterpreter.variables`
+  went into the run as is, so a host `Long` past the range reached integer arithmetic —
+  `Long.MAX_VALUE + Long.MAX_VALUE` wrapped around to `-2` and `-Long.MIN_VALUE` stayed negative.
+  Each value is now copied with `Values.deepCopy`, nested ones included, as props already were, so
+  a `Long` past the range is a decimal. `Interpreter.globals()` and `Engine.Session.globals()` stay
+  the live maps; their javadoc says to pass an injected value through `Values.deepCopy`.
+- Tests: new fixture `158_error_positions`; `157_integer_range_builtins` uses a start past the end
+  instead of a negative one; `BuiltinsTest.substringAndSlicePositionsAreIntegersInRange`,
+  `InterpreterTest.anIndexIsAnIntegerWhenReadingAndWriting`,
+  `FacadeTest.injectedGlobalLongsGetTheirIntegerBox`, and `BuiltinsTest.timing` checks that the whole
+  range gives both even and odd numbers. 155 fixtures; core 498 + CLI 52 tests green.
+
 ## 0.42.0
 
 **Spec v0.33.0 — integers up to 9,007,199,254,740,991** (user feedback: 32-bit integers could not

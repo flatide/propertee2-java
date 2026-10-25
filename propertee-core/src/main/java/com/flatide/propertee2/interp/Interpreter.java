@@ -245,7 +245,11 @@ public final class Interpreter {
 
     // ---- Façade hooks (used by the v1-compat com.flatide.propertee2.interpreter layer) -----------------------
 
-    /** The program's top-level globals — a host may inject before {@link #run} and read after (e.g. `result`). */
+    /**
+     * The program's top-level globals — a host may inject before {@link #run} and read after (e.g.
+     * `result`). The map is the live one, so an injected value goes in as is: pass it through
+     * {@link Values#deepCopy} first, which gives a host {@code Long} its integer box.
+     */
     public Map<String, Object> globals() { return globals; }
 
     /** True if the program ended with an explicit top-level {@code return}. */
@@ -1076,7 +1080,7 @@ public final class Interpreter {
             map.put(objectKey(a), Values.deepCopy(value));
         } else if (container instanceof List<?> rawList) {
             @SuppressWarnings("unchecked") List<Object> list = (List<Object>) rawList;
-            int idx = arrayIndex(a, ctx);
+            int idx = arrayIndex(a, ctx, "Array");
             if (idx < 1 || idx > list.size()) throw err("Array index out of bounds", ctx);
             list.set(idx - 1, Values.deepCopy(value));
         } else {
@@ -1466,13 +1470,13 @@ public final class Interpreter {
             return map.get(key);
         }
         if (base instanceof List<?> list) {
-            int idx = arrayIndex(a, memberCtx);
+            int idx = arrayIndex(a, memberCtx, "Array");
             if (idx < 1 || idx > list.size()) throw err("Array index out of bounds", memberCtx);
             return list.get(idx - 1);
         }
         if (base instanceof String s) {
-            int idx = arrayIndex(a, memberCtx);
-            if (idx < 1 || idx > s.length()) throw err("Array index out of bounds", memberCtx);
+            int idx = arrayIndex(a, memberCtx, "String");
+            if (idx < 1 || idx > s.length()) throw err("String index out of bounds", memberCtx);
             return String.valueOf(s.charAt(idx - 1));
         }
         throw err("Property '" + objectKey(a) + "' does not exist", memberCtx);
@@ -1489,15 +1493,21 @@ public final class Interpreter {
         };
     }
 
-    private int arrayIndex(AccessContext a, ParserRuleContext ctx) {
+    /**
+     * The index of an array or string ({@code what}). Since spec v0.34.0 a fraction is an error, not
+     * cut toward zero; a whole number too large for an int saturates and is then out of bounds.
+     */
+    private int arrayIndex(AccessContext a, ParserRuleContext ctx, String what) {
         if (a instanceof ArrayAccessContext ar) return (int) Math.min(parseIntLiteral(ar.INTEGER().getText(), ar), Integer.MAX_VALUE);
         Object v = switch (a) {
             case VarEvalAccessContext ve -> evalVarEval(ve);
             case EvalAccessContext ev -> eval(ev.expression());
-            default -> throw err("Array index must be a number", ctx);
+            default -> throw err(what + " index must be a number", ctx);
         };
-        if (!Values.isNumber(v)) throw err("Array index must be a number", ctx);
-        return (int) Values.toDouble(v);
+        if (!Values.isNumber(v)) throw err(what + " index must be a number", ctx);
+        double d = Values.toDouble(v);
+        if (d != Math.floor(d) || Double.isInfinite(d)) throw err(what + " index must be an integer", ctx);   // NaN too
+        return (int) d;
     }
 
     private Object evalVarEval(VarEvalAccessContext ve) {

@@ -143,6 +143,23 @@ class FacadeTest {
         assertEquals(List.of(5_498_058_138_881L, -1.8446744073709552e19, 7), result);
     }
 
+    /** Spec v0.33.0: a host global gets the same integer box as a prop — a Long past the range is a decimal. */
+    @Test void injectedGlobalLongsGetTheirIntegerBox() {
+        BuiltinFunctions.PrintFunction sink = args -> {};
+        BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "return [high + high, -low, nested.sizes.1 + 1, nested.sizes.2 + nested.sizes.2]\n", new ArrayList<>());
+        ProperTeeInterpreter visitor =
+                new ProperTeeInterpreter(new LinkedHashMap<>(), sink, sink, 1000, "error", builtins);
+        visitor.variables.put("high", Long.MAX_VALUE);
+        visitor.variables.put("low", Long.MIN_VALUE);
+        visitor.variables.put("nested", new LinkedHashMap<>(Map.of("sizes", List.of(5_498_058_138_880L, Long.MAX_VALUE))));
+        Object result = new Scheduler(visitor).run(visitor.createRootStepper(tree));
+
+        // the sum used to wrap around to -2 and the negation to stay Long.MIN_VALUE
+        assertEquals(List.of(1.8446744073709552e19, 9.223372036854776e18, 5_498_058_138_881L, 1.8446744073709552e19), result);
+    }
+
     @Test void knownFunctionNamesCoverDispatchCatalogAndHostRegistrations() {
         BuiltinFunctions.PrintFunction sink = args -> {};
         BuiltinFunctions builtins = new BuiltinFunctions(sink, sink, "r", null, null);

@@ -185,7 +185,11 @@ public class ProperTeeInterpreter {
             });
         }
 
-        interp.globals().putAll(this.variables);                 // inject host globals (e.g. _SYS) before the run
+        // Inject host globals (e.g. _SYS) before the run, copied as props are: a Long past the
+        // integer range becomes a decimal, so integer arithmetic never sees it (spec v0.33.0).
+        for (Map.Entry<String, Object> e : this.variables.entrySet()) {
+            interp.globals().put(e.getKey(), Values.deepCopy(e.getValue()));
+        }
 
         // Register the program's root logical thread with the host listener so it can observe the run
         // (the run-detail "threads"); fire created before the run so a poller sees it during execution.

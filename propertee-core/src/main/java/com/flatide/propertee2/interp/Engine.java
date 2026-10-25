@@ -296,7 +296,10 @@ public final class Engine {
             return echo[0];
         }
 
-        /** The session's live globals (read/inject between snippets, as with {@code Interpreter.globals()}). */
+        /**
+         * The session's live globals, read or injected between snippets as with {@code
+         * Interpreter.globals()}: pass an injected value through {@code Values.deepCopy} first.
+         */
         public Map<String, Object> globals() { return interp.globals(); }
 
         /**
