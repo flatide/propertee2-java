@@ -170,8 +170,8 @@ class ListDirTest {
     }
 
     @Test void aPatternMustBeAString() {
-        assertEquals("Runtime error: Runtime Error: LIST_DIR() requires a string argument\n", cli("LIST_DIR(d, 5)\n"));
-        assertEquals("Runtime error: Runtime Error: LIST_DIR_NAMES() requires a string argument\n",
+        assertEquals("Runtime error: Runtime Error at line 1:1: LIST_DIR() requires a string argument\n", cli("LIST_DIR(d, 5)\n"));
+        assertEquals("Runtime error: Runtime Error at line 1:1: LIST_DIR_NAMES() requires a string argument\n",
                 cli("LIST_DIR_NAMES(d, {})\n"));
     }
 

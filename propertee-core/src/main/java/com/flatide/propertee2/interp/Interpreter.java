@@ -10,6 +10,7 @@ import com.flatide.propertee2.coop.Scheduler;
 import com.flatide.propertee2.host.PlatformProvider;
 import com.flatide.propertee2.module.ModuleResolver;
 import com.flatide.propertee2.parser.ProperTeeParser.*;
+import com.flatide.propertee2.value.HandlerOutcome;
 import com.flatide.propertee2.value.JsonNull;
 import com.flatide.propertee2.value.LazyLines;
 import com.flatide.propertee2.value.LineReader;
@@ -126,14 +127,98 @@ public final class Interpreter {
     }
 
     private void execProgram(RootContext root) {
+        List<StatementContext> stmts = root.statement();
+        int at = 0;
         try {
-            for (StatementContext s : root.statement()) { exec(s); coop.yield_(); }
-        } catch (Signals.Return r) {
-            hasExplicitReturn = true;          // top-level return: stop, remember the value (value-model §8)
-            returnValue = Values.materialize(r.value);   // the host's result: a FILE_LINES array is read in full
-        } catch (Signals.Break | Signals.Continue b) {
-            // break/continue outside a loop: ignore
+            try {
+                for (; at < stmts.size(); at++) { exec(stmts.get(at)); coop.yield_(); }
+            } catch (Signals.Return r) {
+                hasExplicitReturn = true;      // top-level return: stop, remember the value (value-model §8)
+                try {
+                    returnValue = Values.materialize(r.value);   // the host's result: a FILE_LINES array is read in full
+                } catch (TeeError e) {
+                    throw at(e, stmts.get(at));
+                }
+            } catch (Signals.Break | Signals.Continue b) {
+                // unreachable: a break or continue outside a loop is refused at load (spec v0.37.0)
+            }
+        } catch (TeeError e) {
+            throw failure(e, stmts, at);
         }
+    }
+
+    // ---- on error (spec v0.37.0) ------------------------------------------
+
+    private java.util.function.Consumer<TeeError> failureReporter;
+
+    /**
+     * Where the runtime reports a failure before the script's {@code on error} handler runs, so a
+     * handler that hangs or fails cannot hide it. Without one, the line {@code Runtime error: <report>}
+     * goes to the error sink. A host that prints a run's error itself skips an error whose
+     * {@link TeeError#handler()} is set: it was reported here.
+     */
+    public void setFailureReporter(java.util.function.Consumer<TeeError> reporter) { this.failureReporter = reporter; }
+
+    /**
+     * The main thread failed. A stop asked for before the error makes the run stopped instead, the
+     * handler not run, since a stop can itself make a call fail (it kills a SHELL command).
+     * Otherwise the error is reported, the handler runs, and the error carries how it ended.
+     */
+    private TeeError failure(TeeError e, List<StatementContext> stmts, int at) {
+        if (coop.abortRequested()) throw new AbortError();
+        if (stmts.isEmpty() || !(stmts.get(0) instanceof ErrorHandlerStmtContext h)) return e;
+        if (failureReporter != null) failureReporter.accept(e);
+        else err.line("Runtime error: " + e.positioned());
+        e.handled(runHandler(h.errorHandler(), e, stmts, at));
+        return e;
+    }
+
+    /**
+     * Run the handler as top-level code. First the root definitions the run has not reached, in
+     * order, as import mode registers them, so the handler can call a function defined below the
+     * line that failed. An error in the handler ends it ({@code [HANDLER ERROR]}); a stop asked for
+     * while it runs ends it too, as stopped even when the stop then made a call fail, as in
+     * {@link #failure}. Either way the run fails with the original error.
+     */
+    private HandlerOutcome runHandler(ErrorHandlerContext handler, TeeError e, List<StatementContext> stmts, int at) {
+        List<StatementContext> body = handler.block().statement();
+        int h = 0;
+        try {
+            for (int i = at + 1; i < stmts.size(); i++) {
+                if (stmts.get(i) instanceof FuncDefStmtContext f) defineFunction(f.functionDef());
+            }
+            ec().globalsView.put("_ERROR", errorObject(e));
+            try {
+                for (; h < body.size(); h++) { exec(body.get(h)); coop.yield_(); }
+            } catch (Signals.Return r) {
+                try {
+                    // the host's value: a FILE_LINES array is read in full, and a read that fails
+                    // is an error in the handler, like any other
+                    return HandlerOutcome.returned(Values.materialize(r.value));
+                } catch (TeeError me) {
+                    throw at(me, body.get(h));
+                }
+            } catch (Signals.Break | Signals.Continue b) {
+                // unreachable: refused at load
+            }
+            return HandlerOutcome.returned(Values.emptyObject());
+        } catch (TeeError he) {
+            if (coop.abortRequested()) return HandlerOutcome.stopped();
+            err.line("[HANDLER ERROR] " + he.positioned());
+            return HandlerOutcome.failed(he);
+        } catch (AbortError | DebugQuit stop) {
+            return HandlerOutcome.stopped();
+        }
+    }
+
+    /** {@code _ERROR}: the error's message and position, as the report gives them, and its source. */
+    private Map<String, Object> errorObject(TeeError e) {
+        Map<String, Object> o = new LinkedHashMap<>();
+        o.put("message", e.getMessage());
+        o.put("line", Values.integer(Math.max(e.line(), 0)));
+        o.put("column", Values.integer(Math.max(e.column(), 0)));
+        o.put("source", e.sourceId() != null ? e.sourceId() : entrySourceId);
+        return o;
     }
 
     /**
@@ -223,27 +308,40 @@ public final class Interpreter {
     }
 
     private Object execSnippet(RootContext root) {
+        List<StatementContext> stmts = root.statement();
+        int i = 0;
         try {
-            List<StatementContext> stmts = root.statement();
-            Object last = null;
-            for (int i = 0; i < stmts.size(); i++) {
-                StatementContext s = stmts.get(i);
-                if (i == stmts.size() - 1 && s instanceof ExprStmtContext e) {
-                    // bypasses exec() for the echo, so the debugger hook must fire here too
-                    if (debugHandler != null) debugStep(s);
-                    last = eval(e.expression());
-                } else {
-                    exec(s);
+            try {
+                Object last = null;
+                for (; i < stmts.size(); i++) {
+                    StatementContext s = stmts.get(i);
+                    if (i == stmts.size() - 1 && s instanceof ExprStmtContext e) {
+                        // bypasses exec() for the echo, so the debugger hook must fire here too
+                        if (debugHandler != null) debugStep(s);
+                        try {
+                            last = evalExprStmt(e);
+                        } catch (TeeError te) {
+                            throw te.hasPosition() ? te : at(te, s);
+                        }
+                    } else {
+                        exec(s);
+                    }
+                    coop.yield_();
                 }
-                coop.yield_();
+                return last;
+            } catch (Signals.Return r) {
+                hasExplicitReturn = true;
+                try {
+                    returnValue = Values.materialize(r.value);   // a read that fails is the snippet's error
+                } catch (TeeError e) {
+                    throw at(e, stmts.get(i));
+                }
+                return returnValue;
+            } catch (Signals.Break | Signals.Continue b) {
+                return null;                   // unreachable: refused at load (spec v0.37.0)
             }
-            return last;
-        } catch (Signals.Return r) {
-            hasExplicitReturn = true;
-            returnValue = Values.materialize(r.value);
-            return returnValue;
-        } catch (Signals.Break | Signals.Continue b) {
-            return null;                       // break/continue outside a loop: ignore (as in run)
+        } catch (TeeError e) {
+            throw failure(e, stmts, i);        // a snippet's own `on error` runs as a script's does
         }
     }
 
@@ -290,7 +388,16 @@ public final class Interpreter {
      */
     public void addRawBuiltin(String name, java.util.function.Function<List<Object>, Object> fn) {
         builtins.register(Engine.requireReplaceableName(name), Builtins.Kind.PURE, args -> {
-            Object v = fn.apply(args);
+            Object v;
+            try {
+                v = fn.apply(args);
+            } catch (TeeError e) {
+                throw e;
+            } catch (RuntimeException e) {
+                // A host's exception is a runtime error at the call (spec v0.37.0), so the script's
+                // `on error` sees it; a stop is an Error and passes through.
+                throw new TeeError(e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            }
             String nonFinite = Values.hostNonFinite(v, name + "() result");     // spec v0.36.0
             if (nonFinite != null) throw new TeeError(nonFinite);
             return Values.deepCopy(v);
@@ -331,16 +438,24 @@ public final class Interpreter {
 
     private void exec(StatementContext s) {
         if (debugHandler != null) debugStep(s);   // 0.23.0 stepping/breakpoints; zero cost unarmed
-        switch (s) {
-            case AssignStmtContext a   -> execAssign(a.assignment());
-            case IfStmtContext i       -> execIf(i.ifStatement());
-            case IterStmtContext it    -> execLoop(it.iterationStmt());
-            case FuncDefStmtContext f  -> defineFunction(f.functionDef());
-            case FlowStmtContext fl    -> execFlow(fl.flowControl());
-            case ExprStmtContext e     -> eval(e.expression());
-            case ParallelExecStmtContext p -> execMulti(p.parallelStmt());
-            case SpawnExecStmtContext sp   -> execSpawn(sp.spawnStmt());
-            default -> throw err("unsupported statement", s);
+        try {
+            switch (s) {
+                case AssignStmtContext a   -> execAssign(a);
+                case IfStmtContext i       -> execIf(i.ifStatement());
+                case IterStmtContext it    -> execLoop(it.iterationStmt());
+                case FuncDefStmtContext f  -> defineFunction(f.functionDef());
+                case FlowStmtContext fl    -> execFlow(fl.flowControl());
+                case ExprStmtContext e     -> evalExprStmt(e);
+                case ParallelExecStmtContext p -> execMulti(p.parallelStmt());
+                case SpawnExecStmtContext sp   -> execSpawn(sp.spawnStmt());
+                case ErrorHandlerStmtContext h -> { }   // runs only after an error (spec v0.37.0)
+                default -> throw err("unsupported statement", s);
+            }
+        } catch (TeeError e) {
+            // Every runtime error has a position (spec v0.37.0): one raised without its own gets
+            // the statement's. Built-in errors already carry their call's (invokeNamed).
+            if (!e.hasPosition()) throw at(e, s);
+            throw e;
         }
     }
 
@@ -389,6 +504,10 @@ public final class Interpreter {
             if (!Values.isInteger(v) || ((Number) v).longValue() <= 0) throw err("multi limit must be a positive integer", m.limitExpr);
             limit = (int) Math.min(((Number) v).longValue(), Integer.MAX_VALUE);
         }
+        // The monitor interval is checked here too, before the setup and before the first worker
+        // starts (spec v0.37.0) — a block with an interval out of range starts no worker.
+        MonitorClauseContext mc = m.monitorClause();
+        long interval = mc != null ? parseIntLiteral(mc.INTEGER().getText(), mc) : 0;
 
         // 1. read-only global snapshot all threads share (design §4, thread purity), taken at
         //    multi ENTRY — before the setup phase — matching v1/js and the spec: a :: write in
@@ -418,7 +537,7 @@ public final class Interpreter {
         for (MultiBuilder.Pending p : builder.pending) collection.put(p.key(), Result.running());
 
         // 4. spawn workers (+ optional monitor), wait for all, in-place result updates
-        runThreads(builder.pending, collection, snapshot, moduleSnapshots, c.module, m, limit);
+        runThreads(builder.pending, collection, snapshot, moduleSnapshots, c.module, m, limit, interval);
 
         // 5. assign the collection to resultVar (current scope) — global at top level, local in a function
         if (m.resultVar != null) currentScope().put(m.resultVar.getText(), collection);
@@ -427,7 +546,8 @@ public final class Interpreter {
     private void runThreads(List<MultiBuilder.Pending> pending, Map<String, Object> collection,
                             Map<String, Object> snapshot,
                             Map<String, Map<String, Object>> moduleSnapshots,
-                            ModuleInstance enclosingModule, ParallelStmtContext m, int limit) {
+                            ModuleInstance enclosingModule, ParallelStmtContext m, int limit,
+                            long interval) {
         Scheduler s = coop.scheduler();
         Fiber parent = s.self();
         boolean hasMonitor = m.monitorClause() != null;
@@ -505,7 +625,6 @@ public final class Interpreter {
 
         if (hasMonitor) {
             MonitorClauseContext mc = m.monitorClause();
-            long interval = parseIntLiteral(mc.INTEGER().getText(), mc);   // an INTEGER literal (the integer range)
             String resultVarName = m.resultVar != null ? m.resultVar.getText() : null;
             s.spawn("monitor", () -> {
                 try {
@@ -523,6 +642,8 @@ public final class Interpreter {
                         ScopedValue.where(CTX, mctx).run(() -> {
                             try {
                                 execBlock(mc.block());
+                            } catch (Signals.Return r) {
+                                // a return ends this iteration, as it ends a function (spec v0.37.0)
                             } catch (TeeError e) {
                                 err.line("[MONITOR ERROR] " + e.positioned());
                                 throw e;
@@ -600,9 +721,137 @@ public final class Interpreter {
         return "Runtime Error: " + msg;
     }
 
-    private void execAssign(AssignmentContext a) {
-        Object value = eval(a.expression());
-        assign(a.lvalue(), value);
+    private void execAssign(AssignStmtContext stmt) {
+        AssignmentContext a = stmt.assignment();
+        if (stmt.otherwiseClause() == null) {
+            assign(a.lvalue(), eval(a.expression()));
+            return;
+        }
+        Object value = valueOrFallback(a.expression(), stmt.otherwiseClause(), Target.of(a.lvalue()));
+        if (value != SET_BY_BLOCK) assign(a.lvalue(), value);
+    }
+
+    /** An expression statement: its value, which only a REPL echoes. */
+    private Object evalExprStmt(ExprStmtContext e) {
+        if (e.otherwiseClause() == null) return eval(e.expression());
+        Object value = valueOrFallback(e.expression(), e.otherwiseClause(), Target.NONE);
+        return value == SET_BY_BLOCK ? null : value;
+    }
+
+    // ---- otherwise (spec v0.37.0) --------------------------------------------
+
+    /** What the statement an {@code otherwise} ends asks of its block (rule 5). */
+    private record Target(String variable, boolean global, boolean leave) {
+        static final Target NONE = new Target(null, false, false);       // an expression statement: may end
+        static final Target LEAVE = new Target(null, false, true);       // a return, or a member/element target
+        static Target of(LvalueContext lv) {
+            return switch (lv) {
+                case VarLValueContext v -> new Target(v.ID().getText(), false, false);
+                case GlobalVarLValueContext g -> new Target(g.ID().getText(), true, false);
+                default -> new Target(null, false, true);
+            };
+        }
+    }
+
+    /**
+     * An open block that may set its statement's variable. It does by assigning that variable itself
+     * — in its own code, a {@code multi} setup in it included — not in a function it calls.
+     */
+    static final class SetTracker {
+        final String name;
+        final Map<String, Object> scope;   // where the variable lives: the globals, or the function's frame
+        final int calls;                   // calls running when the block started: a call it makes is one more
+        boolean set;
+        SetTracker(String name, Map<String, Object> scope, int calls) { this.name = name; this.scope = scope; this.calls = calls; }
+    }
+
+    /** The block set the variable itself, so the assignment has nothing left to do. */
+    private static final Object SET_BY_BLOCK = new Object();
+
+    private Object valueOrFallback(ExpressionContext left, OtherwiseClauseContext oc, Target target) {
+        return otherwise(eval(left), left, oc, target);
+    }
+
+    /**
+     * Rule 1: the value on the left must be a genuine Result. One with {@code ok} gives its value;
+     * a failed or running one gives the fallback, which runs only then (rule 3).
+     */
+    private Object otherwise(Object value, ExpressionContext left, OtherwiseClauseContext oc, Target target) {
+        if (!(value instanceof TeeResult res)) throw err(needsResult(left, value), left);
+        if (Boolean.TRUE.equals(res.get("ok"))) return res.get("value");
+        return switch (oc.fallback()) {
+            case FallbackContinueContext c -> throw Signals.Continue.INSTANCE;
+            case FallbackBreakContext b -> throw Signals.Break.INSTANCE;
+            case FallbackReturnContext r -> throw new Signals.Return(r.expression() == null ? Values.emptyObject()
+                    : r.otherwiseClause() == null ? eval(r.expression())
+                    : valueOrFallback(r.expression(), r.otherwiseClause(), Target.LEAVE));
+            case FallbackValueContext v -> v.otherwiseClause() != null
+                    ? valueOrFallback(v.expression(), v.otherwiseClause(), target)
+                    : unwrapFallback(eval(v.expression()), v.expression());
+            case FallbackBlockContext b -> fallbackBlock(res, b, target);
+            default -> throw err("unsupported fallback", oc);
+        };
+    }
+
+    /** Rule 4: a Result as the fallback gives its value, or stops the run as UNWRAP would; one level only. */
+    private Object unwrapFallback(Object value, ExpressionContext at) {
+        if (!(value instanceof TeeResult res)) return value;
+        if (Boolean.TRUE.equals(res.get("ok"))) return res.get("value");
+        throw err(TeeFormat.display(res.get("value")), at);
+    }
+
+    /**
+     * Rule 5: the block runs with the failure named, and must end as its statement needs — leave,
+     * or set the statement's variable; after an expression statement it may simply end.
+     */
+    private Object fallbackBlock(TeeResult failed, FallbackBlockContext b, Target target) {
+        if (b.name != null) {
+            Map<String, Object> failure = new LinkedHashMap<>();
+            failure.put("message", TeeFormat.display(failed.get("value")));   // the text UNWRAP would report
+            failure.put("value", failed.get("value"));
+            bindLocal(b.name.getText(), failure);                              // the loop-variable rule
+        }
+        ExecContext c = ec();
+        SetTracker tracker = target.variable() == null ? null
+                : new SetTracker(target.variable(), target.global() ? c.globalsView : currentScope(), c.calls);
+        if (tracker != null) c.setTrackers.push(tracker);
+        try {
+            execBlock(b.block());
+        } finally {
+            if (tracker != null) c.setTrackers.pop();
+        }
+        if (tracker != null) {
+            if (tracker.set) return SET_BY_BLOCK;
+            throw errAt("The 'otherwise' block must set '" + target.variable()
+                    + "' or leave with continue, break, return or FAIL", b.K_END().getSymbol());
+        }
+        if (target.leave()) {
+            throw errAt("The 'otherwise' block must leave with continue, break, return or FAIL", b.K_END().getSymbol());
+        }
+        return null;
+    }
+
+    /** Mark the open blocks this assignment sets: the same variable, assigned by the block, not a call. */
+    private void noteSet(String name, Map<String, Object> scope) {
+        ExecContext c = ec();
+        if (c.setTrackers.isEmpty()) return;
+        for (SetTracker t : c.setTrackers) {
+            if (t.calls == c.calls && t.scope == scope && t.name.equals(name)) t.set = true;
+        }
+    }
+
+    /** {@code 'otherwise' needs a Result, but TO_NUMBER() gave a number} — named after what was on the left. */
+    private static String needsResult(ExpressionContext left, Object value) {
+        String type = Values.typeName(value);
+        String what = value instanceof JsonNull ? "null"
+                : (type.startsWith("a") || type.startsWith("o") ? "an " : "a ") + type;
+        String source = "the value on its left is " + what;
+        if (left instanceof AtomExprContext a) {
+            if (a.atom() instanceof FuncAtomContext f) source = f.functionCall().funcName.getText() + "() gave " + what;
+            else if (a.atom() instanceof VarReferenceContext v) source = v.ID().getText() + " is " + what;
+            else if (a.atom() instanceof GlobalVarReferenceContext g) source = "::" + g.ID().getText() + " is " + what;
+        }
+        return "'otherwise' needs a Result, but " + source;
     }
 
     private void execIf(IfStatementContext i) {
@@ -629,8 +878,9 @@ public final class Interpreter {
         switch (f) {
             case BreakStmtContext b    -> throw Signals.Break.INSTANCE;
             case ContinueStmtContext c -> throw Signals.Continue.INSTANCE;
-            case ReturnStmtContext r   ->
-                    throw new Signals.Return(r.expression() != null ? eval(r.expression()) : Values.emptyObject());
+            case ReturnStmtContext r   -> throw new Signals.Return(r.expression() == null ? Values.emptyObject()
+                    : r.otherwiseClause() == null ? eval(r.expression())
+                    : valueOrFallback(r.expression(), r.otherwiseClause(), Target.LEAVE));
             case DebugStmtContext d    -> execDebug(d);
             default -> throw err("unsupported flow statement", f);
         }
@@ -814,7 +1064,7 @@ public final class Interpreter {
                 for (int i = 0; i < stmts.size(); i++) {
                     StatementContext s = stmts.get(i);
                     if (i == stmts.size() - 1 && s instanceof ExprStmtContext e) {
-                        last = Interpreter.this.eval(e.expression());
+                        last = evalExprStmt(e);    // its `otherwise` included
                     } else {
                         exec(s);
                     }
@@ -1019,8 +1269,15 @@ public final class Interpreter {
                     + " and write to local variables.", g);
         }
         switch (lv) {
-            case VarLValueContext v -> currentScope().put(v.ID().getText(), Values.deepCopy(value));
-            case GlobalVarLValueContext g -> c.globalsView.put(g.ID().getText(), Values.deepCopy(value));
+            case VarLValueContext v -> {
+                Map<String, Object> scope = currentScope();
+                scope.put(v.ID().getText(), Values.deepCopy(value));
+                noteSet(v.ID().getText(), scope);
+            }
+            case GlobalVarLValueContext g -> {
+                c.globalsView.put(g.ID().getText(), Values.deepCopy(value));
+                noteSet(g.ID().getText(), c.globalsView);
+            }
             case PropLValueContext p -> {
                 Object container = resolveContainer(p.lvalue());
                 setMember(container, p.access(), value, p);
@@ -1349,8 +1606,13 @@ public final class Interpreter {
         }
         UserFunction fn = ec().module == null ? functions.get(name) : ec().module.functions.get(name);
         if (fn != null) return callUser(fn, args, ctx);
-        if (name.equals("PRINT")) return doPrint(args);
-        if (name.equals("PRINTF")) return doPrintf(args);
+        if (name.equals("PRINT") || name.equals("PRINTF")) {
+            try {
+                return name.equals("PRINT") ? doPrint(args) : doPrintf(args);
+            } catch (TeeError e) {
+                throw at(e, ctx);              // reading a FILE_LINES array, or PRINTF's format
+            }
+        }
         if (name.equals("SLEEP")) return doSleep(args, ctx);
         // FAIL/UNWRAP (spec v0.10.0) live at this dispatch level — not in the builtin catalog —
         // so their errors carry the call site's line:col (catalog builtin errors are positionless).
@@ -1362,14 +1624,18 @@ public final class Interpreter {
             return ext.blocking() ? coop.blocking(() -> callExternal(name, ext, args)) : callExternal(name, ext, args);
         }
         if (builtins.has(name)) {
-            // Built-in errors stay positionless ("Runtime Error: msg" — 67_sort_errors); do not add a
-            // source position. Host-gated / blocking builtins release the baton (design §3.1).
+            // A built-in's error carries the position of its call (spec v0.37.0; until then it had
+            // none). Host-gated / blocking builtins release the baton (design §3.1).
             Builtins.Kind kind = builtins.kindOf(name);
-            if (kind == Builtins.Kind.HOST_GATED || kind == Builtins.Kind.BLOCKING) {
-                WorkerShellObservation observation = "SHELL".equals(name) ? ec().shellObservation : null;
-                return coop.blocking(() -> builtins.invokeRaw(name, args, observation));
+            try {
+                if (kind == Builtins.Kind.HOST_GATED || kind == Builtins.Kind.BLOCKING) {
+                    WorkerShellObservation observation = "SHELL".equals(name) ? ec().shellObservation : null;
+                    return coop.blocking(() -> builtins.invokeRaw(name, args, observation));
+                }
+                return builtins.invokeRaw(name, args);
+            } catch (TeeError e) {
+                throw at(e, ctx);
             }
-            return builtins.invokeRaw(name, args);
         }
         throw err("Unknown function '" + name + "'", ctx);
     }
@@ -1421,6 +1687,7 @@ public final class Interpreter {
                     sourceId(ctx), ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()));
         }
         ec().frames.push(frame);
+        ec().calls++;
         Object result;
         try {
             execBlock(fn.body());
@@ -1428,6 +1695,7 @@ public final class Interpreter {
         } catch (Signals.Return r) {
             result = r.value;
         } finally {
+            ec().calls--;
             ec().frames.pop();                    // error unwinding skips the record below
             if (trackCall) ec().callStack.pollLast();
         }
@@ -1486,6 +1754,14 @@ public final class Interpreter {
     // ---- member access (read) ----------------------------------------------
 
     private Object readMember(Object base, AccessContext a, ParserRuleContext memberCtx) {
+        try {
+            return readMemberOf(base, a, memberCtx);
+        } catch (TeeError e) {
+            throw at(e, memberCtx);            // reading a FILE_LINES array fails at the access
+        }
+    }
+
+    private Object readMemberOf(Object base, AccessContext a, ParserRuleContext memberCtx) {
         if (base instanceof Map<?, ?> map) {
             String key = objectKey(a);
             if (!map.containsKey(key)) throw err("Property '" + key + "' does not exist", memberCtx);
@@ -1569,16 +1845,30 @@ public final class Interpreter {
     // ====================================================================
 
     private TeeError err(String message, ParserRuleContext ctx) {
-        String id = sourceId(ctx);
+        return errAt(message, ctx.getStart());
+    }
+
+    private TeeError errAt(String message, Token token) {
+        String id = sourceId(token);
         // Preserve the v1-compatible entry-script error text. Imported source identity is
         // included because otherwise an imported failure cannot be located unambiguously.
         String diagnosticSource = id.equals(entrySourceId) ? null : id;
-        return new TeeError(message, diagnosticSource, ctx.getStart().getLine(),
-                ctx.getStart().getCharPositionInLine());
+        return new TeeError(message, diagnosticSource, token.getLine(), token.getCharPositionInLine());
+    }
+
+    /** The error with {@code ctx}'s position when it has none of its own. */
+    private TeeError at(TeeError e, ParserRuleContext ctx) {
+        if (e.hasPosition()) return e;
+        String id = sourceId(ctx);
+        return e.at(id.equals(entrySourceId) ? null : id, ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
     }
 
     private static String sourceId(ParserRuleContext ctx) {
-        String id = ctx.getStart().getInputStream().getSourceName();
+        return sourceId(ctx.getStart());
+    }
+
+    private static String sourceId(Token token) {
+        String id = token.getInputStream().getSourceName();
         return id == null || id.isBlank() || id.equals("<unknown>") ? "<memory>" : id;
     }
 

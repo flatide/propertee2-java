@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **157쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **172쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -249,6 +249,26 @@ Java 쪽 문구와 위치는 `value/JsonParserTest`가 검사하고, 무작위�
 | `162_min_max_sum_lists` | `SUM`·`MAX`·`MIN`이 수와 수의 배열을 섞어 받음, 빈 배열의 `SUM`은 `0`, 조건에 맞는 값을 모아 `MIN`, 정수 합은 정수로 범위 끝까지 — 그리고 빈 목록·인자 없음(`requires at least one number`), 배열 안의 배열과 글자(`requires numeric arguments`), 정수 넘침 |
 
 `145_round_digits`(가장 큰 소수의 반올림), `148_format`(`1e300`의 퍼센트), `152_text`(가장 큰 소수의 퍼센트도 끝까지), `151_error_math_args`(새 `MAX()` 문구)는 `Infinity` 대신 새 규칙을 쓴다. 호스트가 넣는 `Infinity`·`NaN`은 `interp/InterpreterTest.hostInfinityAndNaNAreRefused`(외부 함수, props)와 `interpreter/FacadeTest.hostInfinityAndNaNAreRefused`(raw 내장 함수, 전역 주입, props)가 검사한다.
+
+## spec v0.37.0 `on error`, `otherwise`, 로드 시점 규칙 (163-177, 그리고 59개 갱신)
+
+| fixture | 검증 내용 |
+|---|---|
+| `163_on_error` | 에러가 먼저 보고된 뒤 핸들러가 top-level 코드로 실행됨 — `_ERROR`의 `message`·`line`·`column`(1부터)·`source`, 에러 순간의 전역, 실패한 줄 아래에 정의된 함수 호출(같은 이름은 뒤쪽 정의), 내장 함수 에러의 호출 위치 |
+| `164_on_error_handler_error` | 핸들러 안의 에러는 `[HANDLER ERROR]`로 보고되고 핸들러를 끝냄, 실행은 첫 에러로 실패, `UNWRAP`의 `message` 인자가 `_ERROR.message`에 남음 |
+| `165_on_error_normal_end` | 정상 종료와 top level의 `otherwise return`은 핸들러를 실행하지 않음 |
+| `166_on_error_threads` | 워커의 에러는 항목으로 남고 핸들러를 실행하지 않음, `multi` 설정 단계의 에러는 실행함 |
+| `167_on_error_otherwise_block` | `otherwise` 블록 안의 에러가 핸들러를 실행함, 핸들러 안의 `otherwise`(best-effort 한 단계) |
+| `168_error_on_error_place` · `169_error_on_error_twice` · `170_error_on_error_name` | 로드 시점 거부: import 바로 뒤가 아닌 핸들러, 두 번째 핸들러, `error` 없는 `on` — 첫 문장 전에 |
+| `171_error_monitor_interval` | 범위 밖 monitor 간격은 설정 단계와 워커 전에 실행을 멈추고, 핸들러가 실행됨 |
+| `172_otherwise` | 값·`continue`·`break`·`return`(값 있음/없음)·블록(이름 있음/없음) — 할당·`return`·식 문장 뒤에서; 정상적인 `false`·`0`·`""`·`[]`·`null`은 실패가 아님; fallback은 실패할 때만 계산; fallback Result는 한 겹만 벗김(`ERR("a") otherwise OK(OK(1))`), 이어 쓰기; 블록이 변수를 설정; 식 문장 뒤 블록은 그냥 끝남; 요소 대상의 자리는 fallback 뒤에 계산 |
+| `173_otherwise_threads` | 워커 항목에 `otherwise`; monitor에서 `"running"` 항목은 fallback, 끝난 항목은 thread information; monitor 본문의 `return`은 iteration만 끝냄; 설정 단계에서 바깥 루프의 `continue`는 모은 스레드를 시작하지 않고, 안쪽 루프의 `continue`는 설정 단계를 계속함 |
+| `174_error_otherwise` | Result가 아닌 왼쪽(성공해도), 일반 `{"ok": false}` 객체, 왼쪽을 계산하다 난 에러(잡지 않음), 실패한 fallback Result, 변수를 설정하지 않은 블록·멤버 대상 뒤 블록·`return` 뒤 블록이 `end`에 닿음 — thread 결과로 한꺼번에 |
+| `175_error_return_same_line` | `otherwise return` 다음 줄의 문장이 값이 되는 함정은 로드 시점에 거부 |
+| `176_error_continue_in_function` | 함수 본문에 루프가 없는 `continue`(호출자의 루프에 작용하던 것)는 로드 시점에 거부 |
+| `177_error_otherwise_set_in_call` | `otherwise` 블록은 변수를 직접(그 안의 `multi` setup 포함) 설정하고, 호출한 함수 안의 `::x` 할당은 해당하지 않음 |
+
+기존 fixture 59개는 두 가지만 바뀌었다: 에러 열이 1부터 세어지고(39개), 내장 함수 에러가 호출 위치를 갖는다(20개). 모든 변경을 줄 단위로 이 두 규칙으로만 설명되는지 확인했다. 호스트 쪽 — 핸들러 값(`TeeError.handler()`), 보고 순서, 실패 보고자, 세션, 모듈의 `_ERROR.source`, 로드 검사의 모서리 — 는 `interp/OnErrorTest`, 중지 시점은 `interpreter/FacadeTest`(에러 전의 중지는 `ProperTeeAborted`, 핸들러 중의 중지는 실패로 남음)가 검사한다. `interp/InterpreterTest`의 두 control-flow 누출 테스트는 이제 로드 시점 거부를 검사한다.
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

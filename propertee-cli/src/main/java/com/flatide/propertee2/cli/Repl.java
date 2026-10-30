@@ -90,6 +90,8 @@ final class Repl {
         Engine.Session session = new Engine().setTaskRunner(taskRunner).setArgs(args)
                 .setSourceId(sourceId)
                 .setModuleResolver(new FileModuleResolver(moduleRoot))
+                // a failure is reported where script mode reports it, before an `on error` handler runs
+                .setFailureReporter(e -> out.println("Runtime error: " + e.positioned()))
                 .session(props, out::println, err::println);
         session.setDebugHandler(frame ->
                 debugSession(frame, session.debugBreakpoints(), in, out, err, interactive));
@@ -266,8 +268,9 @@ final class Repl {
                 out.println(TeeFormat.display(echo));
             }
         } catch (TeeError e) {
-            // same contract as script mode: a script runtime error is normal output
-            out.println("Runtime error: " + e.positioned());
+            // same contract as script mode: a script runtime error is normal output — reported
+            // already when the snippet's `on error` handler ran (spec v0.37.0)
+            if (e.handler() == null) out.println("Runtime error: " + e.positioned());
         } catch (DebugQuit e) {
             out.println("debug: run aborted; session state kept");
         }
@@ -281,7 +284,8 @@ final class Repl {
     private static void debugSession(DebugFrame frame, java.util.Set<Integer> breakpoints,
                                      BufferedReader in, PrintStream out, PrintStream err,
                                      boolean interactive) {
-        String position = "line " + frame.line() + ":" + frame.column();
+        // the column from 1, as in the error report (spec v0.37.0); the frame counts it from 0
+        String position = "line " + frame.line() + ":" + (frame.column() + 1);
         if (frame.threadId() != 0) {
             position += " in worker " + frame.threadId() + " (" + frame.threadName() + ")";
         }
@@ -325,7 +329,7 @@ final class Repl {
                             if (call.sourceId() != null && !call.sourceId().startsWith("<")) {
                                 chain.append(call.sourceId()).append(' ');
                             }
-                            chain.append(call.line()).append(':').append(call.column()).append(')');
+                            chain.append(call.line()).append(':').append(call.column() + 1).append(')');
                         }
                         out.println(chain);
                         out.println("at " + position + ": " + frame.statementText());

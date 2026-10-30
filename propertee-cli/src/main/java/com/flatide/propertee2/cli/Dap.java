@@ -194,7 +194,9 @@ final class Dap {
                 ? Path.of(configured) : entry.getParent();
         session = new Engine().setTaskRunner(taskRunner).setArgs(scriptArgs)
                 .setSourceId(canonicalSourceId(programPath))
-                .setModuleResolver(new FileModuleResolver(moduleRoot)).session(props,
+                .setModuleResolver(new FileModuleResolver(moduleRoot))
+                .setFailureReporter(e -> output("stdout", "Runtime error: " + e.positioned() + "\n"))
+                .session(props,
                 line -> output("stdout", line + "\n"),
                 line -> output("stderr", line + "\n"));
         if (!Boolean.TRUE.equals(launchArgs.get("noDebug"))) {
@@ -235,8 +237,10 @@ final class Dap {
             output("stderr", "propertee2: " + programPath + ": " + e.getMessage() + "\n");
             exitCode = 1;
         } catch (TeeError e) {
-            // script runtime error: normal output + exit 0, the CLI contract
-            output("stdout", "Runtime error: " + e.positioned() + "\n");
+            // script runtime error: normal output, and exit 1 as in script mode (spec v0.37.0);
+            // reported already when an `on error` handler ran
+            if (e.handler() == null) output("stdout", "Runtime error: " + e.positioned() + "\n");
+            exitCode = 1;
         } catch (DebugQuit ignored) {
             // aborted from the debugger (disconnect while paused)
         }

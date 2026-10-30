@@ -70,11 +70,9 @@ final class ModuleLoader {
                 ImportStmtContext nested = moduleRoot.importStmt(0);
                 throw moduleAt("Imported module '" + source.identity() + "' cannot contain import statements", nested);
             }
-            if (!hiddenKeywords.isEmpty() || !ignoredFunctions.isEmpty()) {
-                TeeError blocked = Validator.firstViolation(moduleRoot, hiddenKeywords, ignoredFunctions);
-                if (blocked != null) {
-                    throw new TeeError(blocked.getMessage(), source.sourceId(), blocked.line(), blocked.col());
-                }
+            TeeError refused = LoadChecks.firstViolation(moduleRoot, hiddenKeywords, ignoredFunctions);
+            if (refused != null) {
+                throw new TeeError(refused.getMessage(), source.sourceId(), refused.line(), refused.col());
             }
 
             ModuleInstance instance = new ModuleInstance(source);

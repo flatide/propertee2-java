@@ -72,7 +72,8 @@ public final class Parsing {
             boolean atEof = offendingSymbol instanceof org.antlr.v4.runtime.Token t
                     && t.getType() == org.antlr.v4.runtime.Token.EOF;
             String sourceId = recognizer.getInputStream().getSourceName();
-            throw new SyntaxException("syntax error at " + line + ":" + charPositionInLine + " - " + msg,
+            // the column counts from 1, as in every error report (spec v0.37.0)
+            throw new SyntaxException("syntax error at " + line + ":" + (charPositionInLine + 1) + " - " + msg,
                     atEof, sourceId, line, charPositionInLine);
         }
     }

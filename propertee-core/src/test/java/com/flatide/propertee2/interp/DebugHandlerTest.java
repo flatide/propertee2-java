@@ -78,6 +78,20 @@ class DebugHandlerTest {
         assertEquals(List.of("6"), out, "a leaked break would have ended the loop after iteration 1");
     }
 
+    /** The prompt's last expression keeps its `otherwise`, the value and the block (spec v0.37.0). */
+    @Test void evalAppliesTheLastExpressionsOtherwise() {
+        List<String> out = new ArrayList<>();
+        Object[] seen = new Object[2];
+        Engine.Session s = session(out, frame -> {
+            seen[0] = frame.eval("ERR(\"bad\") otherwise 7");
+            seen[1] = frame.eval("ERR(\"bad\") otherwise err do\n    PRINT(\"block:\", err.message)\nend");
+        });
+        s.eval("debug\n");
+        assertEquals(7, seen[0]);
+        assertEquals(null, seen[1]);
+        assertEquals(List.of("block: bad"), out);
+    }
+
     /** debug inside eval'd code is a no-op; separate debug statements each fire once. */
     @Test void debuggerDoesNotReenterItself() {
         AtomicInteger breaks = new AtomicInteger();

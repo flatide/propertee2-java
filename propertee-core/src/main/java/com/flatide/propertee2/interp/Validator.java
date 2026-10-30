@@ -35,7 +35,7 @@ public final class Validator {
         walk(tree, hiddenKeywords, ignoredFunctions, found);
         List<String> out = new ArrayList<>(found.size());
         for (Violation v : found) {
-            out.add("line " + v.line + ":" + v.col + ": '" + v.name + "' is not available in this environment");
+            out.add("line " + v.line + ":" + (v.col + 1) + ": '" + v.name + "' is not available in this environment");   // the column from 1 (spec v0.37.0)
         }
         return out;
     }

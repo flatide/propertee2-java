@@ -80,28 +80,29 @@ class CliTest {
                 + "PRINT(\"noise\")\nreturn m.w.ok\n", true);
         assertEquals(0, r.code());
         assertEquals("false\n", r.out());
-        assertEquals(true, r.err().startsWith("[THREAD ERROR] Runtime Error at line 2:4: Cannot assign"));
+        assertEquals(true, r.err().startsWith("[THREAD ERROR] Runtime Error at line 2:5: Cannot assign"));
     }
 
     @Test void resultOnlyRuntimeErrorGoesToStderrWithExit1() throws IOException {
         Run r = runScript("PRINT(\"before\")\ny = nope + 1\nreturn 1\n", true);
         assertEquals(new Run(1, "",
-                "Runtime error: Runtime Error at line 2:4: Variable 'nope' is not defined\n"), r);
+                "Runtime error: Runtime Error at line 2:5: Variable 'nope' is not defined\n"), r);
     }
 
     @Test void resultOnlyRejectsANumberJsonCannotHold() throws IOException {
         // spec v0.32.0: stdout carries only JSON, which has no form for Infinity or NaN — and since
         // spec v0.36.0 a script cannot make one: the arithmetic fails, as any runtime error does
-        assertEquals(new Run(1, "", "Runtime error: Runtime Error at line 2:7: Number overflow: the result is too large to represent\n"),
+        assertEquals(new Run(1, "", "Runtime error: Runtime Error at line 2:8: Number overflow: the result is too large to represent\n"),
                 runScript("PRINT(\"noise\")\nreturn TO_NUMBER(\"1e308\") * 10\n", true));
         assertEquals(new Run(0, "1.7976931348623157e+308\n", ""),
                 runScript("return TO_NUMBER(\"1.7976931348623157e308\")\n", true));
     }
 
     @Test void defaultModeKeepsOutputAndInlineRuntimeErrors() throws IOException {
-        // the conformance contract: no result echo; a runtime error is part of stdout, exit 0
+        // the conformance contract: no result echo; a runtime error is part of stdout, and exits 1
+        // (spec v0.37.0 — it exited 0 until then)
         assertEquals(new Run(0, "hello\n", ""), runScript("PRINT(\"hello\")\nreturn true\n", false));
-        assertEquals(new Run(0, "before\nRuntime error: Runtime Error at line 2:4: Variable 'nope' is not defined\n", ""),
+        assertEquals(new Run(1, "before\nRuntime error: Runtime Error at line 2:5: Variable 'nope' is not defined\n", ""),
                 runScript("PRINT(\"before\")\ny = nope + 1\n", false));
     }
 

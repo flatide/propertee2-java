@@ -64,7 +64,7 @@ class FacadeTest {
         com.flatide.propertee2.runtime.ProperTeeError e =
                 org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
                         () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
-        assertEquals("Runtime Error at line 2:0: upstream unreachable: giving up", e.getMessage());
+        assertEquals("Runtime Error at line 2:1: upstream unreachable: giving up", e.getMessage());
     }
 
     /** v1 host contract: [THREAD ERROR] lines stream to the stderr sink, never to stdout (TeeBox tags by stream). */
@@ -92,7 +92,7 @@ class FacadeTest {
         new Scheduler(visitor).run(visitor.createRootStepper(tree));
 
         assertEquals(List.of("after: 7 false"), stdoutLines);
-        assertEquals(List.of("[THREAD ERROR] Runtime Error at line 2:4: worker down"), stderrLines);
+        assertEquals(List.of("[THREAD ERROR] Runtime Error at line 2:5: worker down"), stderrLines);
     }
 
     /** v1 iterationLimitBehavior="warn": the loop stops with a stderr warning; the run continues. */
@@ -167,7 +167,7 @@ class FacadeTest {
         builtins.register("RATE", args -> List.of(1.5, Double.NaN));                 // raw host builtin
         ProperTeeParser.RootContext call = ScriptParser.parse("x = RATE()\n", new ArrayList<>());
         ProperTeeInterpreter visitor = new ProperTeeInterpreter(new LinkedHashMap<>(), sink, sink, 1000, "error", builtins);
-        assertEquals("Runtime Error: RATE() result.2 is NaN, which ProperTee numbers cannot represent",
+        assertEquals("Runtime Error at line 1:5: RATE() result.2 is NaN, which ProperTee numbers cannot represent",
                 org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
                         () -> new Scheduler(visitor).run(visitor.createRootStepper(call))).getMessage());
 
@@ -361,5 +361,175 @@ class FacadeTest {
         new Scheduler(visitor).run(visitor.createRootStepper(tree));
 
         assertEquals(List.of("true", "42", "false", "kaboom"), out);
+    }
+
+    // ---- on error (spec v0.37.0) --------------------------------------------
+
+    private static ProperTeeInterpreter facade(List<String> stdoutLines, List<String> stderrLines,
+                                               BuiltinFunctions[] built) {
+        BuiltinFunctions.PrintFunction stdout = args -> stdoutLines.add(join(args));
+        BuiltinFunctions.PrintFunction stderr = args -> stderrLines.add(join(args));
+        BuiltinFunctions builtins = new BuiltinFunctions(stdout, stderr, "r", null, null);
+        built[0] = builtins;
+        return new ProperTeeInterpreter(new LinkedHashMap<>(), stdout, stderr, 1000, "error", builtins);
+    }
+
+    /** The handler's value rides the ProperTeeError; the error was reported on stderr before it ran. */
+    @Test void theHandlersValueRidesTheFailure() {
+        List<String> stdoutLines = new ArrayList<>();
+        List<String> stderrLines = new ArrayList<>();
+        ProperTeeInterpreter visitor = facade(stdoutLines, stderrLines, new BuiltinFunctions[1]);
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "on error do\n    PRINT(\"handler\")\n    return {\"failed\": true}\nend\nFAIL(\"boom\")\n",
+                new ArrayList<>());
+        com.flatide.propertee2.runtime.ProperTeeError e =
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
+        assertEquals("Runtime Error at line 5:1: boom", e.getMessage());
+        assertTrue(e.handled());
+        assertEquals(com.flatide.propertee2.runtime.ProperTeeError.HandlerEnd.RETURNED, e.handlerEnd());
+        assertEquals(Map.of("failed", true), e.handlerResult());
+        assertEquals(null, e.handlerError());
+        assertEquals(List.of("handler"), stdoutLines);
+        assertEquals(List.of("Runtime error: Runtime Error at line 5:1: boom"), stderrLines);
+    }
+
+    /** A failure without a handler is as before: not handled, nothing reported by the runtime. */
+    @Test void withoutAHandlerTheFailureIsNotHandled() {
+        List<String> stderrLines = new ArrayList<>();
+        ProperTeeInterpreter visitor = facade(new ArrayList<>(), stderrLines, new BuiltinFunctions[1]);
+        ProperTeeParser.RootContext tree = ScriptParser.parse("FAIL(\"boom\")\n", new ArrayList<>());
+        com.flatide.propertee2.runtime.ProperTeeError e =
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
+        assertFalse(e.handled());
+        assertEquals(null, e.handlerEnd());
+        assertEquals(null, e.handlerResult());
+        assertEquals(List.of(), stderrLines);
+    }
+
+    /** The façade applies the language's load-time refusal before the first statement. */
+    @Test void aLoadRuleIsRefusedBeforeTheFirstStatement() {
+        List<String> stdoutLines = new ArrayList<>();
+        ProperTeeInterpreter visitor = facade(stdoutLines, new ArrayList<>(), new BuiltinFunctions[1]);
+        ProperTeeParser.RootContext tree = ScriptParser.parse("PRINT(\"never\")\nbreak\n", new ArrayList<>());
+        com.flatide.propertee2.runtime.ProperTeeError e =
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
+        assertEquals("Runtime Error at line 2:1: 'break' must be inside a loop", e.getMessage());
+        assertEquals(List.of(), stdoutLines);
+    }
+
+    /**
+     * A stop asked for before the error makes the run stopped, whatever the error — a stop can
+     * itself make a call fail — and the handler does not run.
+     */
+    @Test void aStopBeforeTheErrorIsAStopAndSkipsTheHandler() {
+        List<String> stdoutLines = new ArrayList<>();
+        BuiltinFunctions[] built = new BuiltinFunctions[1];
+        ProperTeeInterpreter visitor = facade(stdoutLines, new ArrayList<>(), built);
+        built[0].register("STOP_NOW", args -> { visitor.abort(); return 1; });   // the host's Stop, mid-statement
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "on error do\n    PRINT(\"handler\")\nend\nx = STOP_NOW() + nope\n", new ArrayList<>());
+        org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeAborted.class,
+                () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
+        assertEquals(List.of(), stdoutLines);
+    }
+
+    /** A stop asked for while the handler runs ends the handler; the run stays failed with the original error. */
+    @Test void aStopDuringTheHandlerEndsItAndTheRunStaysFailed() {
+        List<String> stdoutLines = new ArrayList<>();
+        ProperTeeInterpreter visitor = facade(stdoutLines, new ArrayList<>(), new BuiltinFunctions[1]);
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "on error do\n    PRINT(\"handler\")\n    SLEEP(60000)\n    PRINT(\"never\")\nend\nFAIL(\"boom\")\n",
+                new ArrayList<>());
+        abortSoon(visitor);
+        com.flatide.propertee2.runtime.ProperTeeError e =
+                org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () ->
+                        org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                                () -> new Scheduler(visitor).run(visitor.createRootStepper(tree))));
+        assertEquals("Runtime Error at line 6:1: boom", e.getMessage());
+        assertTrue(e.handled());
+        assertEquals(com.flatide.propertee2.runtime.ProperTeeError.HandlerEnd.STOPPED, e.handlerEnd());
+        assertEquals(Map.of(), e.handlerResult());
+        assertEquals(List.of("handler"), stdoutLines);
+    }
+
+    /** An error in the handler: the host gets how it ended and that error, positioned. */
+    @Test void aHandlerErrorReachesTheHost() {
+        List<String> stderrLines = new ArrayList<>();
+        ProperTeeInterpreter visitor = facade(new ArrayList<>(), stderrLines, new BuiltinFunctions[1]);
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "on error do\n    x = nope\nend\nFAIL(\"boom\")\n", new ArrayList<>());
+        com.flatide.propertee2.runtime.ProperTeeError e =
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
+        assertEquals("Runtime Error at line 4:1: boom", e.getMessage());
+        assertEquals(com.flatide.propertee2.runtime.ProperTeeError.HandlerEnd.FAILED, e.handlerEnd());
+        assertEquals(Map.of(), e.handlerResult());
+        assertEquals("Runtime Error at line 2:9: Variable 'nope' is not defined", e.handlerError());
+    }
+
+    /**
+     * A host builtin's exception is a runtime error at its call (spec v0.37.0): the handler runs,
+     * and in the handler it is a handler error that keeps the original failure.
+     */
+    @Test void aHostBuiltinsExceptionIsARuntimeErrorTheHandlerSees() {
+        List<String> stdoutLines = new ArrayList<>();
+        List<String> stderrLines = new ArrayList<>();
+        BuiltinFunctions[] built = new BuiltinFunctions[1];
+        ProperTeeInterpreter visitor = facade(stdoutLines, stderrLines, built);
+        built[0].register("REFUSE", args -> { throw new IllegalArgumentException("REFUSE(): not allowed"); });
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "on error do\n    PRINT(\"handler:\", _ERROR.message)\nend\nx = 1 + REFUSE()\n", new ArrayList<>());
+        com.flatide.propertee2.runtime.ProperTeeError e =
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
+        assertEquals("Runtime Error at line 4:9: REFUSE(): not allowed", e.getMessage());
+        assertEquals(com.flatide.propertee2.runtime.ProperTeeError.HandlerEnd.RETURNED, e.handlerEnd());
+        assertEquals(List.of("handler: REFUSE(): not allowed"), stdoutLines);
+
+        ProperTeeInterpreter again = facade(new ArrayList<>(), stderrLines, built);
+        built[0].register("REFUSE", args -> { throw new IllegalArgumentException("REFUSE(): not allowed"); });
+        ProperTeeParser.RootContext inHandler = ScriptParser.parse(
+                "on error do\n    REFUSE()\nend\nFAIL(\"first\")\n", new ArrayList<>());
+        com.flatide.propertee2.runtime.ProperTeeError h =
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(again).run(again.createRootStepper(inHandler)));
+        assertEquals("Runtime Error at line 4:1: first", h.getMessage());
+        assertEquals(com.flatide.propertee2.runtime.ProperTeeError.HandlerEnd.FAILED, h.handlerEnd());
+        assertEquals("Runtime Error at line 2:5: REFUSE(): not allowed", h.handlerError());
+
+        ProperTeeInterpreter worker = facade(new ArrayList<>(), stderrLines, built);
+        built[0].register("REFUSE", args -> { throw new IllegalArgumentException("REFUSE(): not allowed"); });
+        stderrLines.clear();
+        new Scheduler(worker).run(worker.createRootStepper(ScriptParser.parse(
+                "multi do\n    thread bad: REFUSE()\nend\n", new ArrayList<>())));
+        assertEquals(List.of("[THREAD ERROR] Runtime Error at line 2:17: REFUSE(): not allowed"), stderrLines);
+    }
+
+    /** A host builtin that stops the run and then throws: the stop came first, so it is a stop. */
+    @Test void aHostBuiltinThatStopsTheRunAndThrowsIsAStop() {
+        List<String> stderrLines = new ArrayList<>();
+        BuiltinFunctions[] built = new BuiltinFunctions[1];
+        ProperTeeInterpreter visitor = facade(new ArrayList<>(), stderrLines, built);
+        built[0].register("HALT", args -> { visitor.abort(); throw new IllegalStateException("killed"); });
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "on error do\n    PRINT(\"handler\")\nend\nx = 1 + HALT()\n", new ArrayList<>());
+        org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeAborted.class,
+                () -> new Scheduler(visitor).run(visitor.createRootStepper(tree)));
+        assertEquals(List.of(), stderrLines);
+
+        ProperTeeInterpreter again = facade(new ArrayList<>(), stderrLines, built);
+        built[0].register("HALT", args -> { again.abort(); throw new IllegalStateException("killed"); });
+        ProperTeeParser.RootContext inHandler = ScriptParser.parse(
+                "on error do\n    HALT()\n    PRINT(\"never\")\nend\nFAIL(\"first\")\n", new ArrayList<>());
+        com.flatide.propertee2.runtime.ProperTeeError h =
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeError.class,
+                        () -> new Scheduler(again).run(again.createRootStepper(inHandler)));
+        assertEquals("Runtime Error at line 5:1: first", h.getMessage());
+        assertEquals(com.flatide.propertee2.runtime.ProperTeeError.HandlerEnd.STOPPED, h.handlerEnd());
+        assertEquals(null, h.handlerError());
+        assertEquals(List.of("Runtime error: Runtime Error at line 5:1: first"), stderrLines);
     }
 }

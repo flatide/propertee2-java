@@ -111,7 +111,13 @@ public final class Fixtures {
             // spec v0.35.0: the loop-limit error suggests the loop's own form
             "160_error_loop_limit_hint",
             // spec v0.36.0: numbers are finite; SUM, MAX and MIN take arrays
-            "161_error_number_overflow", "162_min_max_sum_lists");
+            "161_error_number_overflow", "162_min_max_sum_lists",
+            // spec v0.37.0: on error, otherwise, and the load-time rules that come with them
+            "163_on_error", "164_on_error_handler_error", "165_on_error_normal_end",
+            "166_on_error_threads", "167_on_error_otherwise_block", "168_error_on_error_place",
+            "169_error_on_error_twice", "170_error_on_error_name", "171_error_monitor_interval",
+            "172_otherwise", "173_otherwise_threads", "174_error_otherwise",
+            "175_error_return_same_line", "176_error_continue_in_function", "177_error_otherwise_set_in_call");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

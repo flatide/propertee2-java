@@ -210,14 +210,24 @@ public class ProperTeeInterpreter {
         if (listener != null) listener.onThreadCreated(main);
 
         try {
+            // The language's load-time refusal (spec v0.37.0) comes before the first statement.
+            com.flatide.propertee2.value.TeeError refused =
+                    com.flatide.propertee2.interp.LoadChecks.firstViolation(stepper.tree);
+            if (refused != null) throw refused;
             interp.resolveModules(stepper.tree, moduleResolver);
             coop.run("main", () -> interp.run(stepper.tree));     // a TeeError here propagates to the host
         } catch (com.flatide.propertee2.value.TeeError e) {
             // v1 host contract: the position lives in the exception MESSAGE (v1's createError baked
             // "Runtime Error at line L:C: <msg>" in; hosts store e.getMessage() as errorMessage).
             // TeeError keeps it separate, so convert at the façade boundary (fidelity gap until 0.9.1).
-            com.flatide.propertee2.runtime.ProperTeeError hostError =
-                    new com.flatide.propertee2.runtime.ProperTeeError(e.positioned());
+            // A run whose `on error` handler ran carries how it ended (spec v0.37.0); the
+            // error was reported on the stderr channel before the handler started.
+            com.flatide.propertee2.value.HandlerOutcome handler = e.handler();
+            com.flatide.propertee2.runtime.ProperTeeError hostError = handler == null
+                    ? new com.flatide.propertee2.runtime.ProperTeeError(e.positioned())
+                    : new com.flatide.propertee2.runtime.ProperTeeError(e.positioned(),
+                            com.flatide.propertee2.runtime.ProperTeeError.HandlerEnd.valueOf(handler.kind().name()),
+                            handler.value(), handler.error() != null ? handler.error().positioned() : null);
             main.state = com.flatide.propertee2.scheduler.ThreadState.ERROR;
             main.error = hostError;
             if (listener != null) listener.onThreadError(main);

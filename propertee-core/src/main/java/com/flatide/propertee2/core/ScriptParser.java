@@ -23,7 +23,7 @@ public final class ScriptParser {
         public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol,
                                 int line, int charPositionInLine, String msg,
                                 RecognitionException e) {
-            errors.add("Line " + line + ":" + charPositionInLine + " - " + msg);
+            errors.add("Line " + line + ":" + (charPositionInLine + 1) + " - " + msg);   // the column from 1 (spec v0.37.0)
         }
     }
 

@@ -34,12 +34,12 @@ class ValidatorTest {
                 .setIgnoredFunctions(Set.of("SHELL"));
         List<String> violations = engine.validate(DEAD_BRANCH);
         assertEquals(List.of(
-                "line 5:4: 'multi' is not available in this environment",
-                "line 6:17: 'SHELL' is not available in this environment"), violations);
+                "line 5:5: 'multi' is not available in this environment",
+                "line 6:18: 'SHELL' is not available in this environment"), violations);
         // spec v0.14.0: running the script is now REFUSED at load — the dead-branch violation
         // rejects the whole run before the "ok" branch executes, failing on the first violation
         // in document order (multi at 5:4). "ok" never prints (validate() still lists them all).
-        assertEquals("Runtime error: Runtime Error at line 5:4: 'multi' is not available in this environment\n",
+        assertEquals("Runtime error: Runtime Error at line 5:5: 'multi' is not available in this environment\n",
                 engine.run(DEAD_BRANCH));
     }
 
@@ -68,12 +68,12 @@ class ValidatorTest {
                 .setHiddenKeywords(Set.of("if", "loop", "function", "multi", "thread", "debug"));
         List<String> violations = engine.validate(script);
         assertEquals(List.of(
-                "line 1:0: 'function' is not available in this environment",
-                "line 4:0: 'if' is not available in this environment",
-                "line 5:0: 'loop' is not available in this environment",
-                "line 6:0: 'debug' is not available in this environment",
-                "line 7:0: 'multi' is not available in this environment",
-                "line 8:4: 'thread' is not available in this environment"), violations);
+                "line 1:1: 'function' is not available in this environment",
+                "line 4:1: 'if' is not available in this environment",
+                "line 5:1: 'loop' is not available in this environment",
+                "line 6:1: 'debug' is not available in this environment",
+                "line 7:1: 'multi' is not available in this environment",
+                "line 8:5: 'thread' is not available in this environment"), violations);
     }
 
     @Test
@@ -86,7 +86,7 @@ class ValidatorTest {
                 end
                 """;
         List<String> violations = new Engine().setHiddenKeywords(Set.of("if")).validate(script);
-        assertEquals(List.of("line 2:0: 'if' is not available in this environment"), violations);
+        assertEquals(List.of("line 2:1: 'if' is not available in this environment"), violations);
     }
 
     @Test
@@ -98,7 +98,7 @@ class ValidatorTest {
                 """;
         List<String> violations = new Engine().setIgnoredFunctions(Set.of("SHELL")).validate(script);
         assertEquals(List.of(
-                "line 1:0: 'SHELL' is not available in this environment",
-                "line 3:0: 'SHELL' is not available in this environment"), violations);
+                "line 1:1: 'SHELL' is not available in this environment",
+                "line 3:1: 'SHELL' is not available in this environment"), violations);
     }
 }

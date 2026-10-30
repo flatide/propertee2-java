@@ -35,6 +35,7 @@ public final class Engine {
     private com.flatide.propertee2.task.TaskRunner taskRunner = new com.flatide.propertee2.task.UnsupportedTaskRunner();
     private ModuleResolver moduleResolver;
     private String sourceId = "<memory>";
+    private java.util.function.Consumer<TeeError> failureReporter;
     private long fileLinesLoadLimit = LazyLines.DEFAULT_LOAD_LIMIT;
     private int fileLinesMaxLine = LazyLines.DEFAULT_MAX_LINE;
 
@@ -46,6 +47,17 @@ public final class Engine {
     public Engine setFileLinesLimits(long loadLimitBytes, int maxLineBytes) {
         if (loadLimitBytes > 0) this.fileLinesLoadLimit = loadLimitBytes;
         if (maxLineBytes > 0) this.fileLinesMaxLine = maxLineBytes;
+        return this;
+    }
+
+    /**
+     * Where a failure is reported before the script's {@code on error} handler runs (spec v0.37.0),
+     * so its output follows the error. Without one, the line {@code Runtime error: <report>} goes to
+     * the error sink. Either way the run then throws the error with {@link TeeError#handler()} set,
+     * and a caller that prints errors itself skips that one.
+     */
+    public Engine setFailureReporter(java.util.function.Consumer<TeeError> reporter) {
+        this.failureReporter = reporter;
         return this;
     }
 
@@ -145,6 +157,16 @@ public final class Engine {
         return Validator.validate(Parsing.parse(source, sourceId), hiddenKeywords, ignoredFunctions);
     }
 
+    /**
+     * The language's load-time refusal, which comes before a script's first statement: the first
+     * violation in document order of the spec v0.37.0 checks ({@link LoadChecks}) or of the host
+     * restrictions (spec v0.14.0), else nothing.
+     */
+    static void refuseAtLoad(ProperTeeParser.RootContext root, Set<String> hiddenKeywords, Set<String> ignoredFunctions) {
+        TeeError refused = LoadChecks.firstViolation(root, hiddenKeywords, ignoredFunctions);
+        if (refused != null) throw refused;
+    }
+
     /** Run with no host-injected properties and the default platform. */
     public String run(String source) {
         return run(source, Map.of());
@@ -162,7 +184,8 @@ public final class Engine {
         try {
             run(source, props, platform, sink, sink);   // both channels merge in order (the fixtures' shape)
         } catch (TeeError e) {
-            out.append("Runtime error: ").append(e.positioned()).append('\n');
+            // an error the handler followed was reported before it ran, on the same buffer
+            if (e.handler() == null) out.append("Runtime error: ").append(e.positioned()).append('\n');
         }
         return out.toString();
     }
@@ -196,20 +219,18 @@ public final class Engine {
     public Outcome execute(String source, Map<String, Object> props, PlatformProvider platform,
                            Interpreter.Sink out, Interpreter.Sink err) {
         ProperTeeParser.RootContext root = Parsing.parse(source, sourceId);
-        // Load-time rejection (spec v0.14.0): a script that names any blocked construct — hidden
-        // keyword or ignored function, dead branches included — does not run at all. Refuse before
-        // executing a single statement, failing on the first violation in document order (the runtime
-        // checks stay as unreachable backstops). Skip the scan entirely when nothing is restricted.
-        if (!hiddenKeywords.isEmpty() || !ignoredFunctions.isEmpty()) {
-            TeeError blocked = Validator.firstViolation(root, hiddenKeywords, ignoredFunctions);
-            if (blocked != null) throw blocked;
-        }
+        // Load-time rejection (spec v0.14.0, v0.37.0): a script that names any blocked construct —
+        // hidden keyword or ignored function, dead branches included — or breaks a load-time rule
+        // does not run at all. Refuse before executing a single statement, failing on the first
+        // violation in document order (the runtime checks stay as unreachable backstops).
+        refuseAtLoad(root, hiddenKeywords, ignoredFunctions);
         Coop coop = new Coop();
         Interpreter interp = new Interpreter(out, props, coop, platform,
                 externals, hiddenKeywords, ignoredFunctions, taskRunner);
         interp.resolveModules(root, moduleResolver);
         interp.setArgs(args);
         interp.setErrorSink(err);
+        interp.setFailureReporter(failureReporter);
         interp.setFileLinesLimits(fileLinesLoadLimit, fileLinesMaxLine);
         coop.run("main", () -> interp.run(root));   // the program is the root logical thread
         return new Outcome(interp.hasExplicitReturn(), interp.returnValue(),
@@ -262,6 +283,7 @@ public final class Engine {
                     externals, hiddenKeywords, ignoredFunctions, taskRunner);
             interp.setArgs(args);
             interp.setErrorSink(err);
+            interp.setFailureReporter(failureReporter);
             interp.setFileLinesLimits(fileLinesLoadLimit, fileLinesMaxLine);
         }
 
@@ -286,10 +308,7 @@ public final class Engine {
          */
         public Object eval(String source, boolean pauseAtEntry) {
             ProperTeeParser.RootContext root = Parsing.parse(source, sourceId);
-            if (!hiddenKeywords.isEmpty() || !ignoredFunctions.isEmpty()) {
-                TeeError blocked = Validator.firstViolation(root, hiddenKeywords, ignoredFunctions);
-                if (blocked != null) throw blocked;
-            }
+            refuseAtLoad(root, hiddenKeywords, ignoredFunctions);
             Object[] echo = new Object[1];
             interp.resolveModules(root, moduleResolver);
             coop.run("repl", () -> echo[0] = interp.runSnippet(root, pauseAtEntry));

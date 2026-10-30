@@ -109,13 +109,13 @@ class FacadeHttpBuiltinTest {
                     res = HTTP_POST("%s/echo", {"rows": [1, big - big]})
                     PRINT("unreachable")
                     """.formatted(base), out));
-            assertEquals("Runtime Error at line 1:6: Number overflow: the result is too large to represent",
+            assertEquals("Runtime Error at line 1:7: Number overflow: the result is too large to represent",
                     post.getMessage());
             ProperTeeError general = assertThrows(ProperTeeError.class, () -> run("""
                     big = TO_NUMBER("1e308") * 10
                     res = HTTP("PUT", "%s/echo", {"body": [-big]})
                     """.formatted(base), out));
-            assertEquals("Runtime Error at line 1:6: Number overflow: the result is too large to represent",
+            assertEquals("Runtime Error at line 1:7: Number overflow: the result is too large to represent",
                     general.getMessage());
             run("""
                     res = HTTP_POST("%s/echo", {"rate": TO_NUMBER("1.7976931348623157e308")})

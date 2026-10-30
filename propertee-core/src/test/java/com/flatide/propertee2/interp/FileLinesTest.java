@@ -66,7 +66,7 @@ class FileLinesTest {
 
         // the script's own rewrite — same size, so only the per-path counter can tell
         f = file("b.txt", "one\ntwo\n");
-        assertEquals("Runtime error: Runtime Error at line 3:0: "
+        assertEquals("Runtime error: Runtime Error at line 3:1: "
                 + cannotRead(f, "it was rewritten after FILE_LINES() was called — call FILE_LINES() again") + "\n",
                 run("x = FILE_LINES(f)\nWRITE_FILE(f, \"ONE\\nTWO\\n\")\nloop l in x do\n    PRINT(l)\nend\n", f));
 
@@ -95,11 +95,11 @@ class FileLinesTest {
                 {"same", "it was modified after FILE_LINES() was called — call FILE_LINES() again"},
                 {"grow", "it was modified after FILE_LINES() was called — call FILE_LINES() again"}}) {
             file("c.txt", "one\ntwo\n");
-            // through the loop (positioned) and through LEN (a builtin: positionless)
-            assertEquals("Runtime error: Runtime Error at line 3:0: " + cannotRead(g, c[1]) + "\n",
+            // through the loop and through LEN, each at its own position (a built-in's since spec v0.37.0)
+            assertEquals("Runtime error: Runtime Error at line 3:1: " + cannotRead(g, c[1]) + "\n",
                     run(e, "x = FILE_LINES(f)\nCHANGE(\"" + c[0] + "\")\nloop l in x do\n    PRINT(l)\nend\n", g), c[0]);
             file("c.txt", "one\ntwo\n");
-            assertEquals("Runtime error: Runtime Error: " + cannotRead(g, c[1]) + "\n",
+            assertEquals("Runtime error: Runtime Error at line 3:7: " + cannotRead(g, c[1]) + "\n",
                     run(e, "x = FILE_LINES(f)\nCHANGE(\"" + c[0] + "\")\nPRINT(LEN(x))\n", g), c[0]);
         }
         file("c.txt", "one\ntwo\n");
@@ -109,16 +109,16 @@ class FileLinesTest {
     @Test void contentErrorsFailWhenTheLineIsReached() throws IOException {
         Path bad = dir.resolve("bad.txt");
         Files.write(bad, "ok\nÿ\nnever\n".getBytes(StandardCharsets.ISO_8859_1));   // 0xFF is not UTF-8
-        assertEquals("1 ok\nRuntime error: Runtime Error at line 1:0: " + cannotRead(bad, "line 2 is not valid UTF-8") + "\n",
+        assertEquals("1 ok\nRuntime error: Runtime Error at line 1:1: " + cannotRead(bad, "line 2 is not valid UTF-8") + "\n",
                 run("loop n, l in FILE_LINES(f) do\n    PRINT(n, l)\nend\n", bad));
 
         Path lng = file("long.txt", "short\n" + "x".repeat(9) + "\nafter\n");
         Engine e = new Engine().setFileLinesLimits(0, 8);
-        assertEquals("1 short\nRuntime error: Runtime Error at line 1:0: " + cannotRead(lng, "line 2 is longer than 8 bytes") + "\n",
+        assertEquals("1 short\nRuntime error: Runtime Error at line 1:1: " + cannotRead(lng, "line 2 is longer than 8 bytes") + "\n",
                 run(e, "loop n, l in FILE_LINES(f) do\n    PRINT(n, l)\nend\n", lng));
 
         // a directory, and a BOM (dropped — READ_LINES keeps it)
-        assertEquals("Runtime error: Runtime Error: " + cannotRead(dir, "it is a directory") + "\n",
+        assertEquals("Runtime error: Runtime Error at line 1:5: " + cannotRead(dir, "it is a directory") + "\n",
                 run("x = FILE_LINES(f)\n", dir));
         Path bom = file("bom.txt", "﻿a\nb");
         assertEquals("1 a 2 false\n", run("x = FILE_LINES(f)\nPRINT(LEN(x.1), x.1, LEN(x), x == UNWRAP(READ_LINES(f)))\n", bom));
@@ -128,11 +128,12 @@ class FileLinesTest {
         Path f = file("big.txt", "x".repeat(50) + "\n" + "y".repeat(50) + "\n");   // 102 bytes
         Engine e = new Engine().setFileLinesLimits(100, 0);
         assertEquals("50\n50\n2\n", run(e, "loop l in FILE_LINES(f) do\n    PRINT(LEN(l))\nend\nPRINT(LEN(FILE_LINES(f)))\n", f));
-        String tooLarge = "Runtime error: Runtime Error: FILE_LINES() '" + f
+        String tooLarge = "FILE_LINES() '" + f
                 + "' is too large to use as a whole (102 bytes, the limit is 100 bytes) — go through it with a loop: loop line in ... do\n";
-        assertEquals(tooLarge, run(e, "x = FILE_LINES(f)\nPRINT(x.1)\n", f));
-        assertEquals(tooLarge, run(e, "PRINT(FILE_LINES(f))\n", f));
-        assertEquals(tooLarge, run(e, "return FILE_LINES(f)\n", f));           // the host boundary, inside the run
+        assertEquals("Runtime error: Runtime Error at line 2:7: " + tooLarge, run(e, "x = FILE_LINES(f)\nPRINT(x.1)\n", f));
+        assertEquals("Runtime error: Runtime Error at line 1:1: " + tooLarge, run(e, "PRINT(FILE_LINES(f))\n", f));
+        assertEquals("Runtime error: Runtime Error at line 1:1: " + tooLarge,
+                run(e, "return FILE_LINES(f)\n", f));                              // the host boundary, inside the run
         assertEquals("", run(e, "x = FILE_LINES(f)\ny = x\n", f));              // holding and copying it is fine
     }
 
@@ -191,7 +192,7 @@ class FileLinesTest {
         StringBuilder sb = new StringBuilder();
         for (int i = 1; i <= 1001; i++) sb.append(i).append('\n');
         Path f = file("many.txt", sb.toString());
-        assertEquals("Runtime error: Runtime Error at line 1:0: Loop exceeded maximum iterations (1000)."
+        assertEquals("Runtime error: Runtime Error at line 1:1: Loop exceeded maximum iterations (1000)."
                 + " Use 'loop ... infinite do' if you need unlimited iterations.\n",
                 run("loop l in FILE_LINES(f) do\n    x = l\nend\n", f));
         assertEquals("1001\n", run("n = 0\nloop l in FILE_LINES(f) infinite do\n    n = n + 1\nend\nPRINT(n)\n", f));

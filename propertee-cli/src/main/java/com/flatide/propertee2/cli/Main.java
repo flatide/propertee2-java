@@ -23,9 +23,10 @@ import java.util.Map;
  * as a JSON object via {@code -p} (LANGUAGE.md §Built-in Properties). {@code --result-only} prints
  * the script's result as JSON in place of its output.
  *
- * <p>Exit codes: 0 = ran (a script runtime error is part of stdout, as the conformance suite expects);
- * 2 = bad command-line usage; 1 = the input file could not be read, a syntax or module error, or —
- * under {@code --result-only} only — a script runtime error.
+ * <p>Exit codes (spec v0.37.0): 0 = the run completed; 1 = it failed or was refused — a runtime error,
+ * whether an {@code on error} handler ran or not, a syntax error, a refusal at load, a module error, or
+ * an input file that could not be read; 2 = bad command-line usage. A runtime error is still printed
+ * on stdout, where it always was; until 0.46.0 it exited 0.
  */
 public final class Main {
     private Main() {}
@@ -107,11 +108,12 @@ public final class Main {
 
     /**
      * Script mode; returns the exit code. By default the program's output streams to {@code out}
-     * and a script runtime error is part of it (exit 0). With {@code resultOnly} (0.34.0) the
+     * and a script runtime error is part of it (exit 1). With {@code resultOnly} (0.34.0) the
      * program's {@code PRINT} output is discarded and {@code out} receives only the run's result —
      * {@link Engine.Outcome#result()} as one line of JSON — while runtime diagnostics stay on
-     * {@code err}; a runtime error then goes to {@code err} as well and exits 1, since there is no
-     * result to print. So does a result holding Infinity, -Infinity or NaN, which JSON cannot hold.
+     * {@code err}; a runtime error then goes to {@code err} as well and exits 1. After a failure the
+     * result is the value the script's {@code on error} handler returned, when one ran, and nothing
+     * otherwise.
      */
     static int run(String file, Map<String, Object> props, java.util.List<String> scriptArgs,
                    Path configuredModuleRoot, boolean resultOnly, PrintStream out, PrintStream err) {
@@ -136,9 +138,12 @@ public final class Main {
             // diagnostics ([THREAD ERROR]/[MONITOR ERROR]/loop warnings) go to stderr, as in v1/js.
             Path entry = Path.of(file).toAbsolutePath().normalize();
             Path moduleRoot = configuredModuleRoot != null ? configuredModuleRoot : entry.getParent();
+            // A failure is reported where it always was, before an `on error` handler runs.
+            PrintStream errors = resultOnly ? err : out;
             Engine.Outcome outcome = new Engine().setTaskRunner(taskRunner).setArgs(scriptArgs)
                     .setSourceId(entry.toString())
                     .setModuleResolver(new FileModuleResolver(moduleRoot))
+                    .setFailureReporter(e -> errors.println("Runtime error: " + e.positioned()))
                     .execute(source, props, resultOnly ? line -> {} : out::println, err::println);
             if (resultOnly) {
                 // JSON has no form for Infinity, -Infinity or NaN (spec v0.32.0), so such a result
@@ -159,14 +164,12 @@ public final class Main {
             err.println("propertee2: " + file + ": " + e.getMessage());
             return 1;
         } catch (TeeError e) {
-            if (resultOnly) {
-                // stdout carries only a result, and a failed run has none
-                err.println("Runtime error: " + e.positioned());
-                return 1;
-            }
-            // script runtime error: part of normal output (stdout, exit 0) — the conformance contract
-            out.println("Runtime error: " + e.positioned());
-            return 0;
+            // a script runtime error: on stdout, part of the output, or on stderr under --result-only.
+            // When an `on error` handler ran it was reported before the handler; under --result-only
+            // the handler's value is the result.
+            if (e.handler() == null) (resultOnly ? err : out).println("Runtime error: " + e.positioned());
+            else if (resultOnly) out.println(TeeFormat.json(e.handler().value()));
+            return 1;
         } catch (ModuleResolutionException e) {
             err.println("propertee2: " + e.getMessage());
             return 1;
@@ -215,7 +218,10 @@ public final class Main {
                                        return value (else the final `result` global, else {}).
                                        PRINT output is discarded, stderr output is kept, and
                                        a runtime error, or a result JSON cannot hold (Infinity,
-                                       NaN), goes to stderr with exit code 1
+                                       NaN), goes to stderr with exit code 1; after a failure
+                                       the result is what an `on error` handler returned
+
+                  Exit codes: 0 the run completed, 1 it failed or was refused, 2 bad usage.
                   --module-root <dir>  root used to resolve imported module paths (defaults
                                        to the entry file's directory, or the current directory)
                   --dap                Debug Adapter Protocol server on stdio (for IDEs;

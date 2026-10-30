@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.46.0
+
+**Spec v0.37.0 — `on error`, `otherwise`, and the rules that come with them** (user decision, on
+the design draft ProperTee `docs/design-draft-on-error.md`, stage 1: a failure nobody planned for
+stops the run, with one place to act on it; a failure the script expects is handled on the line
+where it happens).
+
+- **Grammar** (mildly breaking): `on` and `otherwise` are reserved words. `errorHandler`
+  (`on error do ... end`), `otherwiseClause` and `fallback` (value, `continue`, `break`, `return`,
+  a block that may name the failure) end an assignment, an expression statement or a `return`.
+- **`otherwise`** (`Interpreter.otherwise`, `fallbackBlock`): the left side must be a genuine
+  Result (`'otherwise' needs a Result, but TO_NUMBER() gave a number`); a failed or running one
+  gives the fallback, computed only then; a Result fallback is unwrapped one level; a block must
+  leave or, after an assignment to a variable, set it — itself, a `multi` setup in it included,
+  not in a function it calls (`SetTracker`, per `ExecContext`: the variable's scope and the calls
+  running) — else `The 'otherwise' block must …` at its `end`; the failure is `{message, value}`,
+  bound by the loop-variable rule. The debugger's `eval` keeps the last expression's `otherwise`.
+- **`on error`** (`Interpreter.failure`, `runHandler`): the error is reported first — through
+  `Engine`/`Interpreter.setFailureReporter`, else `Runtime error: <report>` on the error sink —
+  then the root definitions not yet reached run, `_ERROR` is set (`message`, `line`, `column` from
+  1, `source`) and the handler runs as top-level code; an error in it is `[HANDLER ERROR] …`. The
+  thrown `TeeError` carries `handler()` (`value/HandlerOutcome`: `RETURNED`, `FAILED`, `STOPPED`,
+  with the value). A stop asked for before the error throws `AbortError` instead
+  (`Coop.abortRequested`); one during the handler ends it as `STOPPED` — also when the stop then
+  made a call in it fail — and the run stays failed. A value the handler or a snippet returns that
+  cannot be read (a FILE_LINES array whose file changed) is an error in the handler, or the
+  snippet's own error, with its position. A session snippet runs its own handler.
+- **Load-time checks** (`interp/LoadChecks`, with the host restrictions in one document order, in
+  `Engine`, sessions, modules and the v1 façade): `on error` right after the imports, at most once,
+  naming `error`; a `return` value on the `return` line; `break`/`continue` inside a loop in the
+  same function body — a function body and a monitor body start without one, a `multi` setup is
+  no boundary. The runtime's leak paths for stray `break`/`continue` are now unreachable.
+- **Error positions** (breaking for text comparisons): every runtime error has a position — a
+  built-in's carries its call's (`invokeNamed`, PRINT/PRINTF included, reading a FILE_LINES array
+  at its access), and one raised without a position gets its statement's. A host builtin's
+  exception (`addRawBuiltin`, the façade's custom builtins) is a runtime error at its call, where
+  it escaped as a Java exception and skipped the handler. `TeeError.positioned()`
+  counts the column from 1 (`column()`; `col()` keeps ANTLR's 0). Syntax errors (`Parsing`,
+  `ScriptParser`), `Engine.validate` lines and the REPL's debugger positions count from 1 too.
+- **Monitor**: a `return` in the body ends that iteration (it silently skipped the remaining
+  mid-run ticks); the interval is checked at `multi` entry with `limit`, before the setup (the
+  workers started first).
+- **CLI**: exit 1 after a runtime error, the error line still on stdout (was exit 0); exit 0 when
+  the run completes, 2 for bad usage. `--result-only` prints the handler's value after a failure.
+  DAP reports exit code 1 too. The façade's `ProperTeeError` carries how the handler ended:
+  `handlerEnd()` (`RETURNED`, `FAILED`, `STOPPED`), `handlerResult()` and `handlerError()`, with
+  `handled()`.
+- Tests: new fixtures `163`–`177`; 59 updated, each change only a column counted from 1 (39) or a
+  built-in's error gaining its call position (20); `interp/OnErrorTest`; façade tests for how the
+  handler ended, stop timing and a host builtin's exception (in a worker, or after a stop); the
+  control-flow leak tests now check the load-time refusal. 172 fixtures; core 564 + CLI 52 tests
+  green.
+
 ## 0.45.0
 
 **Spec v0.36.0 — numbers are finite; `SUM`, `MAX` and `MIN` take arrays** (user decision:

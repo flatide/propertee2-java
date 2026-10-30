@@ -38,7 +38,7 @@ class InterpreterTest {
                 end
                 badRead()
                 """);
-        assertEquals("Runtime error: Runtime Error at line 3:11: Variable 'x' is not defined in local scope."
+        assertEquals("Runtime error: Runtime Error at line 3:12: Variable 'x' is not defined in local scope."
                 + " Use ::x to access the global variable.\n", out);
     }
 
@@ -61,45 +61,42 @@ class InterpreterTest {
 
         // a documented keyword ("if") is hidden -> runtime error at its token
         String hidden = new Engine().setHiddenKeywords(java.util.Set.of("if")).run("if true then PRINT(1) end\n");
-        assertEquals("Runtime error: Runtime Error at line 1:0: 'if' is not available in this environment\n", hidden);
+        assertEquals("Runtime error: Runtime Error at line 1:1: 'if' is not available in this environment\n", hidden);
     }
 
-    /** A worker that leaks a non-error control-flow signal must yield an error result, never stay "running". */
-    @Test void workerLeakingControlFlowYieldsErrorNotRunning() {
-        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            String out = engine.run("""
-                    function w() do
-                        break
-                        return 1
-                    end
-                    multi r do
-                        thread t: w()
-                    end
-                    PRINT(r.t.status)
-                    PRINT(r.t.ok)
-                    """);
-            assertTrue(out.contains("error"), out);   // not stuck "running"
-            assertTrue(out.contains("false"), out);
-        });
+    /**
+     * A {@code break} with no loop around it in a worker's function is refused at load (spec
+     * v0.37.0). It used to leak out of the worker as a signal, which had to become an error result.
+     */
+    @Test void aWorkerFunctionsBreakWithoutALoopIsRefusedAtLoad() {
+        String out = engine.run("""
+                function w() do
+                    break
+                    return 1
+                end
+                multi r do
+                    thread t: w()
+                end
+                PRINT(r.t.status)
+                """);
+        assertEquals("Runtime error: Runtime Error at line 2:5: 'break' must be inside a loop\n", out);
     }
 
-    /** A monitor body that leaks a control-flow signal must not park the parent forever. */
-    @Test void monitorLeakingControlFlowDoesNotHang() {
-        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            String out = engine.run("""
-                    function slow() do
-                        SLEEP(30)
-                        return
-                    end
-                    multi r do
-                        thread t: slow()
-                    monitor 10
-                        break
-                    end
-                    PRINT("done")
-                    """);
-            assertTrue(out.contains("done"), out);
-        });
+    /** A monitor body is a function body: a {@code break} with no loop in it is refused at load (spec v0.37.0). */
+    @Test void aMonitorBodysBreakWithoutALoopIsRefusedAtLoad() {
+        String out = engine.run("""
+                function slow() do
+                    SLEEP(30)
+                    return
+                end
+                multi r do
+                    thread t: slow()
+                monitor 10
+                    break
+                end
+                PRINT("done")
+                """);
+        assertEquals("Runtime error: Runtime Error at line 8:5: 'break' must be inside a loop\n", out);
     }
 
     /** A host external function receives a deep copy of its args — mutating them cannot change script state. */
@@ -135,15 +132,15 @@ class InterpreterTest {
 
     /** Spec v0.13.0, v0.33.0: every overflowing integer operator fails loudly (fixtures pin + and literals). */
     @Test void anIndexIsAnIntegerWhenReadingAndWriting() {   // spec v0.34.0
-        assertEquals("Runtime error: Runtime Error at line 2:6: Array index must be an integer\n",
+        assertEquals("Runtime error: Runtime Error at line 2:7: Array index must be an integer\n",
                 engine.run("a = [10, 20, 30]\nPRINT(a.$(1.5))\n"));
-        assertEquals("Runtime error: Runtime Error at line 3:0: Array index must be an integer\n",
+        assertEquals("Runtime error: Runtime Error at line 3:1: Array index must be an integer\n",
                 engine.run("a = [10, 20, 30]\ni = 1.5\na.$i = 99\nPRINT(a)\n"));
-        assertEquals("Runtime error: Runtime Error at line 2:6: String index must be an integer\n",
+        assertEquals("Runtime error: Runtime Error at line 2:7: String index must be an integer\n",
                 engine.run("s = \"hello\"\nPRINT(s.$(0.5))\n"));
-        assertEquals("Runtime error: Runtime Error at line 2:6: String index out of bounds\n",
+        assertEquals("Runtime error: Runtime Error at line 2:7: String index out of bounds\n",
                 engine.run("s = \"hello\"\nPRINT(s.6)\n"));
-        assertEquals("Runtime error: Runtime Error at line 2:6: String index must be a number\n",
+        assertEquals("Runtime error: Runtime Error at line 2:7: String index must be a number\n",
                 engine.run("s = \"hello\"\nPRINT(s.x)\n"));
         assertEquals("[ 10, 99, 30 ] 30 e\n",
                 engine.run("a = [10, 20, 30]\ns = \"hello\"\ni = 2.0\na.$i = 99\nPRINT(a, a.$(i + 1), s.$i)\n"));
@@ -151,17 +148,17 @@ class InterpreterTest {
 
     @Test void integerOverflowCoversAllOperators() {
         String overflow = "Integer overflow: the result is outside ±9,007,199,254,740,991\n";
-        assertEquals("Runtime error: Runtime Error at line 1:6: " + overflow,
+        assertEquals("Runtime error: Runtime Error at line 1:7: " + overflow,
                 engine.run("PRINT(-9007199254740991 - 2)\n"));
-        assertEquals("Runtime error: Runtime Error at line 1:6: " + overflow,
+        assertEquals("Runtime error: Runtime Error at line 1:7: " + overflow,
                 engine.run("PRINT(4503599627370496 + 4503599627370496)\n"));   // 2^53
-        assertEquals("Runtime error: Runtime Error at line 1:6: " + overflow,
+        assertEquals("Runtime error: Runtime Error at line 1:7: " + overflow,
                 engine.run("PRINT(94906266 * 94906266)\n"));
-        assertEquals("Runtime error: Runtime Error at line 1:6: " + overflow,
+        assertEquals("Runtime error: Runtime Error at line 1:7: " + overflow,
                 engine.run("PRINT(9007199254740991 * 9007199254740991)\n"));   // past a long too
-        assertEquals("Runtime error: Runtime Error: " + overflow,
+        assertEquals("Runtime error: Runtime Error at line 1:7: " + overflow,
                 engine.run("PRINT(CEIL(9007199254740992.5))\n"));
-        assertEquals("Runtime error: Runtime Error: " + overflow,
+        assertEquals("Runtime error: Runtime Error at line 1:7: " + overflow,
                 engine.run("PRINT(ROUND(-10000000000000000.4))\n"));
         // The range is symmetric: negation and ABS cannot overflow, and the ends are usable.
         assertEquals("9007199254740991 9007199254740991 -9007199136250225\n",

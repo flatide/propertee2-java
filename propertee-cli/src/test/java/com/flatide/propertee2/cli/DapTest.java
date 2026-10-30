@@ -373,13 +373,13 @@ class DapTest {
         });
     }
 
-    @Test void runtimeErrorIsNormalOutputWithExitZero() throws Exception {
+    @Test void runtimeErrorIsNormalOutputWithExitOne() throws Exception {
         String program = tempScript("x = 1 / 0\n");
         assertTimeoutPreemptively(Duration.ofSeconds(15), () -> {
             try (Client c = new Client()) {
                 c.start(program, Map.of(), null);
                 Map<String, Object> exited = Client.body(c.event("exited"));
-                assertEquals(0, exited.get("exitCode"));   // the CLI contract: script errors are output
+                assertEquals(1, exited.get("exitCode"));   // the CLI contract: script errors are output, exit 1
                 c.event("terminated");
                 assertTrue(c.stdout.get(0).startsWith("Runtime error: Runtime Error at line 1:"), c.stdout.toString());
             }

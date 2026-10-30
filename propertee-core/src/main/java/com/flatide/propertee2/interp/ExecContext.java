@@ -34,6 +34,8 @@ final class ExecContext {
     final Deque<MultiBuilder> setupBuilders;                  // active multi setup phases
     final Deque<DebugCallSite> callStack;                     // debugger :where — outermost first
     final WorkerShellObservation shellObservation;                     // monitored WORKER only
+    final Deque<Interpreter.SetTracker> setTrackers = new ArrayDeque<>();   // open `otherwise` blocks that may set a variable
+    int calls;                                                // script function calls running, for setTrackers
 
     private ExecContext(Mode mode, int threadId, String threadName,
                         Map<String, Object> globalsView,

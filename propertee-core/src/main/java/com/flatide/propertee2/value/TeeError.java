@@ -1,9 +1,9 @@
 package com.flatide.propertee2.value;
 
 /**
- * A ProperTee runtime error. Carries an optional source position (1-based line,
- * 0-based column, matching ANTLR token positions) so the top level can render the
- * v1-exact form: {@code Runtime Error at line L:C: <message>}.
+ * A ProperTee runtime error. Carries an optional source position — the line, and the column as
+ * ANTLR counts it, from 0 — so the top level can render {@code Runtime Error at line L:C: <message>},
+ * where both count from 1 (spec v0.37.0; until then the column was printed from 0).
  *
  * <p>The error MESSAGE STRING must match v1 byte-for-byte — the error fixtures
  * (e.g. {@code 24_error_undefined_var.expected}) assert on it. See the error table
@@ -13,6 +13,7 @@ public final class TeeError extends RuntimeException {
     private final int line;
     private final int col;
     private final String sourceId;
+    private volatile HandlerOutcome handler;
 
     public TeeError(String message) {
         this(message, null, -1, -1);
@@ -31,8 +32,21 @@ public final class TeeError extends RuntimeException {
 
     public String sourceId() { return sourceId; }
     public int line() { return line; }
+    /** The column as ANTLR counts it, from 0; {@link #column()} is the one to show. */
     public int col() { return col; }
+    /** The column counted from 1, as the error report and {@code _ERROR.column} give it (spec v0.37.0). */
+    public int column() { return col < 0 ? col : col + 1; }
     public boolean hasPosition() { return line >= 0; }
+
+    /**
+     * How the script's {@code on error} handler ended (spec v0.37.0), or {@code null} when no handler
+     * ran. When it is set, the runtime has already reported this error, before the handler started —
+     * a host that prints the error itself skips it.
+     */
+    public HandlerOutcome handler() { return handler; }
+
+    /** Record how the handler ended; set once, by the interpreter, after the handler. */
+    public void handled(HandlerOutcome outcome) { this.handler = outcome; }
 
     /** Attach a position to a positionless error (interpreter fills this in at the throwing node). */
     public TeeError at(int line, int col) {
@@ -45,15 +59,16 @@ public final class TeeError extends RuntimeException {
     }
 
     /**
-     * v1 form (without the outer "Runtime error: " prefix): {@code Runtime Error at line L:C: <msg>}
-     * for interpreter errors carrying a source position, or {@code Runtime Error: <msg>} for
-     * positionless errors (e.g. those thrown by built-in functions — 67_sort_errors).
+     * The report form (without the outer "Runtime error: " prefix): {@code Runtime Error at line L:C: <msg>}
+     * for an error carrying a source position — every runtime error does since spec v0.37.0, a
+     * built-in's at its call — or {@code Runtime Error: <msg>} for one raised outside a script, such
+     * as a host property holding NaN.
      */
     public String positioned() {
         if (!hasPosition()) return "Runtime Error: " + getMessage();
         if (sourceId != null && !sourceId.equals("<memory>")) {
-            return "Runtime Error at " + sourceId + " line " + line + ":" + col + ": " + getMessage();
+            return "Runtime Error at " + sourceId + " line " + line + ":" + column() + ": " + getMessage();
         }
-        return "Runtime Error at line " + line + ":" + col + ": " + getMessage();
+        return "Runtime Error at line " + line + ":" + column() + ": " + getMessage();
     }
 }

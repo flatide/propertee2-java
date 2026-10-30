@@ -102,20 +102,20 @@ class ImportTest {
                 PRINT("must not run")
                 """);
 
-        assertTrue(out.startsWith("Runtime error: Runtime Error at module:outer line 1:0:"), out);
+        assertTrue(out.startsWith("Runtime error: Runtime Error at module:outer line 1:1:"), out);
         assertTrue(!out.contains("must not run"), out);
     }
 
     @Test void entryImportErrorsKeepThePathFreeCompatibilityFormat() {
         String out = new Engine().setSourceId("/abs/entry.tee").run("import missing as m\n");
-        assertEquals("Runtime error: Runtime Error at line 1:0: import requires a module resolver\n", out);
+        assertEquals("Runtime error: Runtime Error at line 1:1: import requires a module resolver\n", out);
 
         String duplicate = new Engine().setSourceId("/abs/entry.tee")
                 .setModuleResolver(modules(Map.of(
                         "one", "function value() do return 1 end\n",
                         "two", "function value() do return 2 end\n")))
                 .run("import one as m\nimport two as m\n");
-        assertEquals("Runtime error: Runtime Error at line 2:0: Duplicate import alias 'm'\n", duplicate);
+        assertEquals("Runtime error: Runtime Error at line 2:1: Duplicate import alias 'm'\n", duplicate);
 
         String resolution = new Engine().setSourceId("/abs/entry.tee")
                 .setModuleResolver(request -> {
@@ -123,7 +123,7 @@ class ImportTest {
                             "Module path escapes module root: " + request.displayName());
                 })
                 .run("import escape as m\n");
-        assertEquals("Runtime error: Runtime Error at line 1:0: Module path escapes module root: escape\n",
+        assertEquals("Runtime error: Runtime Error at line 1:1: Module path escapes module root: escape\n",
                 resolution);
     }
 

@@ -27,6 +27,9 @@ public final class Coop {
         scheduler.abort();
     }
 
+    /** True once a stop was asked for ({@link #abort}) — for this run or, latched, a coming one. */
+    public boolean abortRequested() { return abortRequested; }
+
     /** On-baton cancellation/fairness checkpoint — see {@link Scheduler#checkpoint()}. */
     public void checkpoint() { scheduler.checkpoint(); }
 
