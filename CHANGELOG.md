@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.46.1
+
+**An aborted run starts no new work** (host API fix; no language or spec change — the 172
+conformance fixtures are byte-identical). Found from TeeBox: one cancel of a run inside
+`multi ... limit K` left it RUNNING until every waiting worker had run its first statement, and
+only a second cancel ended it sooner.
+
+- **`multi ... limit K`** (`Interpreter.runThreads`): a worker that got the baton after the abort
+  — admitted by a dying worker's `finally`, or spawned just before the abort — ran its first
+  statement in full before it reached a checkpoint, so each waiting worker still did one `SLEEP`
+  or started one `SHELL`. A checkpoint now runs ahead of the worker body: such a worker ends
+  without running any of its statements. The admission chain is unchanged — every announced
+  worker still reaches a terminal state, so the parent is never left waiting.
+- **`Scheduler.sleep`** checks the abort flag under the lock before it registers the sleeper.
+  `abort()` sets the flag and then drains the sleepers; a fiber that had passed its last
+  checkpoint could register behind the drain and sleep its full time with nobody left to wake it.
+- **`Scheduler.blocking`** checks the flag on entry: an aborted run starts no new host call.
+  The flag was observed only when the call returned.
+
+Tests: `CoopRuntimeTest.abortRightBeforeASleepIsNotLostForItsDuration` and
+`abortRightBeforeABlockingCallSkipsTheCall`; `FacadeTest.abortedLimitMultiNeverStartsAWaitingWorkersBody`.
+All three fail on 0.46.0.
+
 ## 0.46.0
 
 **Spec v0.37.0 — `on error`, `otherwise`, and the rules that come with them** (user decision, on

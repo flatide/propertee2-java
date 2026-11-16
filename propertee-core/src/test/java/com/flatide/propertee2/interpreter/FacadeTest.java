@@ -346,6 +346,47 @@ class FacadeTest {
                 + "must still terminate — created: " + created + ", terminal: " + terminal);
     }
 
+    /**
+     * A worker still waiting for its `limit` seat when the run is aborted is admitted by the dying
+     * one only to end: none of its statements run. Its first statement used to run in full — here
+     * a PRINT and then a 60 s SLEEP per waiting worker, so one abort did not end the run.
+     */
+    @Test void abortedLimitMultiNeverStartsAWaitingWorkersBody() {
+        List<String> stdoutLines = new ArrayList<>();
+        BuiltinFunctions.PrintFunction stdout = args -> stdoutLines.add(join(args));
+        BuiltinFunctions.PrintFunction stderr = args -> {};
+        BuiltinFunctions builtins = new BuiltinFunctions(stdout, stderr, "r", null, null);
+
+        ProperTeeParser.RootContext tree = ScriptParser.parse(
+                "function hold() do\n" +
+                "    SLEEP(60000)\n" +
+                "    return 0\n" +
+                "end\n" +
+                "function late(i) do\n" +
+                "    PRINT(\"late\", i, \"started\")\n" +
+                "    SLEEP(60000)\n" +
+                "    return i\n" +
+                "end\n" +
+                "multi r limit 1 do\n" +
+                "    thread a: hold()\n" +
+                "    thread b: late(1)\n" +
+                "    thread c: late(2)\n" +
+                "end\n", new ArrayList<>());
+
+        ProperTeeInterpreter visitor =
+                new ProperTeeInterpreter(new LinkedHashMap<>(), stdout, stderr, 1000, "error", builtins);
+        Scheduler scheduler = new Scheduler(visitor);
+        abortSoon(visitor);
+        long t0 = System.nanoTime();
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () ->
+                org.junit.jupiter.api.Assertions.assertThrows(com.flatide.propertee2.runtime.ProperTeeAborted.class,
+                        () -> scheduler.run(visitor.createRootStepper(tree))));
+        long ms = (System.nanoTime() - t0) / 1_000_000L;
+
+        assertEquals(List.of(), stdoutLines);          // neither waiting worker reached its first statement
+        assertTrue(ms < 5_000, "one abort must end the run, took " + ms + "ms");
+    }
+
     @Test void blockingHostBuiltinIsResultWrappedOffBaton() {
         java.util.List<String> out = new ArrayList<>();
         BuiltinFunctions.PrintFunction sink = a -> out.add(join(a));

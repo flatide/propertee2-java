@@ -162,6 +162,34 @@ class CoopRuntimeTest {
         assertEquals(false, resumedAfterBlocking[0]);
     }
 
+    /**
+     * An abort between a fiber's last checkpoint and its sleep (modelled by aborting on the baton,
+     * right before the sleep) used to be lost for the whole sleep: the sleepers were already
+     * drained, so nothing woke the fiber before its time.
+     */
+    @Test void abortRightBeforeASleepIsNotLostForItsDuration() {
+        Coop coop = new Coop();
+        boolean[] resumedAfterSleep = new boolean[1];
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () ->
+                assertThrows(AbortError.class, () -> coop.run("root", () -> {
+                    coop.abort();
+                    coop.sleep(60_000);
+                    resumedAfterSleep[0] = true;
+                })));
+        assertEquals(false, resumedAfterSleep[0]);
+    }
+
+    /** An aborted run starts no new host call: the work never runs (a SHELL would spawn its process). */
+    @Test void abortRightBeforeABlockingCallSkipsTheCall() {
+        Coop coop = new Coop();
+        boolean[] ran = new boolean[1];
+        assertThrows(AbortError.class, () -> coop.run("root", () -> {
+            coop.abort();
+            coop.blocking(() -> { ran[0] = true; return 1; });
+        }));
+        assertEquals(false, ran[0]);
+    }
+
     @Test void abortBeforeRunIsLatched() {
         Coop coop = new Coop();
         coop.abort();                                  // before run() creates its fresh scheduler

@@ -53,10 +53,12 @@ public final class Scheduler {
 
     /**
      * Cooperatively abort the run: every fiber throws {@link AbortError} at its next checkpoint
-     * (statement boundary, loop iteration, sleep wake, blocking re-acquire, children wake).
-     * Thread-safe, callable from OUTSIDE any fiber. Sleeping fibers are force-woken so a long
-     * SLEEP doesn't delay the abort; WAITING parents are woken by their dying children through
-     * the normal signal path; BLOCKED fibers observe the flag when the host call returns.
+     * (statement boundary, loop iteration, sleep entry and wake, blocking entry and re-acquire,
+     * children wake). Thread-safe, callable from OUTSIDE any fiber. Sleeping fibers are force-woken
+     * so a long SLEEP doesn't delay the abort; WAITING parents are woken by their dying children
+     * through the normal signal path; BLOCKED fibers observe the flag when the host call returns.
+     * The flag is set before the sleepers are drained and {@link #sleep} re-checks it under the
+     * same lock, so no fiber can go to sleep behind the drain.
      */
     public void abort() {
         aborted = true;
@@ -172,6 +174,9 @@ public final class Scheduler {
         Fiber me = SELF.get();
         lock.lock();
         try {
+            // An abort that landed after this fiber's last checkpoint has already drained the
+            // sleepers: registering now would sleep the full time with nobody left to wake it.
+            pollAbort();
             me.state = FiberState.SLEEPING;
             me.wakeNanos = wakeAt(System.nanoTime(), ms);
             sleepers.add(me);
@@ -201,6 +206,7 @@ public final class Scheduler {
      */
     public <T> T blocking(Supplier<T> work) {
         Fiber me = SELF.get();
+        pollAbort();                                // an aborted run starts no new host call
         lock.lock();
         try {
             me.state = FiberState.BLOCKED;

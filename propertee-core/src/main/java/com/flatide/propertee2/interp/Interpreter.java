@@ -575,8 +575,9 @@ public final class Interpreter {
         // The first K spawn below; each finishing worker admits the next in its finally —
         // on-baton and in spawn order, so admission is deterministic. The chain is also the
         // run-abort unwind path: a worker dying of AbortError still admits the next, which
-        // aborts at its own first checkpoint, until every announced worker has reached a
-        // terminal state — otherwise the parent would wait on parentPending forever.
+        // aborts at the checkpoint ahead of its body — before any of its statements run — until
+        // every announced worker has reached a terminal state; otherwise the parent would wait
+        // on parentPending forever.
         AtomicInteger nextToAdmit = new AtomicInteger(0);
         Runnable[] admitNext = new Runnable[1];
         admitNext[0] = () -> {
@@ -589,6 +590,10 @@ public final class Interpreter {
                     CTX, ExecContext.worker(snapshot, moduleSnapshots, p.module(),
                             tid, p.funcName(), observation)).run(() -> {
                 try {
+                    // A worker that gets the baton after the run was aborted (admitted by a dying
+                    // one, or spawned just before the abort) must not start: without this its
+                    // first statement — a SLEEP, a SHELL — would run in full first.
+                    s.checkpoint();
                     Object r = invokeNamed(p.funcName(), p.args(), p.call());
                     collection.put(p.key(), Result.ok(r));
                     if (threadObserver != null) threadObserver.completed(tid, r);
