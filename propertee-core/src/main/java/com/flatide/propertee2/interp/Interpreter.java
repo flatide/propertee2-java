@@ -57,6 +57,15 @@ public final class Interpreter {
     private final Set<String> ignoredFunctions;              // function names made unavailable
     private int maxIterations = 1000;                        // max loop iterations (configurable via façade)
     private boolean loopLimitWarns = false;                  // v1 "warn": warn + stop the loop instead of failing
+    /**
+     * How many script function calls may be running inside one another. The spec leaves the depth
+     * to the runtime; without a limit a function that calls itself without end ran until the Java
+     * stack overflowed — or, where each call hands the baton over first, went on growing on the
+     * heap, up to an OutOfMemoryError for everything on the JVM. 64 stays under the Java stack
+     * limit of a 1 MB thread stack even for a call written deep inside blocks and operators
+     * (about 90 levels).
+     */
+    static final int MAX_CALL_DEPTH = 64;
     private boolean hasExplicitReturn = false;               // did the program hit a top-level `return`?
     private Object returnValue = Values.emptyObject();        // the top-level return value (if any)
 
@@ -550,6 +559,8 @@ public final class Interpreter {
                             long interval) {
         Scheduler s = coop.scheduler();
         Fiber parent = s.self();
+        // Read here, on the parent: a later worker is admitted by a finishing one, in that worker's context.
+        int depth = ec().depth;
         boolean hasMonitor = m.monitorClause() != null;
         AtomicInteger remaining = new AtomicInteger(pending.size());                               // workers only
         AtomicInteger parentPending = new AtomicInteger(pending.size() + (hasMonitor ? 1 : 0));    // gate parent resume
@@ -588,7 +599,7 @@ public final class Interpreter {
             WorkerShellObservation observation = observations != null ? observations[i] : null;
             s.spawn(p.key(), () -> ScopedValue.where(
                     CTX, ExecContext.worker(snapshot, moduleSnapshots, p.module(),
-                            tid, p.funcName(), observation)).run(() -> {
+                            tid, p.funcName(), observation, depth)).run(() -> {
                 try {
                     // A worker that gets the baton after the run was aborted (admitted by a dying
                     // one, or spawned just before the abort) must not start: without this its
@@ -612,8 +623,11 @@ public final class Interpreter {
                     // cancelled run's thread list shows this worker as running forever.
                     if (threadObserver != null) threadObserver.error(tid, e);
                     throw e;
-                } catch (RuntimeException e) {
-                    // TeeError, or a stray control-flow signal / other failure: never leave the entry "running"
+                } catch (Throwable e) {
+                    // TeeError, a stray control-flow signal, or a Java Error out of the body (a host
+                    // function whose class could not be initialized, a stack overflow): never
+                    // leave the entry "running". An Error used to escape this worker — the entry
+                    // stayed "running", nothing was reported and the run went on to complete.
                     String pos = failureText(e);
                     err.line("[THREAD ERROR] " + pos);
                     collection.put(p.key(), Result.error(pos));
@@ -638,7 +652,7 @@ public final class Interpreter {
                     // result collection (a consistent snapshot even if the body suspends), same
                     // globals purity as workers.
                     Runnable tick = () -> {
-                        ExecContext mctx = ExecContext.monitor(snapshot, moduleSnapshots, enclosingModule);
+                        ExecContext mctx = ExecContext.monitor(snapshot, moduleSnapshots, enclosingModule, depth);
                         Map<String, Object> iterScope = new LinkedHashMap<>();
                         if (resultVarName != null) {
                             iterScope.put(resultVarName, monitorCollection(collection, pending, observations));
@@ -720,9 +734,11 @@ public final class Interpreter {
     }
 
     /** Render a worker/monitor failure as a result/error string (positionless for non-interpreter failures). */
-    private static String failureText(RuntimeException e) {
+    private static String failureText(Throwable e) {
         if (e instanceof TeeError te) return te.positioned();
         String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        // A Java Error's message says little without its type: "Java heap space", a bare class name.
+        if (e instanceof Error && e.getMessage() != null) msg = e.getClass().getSimpleName() + ": " + msg;
         return "Runtime Error: " + msg;
     }
 
@@ -1680,6 +1696,10 @@ public final class Interpreter {
             throw err("Function '" + fn.name() + "' expects " + fn.params().size()
                     + " argument(s), but " + args.size() + " were provided", ctx);
         }
+        if (ec().depth >= MAX_CALL_DEPTH) {
+            throw err("Function calls exceeded maximum depth (" + MAX_CALL_DEPTH
+                    + "). Check for a function that calls itself without end.", ctx);
+        }
         Map<String, Object> frame = new LinkedHashMap<>();
         for (int i = 0; i < fn.params().size(); i++) {
             frame.put(fn.params().get(i), i < args.size() ? Values.deepCopy(args.get(i)) : Values.emptyObject());
@@ -1693,6 +1713,7 @@ public final class Interpreter {
         }
         ec().frames.push(frame);
         ec().calls++;
+        ec().depth++;
         Object result;
         try {
             execBlock(fn.body());
@@ -1700,6 +1721,7 @@ public final class Interpreter {
         } catch (Signals.Return r) {
             result = r.value;
         } finally {
+            ec().depth--;
             ec().calls--;
             ec().frames.pop();                    // error unwinding skips the record below
             if (trackCall) ec().callStack.pollLast();

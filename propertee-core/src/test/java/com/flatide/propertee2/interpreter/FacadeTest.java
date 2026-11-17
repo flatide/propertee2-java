@@ -404,6 +404,91 @@ class FacadeTest {
         assertEquals(List.of("true", "42", "false", "kaboom"), out);
     }
 
+    // ---- a Java Error in a multi worker -------------------------------------
+
+    /** Runs {@code script} and returns what each worker's listener saw last: key -> "completed" / "error". */
+    private static Map<String, String> runObserved(ProperTeeInterpreter visitor, String script) {
+        Map<String, String> ended = new LinkedHashMap<>();
+        com.flatide.propertee2.scheduler.SchedulerListener listener = new com.flatide.propertee2.scheduler.SchedulerListener() {
+            @Override public void onThreadCreated(com.flatide.propertee2.scheduler.ThreadContext t) { }
+            @Override public void onThreadUpdated(com.flatide.propertee2.scheduler.ThreadContext t) { }
+            @Override public void onThreadCompleted(com.flatide.propertee2.scheduler.ThreadContext t) {
+                if (t.resultKeyName != null) ended.put(t.resultKeyName, "completed");
+            }
+            @Override public void onThreadError(com.flatide.propertee2.scheduler.ThreadContext t) {
+                if (t.resultKeyName != null) ended.put(t.resultKeyName, "error");
+            }
+        };
+        ProperTeeParser.RootContext tree = ScriptParser.parse(script, new ArrayList<>());
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(30),
+                () -> new Scheduler(visitor, listener).run(visitor.createRootStepper(tree)));
+        return ended;
+    }
+
+    /**
+     * A Java Error out of a worker's body is that thread's error, like any other failure of the
+     * body. The worker used to catch RuntimeException alone, so an Error — here a host function
+     * whose class could not be initialized — escaped it: the entry stayed "running", nothing was
+     * reported, and the run went on to complete.
+     */
+    @Test void aHostFunctionsJavaErrorInAWorkerIsThatThreadsError() {
+        List<String> stdoutLines = new ArrayList<>();
+        List<String> stderrLines = new ArrayList<>();
+        BuiltinFunctions[] built = new BuiltinFunctions[1];
+        ProperTeeInterpreter visitor = facade(stdoutLines, stderrLines, built);
+        built[0].registerBlocking("DRAW", args -> {
+            throw new NoClassDefFoundError("Could not initialize class demo.Screen");
+        });
+
+        Map<String, String> ended = runObserved(visitor,
+                "function draw(n) do\n" +
+                "    return DRAW(n)\n" +
+                "end\n" +
+                "function twice(n) do\n" +
+                "    return n * 2\n" +
+                "end\n" +
+                "multi r do\n" +
+                "    thread a: draw(1)\n" +
+                "    thread b: twice(2)\n" +
+                "end\n" +
+                "PRINT(r.a.status, r.a.ok, r.a.value)\n" +
+                "PRINT(r.b.status, r.b.ok, r.b.value)\n");
+
+        String message = "Runtime Error: NoClassDefFoundError: Could not initialize class demo.Screen";
+        assertEquals(List.of("error false " + message, "done true 4"), stdoutLines);
+        assertEquals(List.of("[THREAD ERROR] " + message), stderrLines);
+        assertEquals(Map.of("a", "error", "b", "completed"), ended);
+    }
+
+    /** A Java Error that carries no message is named by its type, so the entry always says why. */
+    @Test void aJavaErrorWithoutAMessageIsNamedByItsType() {
+        List<String> stdoutLines = new ArrayList<>();
+        List<String> stderrLines = new ArrayList<>();
+        BuiltinFunctions[] built = new BuiltinFunctions[1];
+        ProperTeeInterpreter visitor = facade(stdoutLines, stderrLines, built);
+        built[0].registerBlocking("DRAW", args -> {
+            throw new StackOverflowError();
+        });
+
+        Map<String, String> ended = runObserved(visitor,
+                "function draw(n) do\n" +
+                "    return DRAW(n)\n" +
+                "end\n" +
+                "function twice(n) do\n" +
+                "    return n * 2\n" +
+                "end\n" +
+                "multi r do\n" +
+                "    thread a: draw(1)\n" +
+                "    thread b: twice(2)\n" +
+                "end\n" +
+                "PRINT(r.a.status, r.a.ok, r.a.value)\n" +
+                "PRINT(r.b.status, r.b.ok, r.b.value)\n");
+
+        assertEquals(List.of("error false Runtime Error: StackOverflowError", "done true 4"), stdoutLines);
+        assertEquals(List.of("[THREAD ERROR] Runtime Error: StackOverflowError"), stderrLines);
+        assertEquals(Map.of("a", "error", "b", "completed"), ended);
+    }
+
     // ---- on error (spec v0.37.0) --------------------------------------------
 
     private static ProperTeeInterpreter facade(List<String> stdoutLines, List<String> stderrLines,

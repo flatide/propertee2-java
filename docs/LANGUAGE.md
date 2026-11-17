@@ -571,6 +571,14 @@ function factorial(n) do
 end
 ```
 
+> **Runtime note (0.47.0):** this runtime lets script function calls nest 64 deep. The call that would be
+> the 65th is a runtime error at that call — `Function calls exceeded maximum depth (64). Check
+> for a function that calls itself without end.` — and it fails the run, or the thread inside
+> `multi`, like any other runtime error. The count goes on into an imported function and into a
+> `multi` worker, which starts at the depth of its block. Calls to built-in and host functions
+> do not count. The spec leaves the depth to the runtime: a script should not rely on a
+> particular one.
+
 ### Name Resolution
 
 A function call `NAME(...)` resolves in this order (specified since spec v0.11.0):

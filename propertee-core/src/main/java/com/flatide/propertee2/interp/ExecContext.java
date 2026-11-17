@@ -36,6 +36,9 @@ final class ExecContext {
     final WorkerShellObservation shellObservation;                     // monitored WORKER only
     final Deque<Interpreter.SetTracker> setTrackers = new ArrayDeque<>();   // open `otherwise` blocks that may set a variable
     int calls;                                                // script function calls running, for setTrackers
+    // Script function calls running between the start of the run and here. Unlike `calls` it
+    // carries on into a module and into a `multi` worker, so no route nests deeper than the limit.
+    int depth;
 
     private ExecContext(Mode mode, int threadId, String threadName,
                         Map<String, Object> globalsView,
@@ -45,7 +48,7 @@ final class ExecContext {
                         Deque<Map<String, Object>> frames,
                         Deque<MultiBuilder> setupBuilders,
                         Deque<DebugCallSite> callStack,
-                        WorkerShellObservation shellObservation) {
+                        WorkerShellObservation shellObservation, int depth) {
         this.mode = mode;
         this.threadId = threadId;
         this.threadName = threadName;
@@ -57,32 +60,35 @@ final class ExecContext {
         this.setupBuilders = setupBuilders;
         this.callStack = callStack;
         this.shellObservation = shellObservation;
+        this.depth = depth;
     }
 
     static ExecContext normal(Map<String, Object> globals,
                               Map<String, Map<String, Object>> moduleGlobals) {
         return new ExecContext(Mode.NORMAL, 0, "main", globals, globals, moduleGlobals, null,
-                new ArrayDeque<>(), new ArrayDeque<>(), new ArrayDeque<>(), null);
+                new ArrayDeque<>(), new ArrayDeque<>(), new ArrayDeque<>(), null, 0);
     }
 
+    /** {@code depth}: the call depth of the {@code multi} block that starts this worker. */
     static ExecContext worker(Map<String, Object> rootSnapshot,
                               Map<String, Map<String, Object>> moduleSnapshots,
                               ModuleInstance module, int threadId, String threadName,
-                              WorkerShellObservation shellObservation) {
+                              WorkerShellObservation shellObservation, int depth) {
         Map<String, Object> current = module == null
                 ? rootSnapshot : moduleSnapshots.get(module.identity());
         return new ExecContext(Mode.WORKER, threadId, threadName, current, rootSnapshot,
                 moduleSnapshots, module, new ArrayDeque<>(), new ArrayDeque<>(), new ArrayDeque<>(),
-                shellObservation);
+                shellObservation, depth);
     }
 
     static ExecContext monitor(Map<String, Object> rootSnapshot,
                                Map<String, Map<String, Object>> moduleSnapshots,
-                               ModuleInstance module) {
+                               ModuleInstance module, int depth) {
         Map<String, Object> current = module == null
                 ? rootSnapshot : moduleSnapshots.get(module.identity());
         return new ExecContext(Mode.MONITOR, -1, "monitor", current, rootSnapshot,
-                moduleSnapshots, module, new ArrayDeque<>(), new ArrayDeque<>(), new ArrayDeque<>(), null);
+                moduleSnapshots, module, new ArrayDeque<>(), new ArrayDeque<>(), new ArrayDeque<>(), null,
+                depth);
     }
 
     /** Enter a module without exposing the caller's locals; scheduler/debugger state stays shared. */
@@ -90,6 +96,7 @@ final class ExecContext {
         Map<String, Object> targetGlobals = moduleGlobalsViews.get(target.identity());
         if (targetGlobals == null) throw new IllegalStateException("missing globals for " + target.identity());
         return new ExecContext(mode, threadId, threadName, targetGlobals, rootGlobalsView,
-                moduleGlobalsViews, target, new ArrayDeque<>(), setupBuilders, callStack, shellObservation);
+                moduleGlobalsViews, target, new ArrayDeque<>(), setupBuilders, callStack, shellObservation,
+                depth);
     }
 }

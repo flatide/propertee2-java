@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.47.0
+
+**Function calls nest 64 deep, and a Java Error in a `multi` worker is that thread's error**
+(runtime behaviour the spec leaves to the runtime — no language or spec change; the 172
+conformance fixtures are byte-identical). Found from TeeBox: `THUMBNAIL` inside `multi` on a
+server whose AWT could not start left the run completed with the entry still `"running"`, and
+testing that showed a script alone could do the same, or fill the server's heap.
+
+- **Call depth limit** (user decision: 64; `Interpreter.MAX_CALL_DEPTH`, fixed). Script function
+  calls may be running 64 inside one another; the call that would be the 65th is a runtime error
+  at that call: `Function calls exceeded maximum depth (64). Check for a function that calls
+  itself without end.` It fails the run — `on error` runs — or the thread inside `multi`, like
+  any other runtime error. There was no limit. A function calling itself without end ran until
+  the Java stack overflowed. Where each call hands the baton over before the next one (a
+  statement ahead of the call while another worker is ready, a `SLEEP`), the virtual thread's
+  stack is set aside on the heap and does not overflow while that goes on: beside a busy worker
+  it ran until the heap was full — 16 to 26 s at `-Xmx256m` — and the `OutOfMemoryError` then
+  failed the unrelated worker too. A function that started itself as a thread did not end at all.
+  - The count (`ExecContext.depth`) goes on into an imported function and into a `multi` worker,
+    which starts at the depth of its block: a function cannot go deeper by starting itself as a
+    thread. Built-in and host functions do not count. The handler of `on error` starts at 0.
+  - 64 stays under the Java stack limit. Measured on a 1 MB thread stack (`-Xss1m`, the Linux
+    x64 default), the stack overflowed after 589 levels of a plain recursion and after 94 where
+    the call sits inside several blocks and operators; on 2 MB, after 1,023 and about 208.
+  - `docs/LANGUAGE.md` §Recursion carries the runtime note. The spec says a script should not
+    rely on a particular depth; the JavaScript runtime keeps its own.
+- **A Java Error in a worker** (`Interpreter.runThreads`): the worker caught `RuntimeException`
+  alone, so an `Error` out of its body — a host function whose class could not be initialized,
+  a stack overflow — escaped it. The entry stayed `"running"`, nothing reached the run's stderr
+  or the thread observer, and the run went on to complete. The worker now takes every failure
+  of its body except an abort and a debugger quit as that thread's error: the entry is
+  `{status: "error"}`, `[THREAD ERROR]` is written, and the observer sees the error. A Java
+  Error's text names its type — `Runtime Error: NoClassDefFoundError: Could not initialize class
+  …`, or the type alone when it has no message (`Runtime Error: StackOverflowError`). In the main
+  flow a Java Error still ends the run through the host, and a `monitor` block is unchanged.
+
+Tests: `CallDepthTest` (8: the 64th and 65th call, calls one after another, the handler after
+the limit, a worker that calls itself beside another worker, a worker and a module going on from
+the caller's depth, a loop of calls) and `FacadeTest.aHostFunctionsJavaErrorInAWorkerIsThatThreadsError`
+and `aJavaErrorWithoutAMessageIsNamedByItsType`. With the limit switched off five of the eight
+fail — the function that starts itself as a thread does not end within 30 s, and the worker that
+calls itself ends as `StackOverflowError: Humongous stack chunk` — and both `FacadeTest` tests
+fail on 0.46.1 with the entry `running`.
+
 ## 0.46.1
 
 **An aborted run starts no new work** (host API fix; no language or spec change — the 172
