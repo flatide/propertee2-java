@@ -1,8 +1,10 @@
 package com.flatide.propertee2.task;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -20,6 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * in-memory tails capped at 1&nbsp;MB per stream. {@link #releaseTask} frees a task's state
  * immediately — the SHELL builtin calls it once the result is extracted, so a long session does
  * not accumulate task state.
+ * Given a stream ({@link #SimpleTaskRunner(OutputStream)}), it also writes every task's output
+ * there as it arrives — what the CLI's {@code --show-shell} shows on the terminal.
  * Hosts that need persistence, kill-by-run, or restart survival provide their own runner
  * (TeeBox's ManagedTaskEngine).
  */
@@ -28,6 +32,24 @@ public class SimpleTaskRunner implements TaskRunner {
 
     private final Map<String, TaskState> tasks = new ConcurrentHashMap<>();
     private final AtomicInteger nextId = new AtomicInteger(0);
+    private final OutputStream live;                 // null: output is captured only
+    private final Object liveLock = new Object();    // one batch of lines at a time, whichever the task
+
+    public SimpleTaskRunner() {
+        this(null);
+    }
+
+    /**
+     * A runner that also writes every task's output — stdout and stderr, as the task's bytes — to
+     * {@code live} while the task runs (0.48.0). What a task returns is unchanged: the output is
+     * captured as before. It goes out in whole lines, so the lines of tasks running at the same
+     * time (in a {@code multi} block) follow one another instead of mixing; a last line without a
+     * line break gets one. A line longer than 64 KiB goes out in pieces. When {@code live} cannot
+     * be written to, that task's output is no longer passed on, and still captured.
+     */
+    public SimpleTaskRunner(OutputStream live) {
+        this.live = live;
+    }
 
     private static final class TaskState {
         final String taskId;
@@ -102,6 +124,54 @@ public class SimpleTaskRunner implements TaskRunner {
             int offset = 0;
             while (offset < ordered.length && (ordered[offset] & 0xC0) == 0x80) offset++;
             return new String(ordered, offset, ordered.length - offset, StandardCharsets.UTF_8);
+        }
+    }
+
+    /** One stream's output on its way to {@link #live}: whole lines are passed on, the rest waits. */
+    private final class LiveLines {
+        private static final int MAX_PENDING = 64 * 1024;
+        private final ByteArrayOutputStream pending = new ByteArrayOutputStream();
+        private boolean lineOpen;     // a piece of a long line went out, and its end has not
+        private boolean failed;
+
+        void write(byte[] source, int offset, int length) {
+            if (failed) return;
+            int afterLastLine = offset;
+            for (int i = offset + length - 1; i >= offset; i--) {
+                if (source[i] == '\n') {
+                    afterLastLine = i + 1;
+                    break;
+                }
+            }
+            pending.write(source, offset, afterLastLine - offset);
+            if (afterLastLine > offset) {
+                flush();
+                lineOpen = false;
+            }
+            pending.write(source, afterLastLine, offset + length - afterLastLine);
+            if (pending.size() >= MAX_PENDING) {
+                flush();
+                lineOpen = true;
+            }
+        }
+
+        /** The stream ended: what is left is its last line. */
+        void end() {
+            if (failed || (pending.size() == 0 && !lineOpen)) return;
+            pending.write('\n');
+            flush();
+        }
+
+        private void flush() {
+            try {
+                synchronized (liveLock) {
+                    pending.writeTo(live);
+                    live.flush();
+                }
+            } catch (IOException e) {
+                failed = true;
+            }
+            pending.reset();
         }
     }
 
@@ -286,17 +356,20 @@ public class SimpleTaskRunner implements TaskRunner {
         return buf.snapshot();
     }
 
-    private static Thread startDrainer(InputStream is, BoundedOutputBuffer buf, String name) {
+    private Thread startDrainer(InputStream is, BoundedOutputBuffer buf, String name) {
+        LiveLines shown = live != null ? new LiveLines() : null;
         Thread t = new Thread(() -> {
             try {
                 byte[] tmp = new byte[4096];
                 int len;
                 while ((len = is.read(tmp)) != -1) {
                     buf.append(tmp, 0, len);
+                    if (shown != null) shown.write(tmp, 0, len);
                 }
             } catch (IOException ignore) {
                 // stream closed
             } finally {
+                if (shown != null) shown.end();
                 try { is.close(); } catch (IOException ignore) { /* best-effort */ }
             }
         }, name);

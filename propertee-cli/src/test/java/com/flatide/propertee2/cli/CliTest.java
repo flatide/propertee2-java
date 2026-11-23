@@ -116,4 +116,73 @@ class CliTest {
             Files.deleteIfExists(f);
         }
     }
+
+    // ---- --show-shell: what SHELL commands print goes to stderr while they run -------------------
+
+    private Run runScript(String source, boolean resultOnly, boolean showShell) throws IOException {
+        Path f = Files.createTempFile("cli", ".tee");
+        Files.writeString(f, source);
+        ByteArrayOutputStream outBuf = new ByteArrayOutputStream();
+        ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
+        try {
+            int code = Main.run(f.toString(), java.util.Map.of(), java.util.List.of(), null, resultOnly, showShell,
+                    new PrintStream(outBuf, true, StandardCharsets.UTF_8),
+                    new PrintStream(errBuf, true, StandardCharsets.UTF_8));
+            return new Run(code, outBuf.toString(StandardCharsets.UTF_8), errBuf.toString(StandardCharsets.UTF_8));
+        } finally {
+            Files.deleteIfExists(f);
+        }
+    }
+
+    @Test void showShellWritesCommandOutputToStderr() throws IOException {
+        String script = "PRINT(\"start\")\nr = SHELL(\"echo from-sh; echo warn 1>&2\")\nPRINT(r.value)\n";
+        // stdout is the same with and without it; the command's stderr is shown too
+        assertEquals(new Run(0, "start\nfrom-sh\nwarn\n", ""), runScript(script, false, false));
+        assertEquals(new Run(0, "start\nfrom-sh\nwarn\n", "from-sh\nwarn\n"), runScript(script, false, true));
+    }
+
+    @Test void showShellKeepsResultOnlyOutputToTheResult() throws IOException {
+        Run r = runScript("r = SHELL(\"echo building\")\nreturn {\"ok\": r.ok}\n", true, true);
+        assertEquals(new Run(0, "{\"ok\":true}\n", "building\n"), r);
+    }
+
+    /** {@code Main.main} with stdin, stdout and stderr of its own. */
+    private Run runMainStreams(String stdin, String... args) {
+        PrintStream out = System.out;
+        PrintStream err = System.err;
+        java.io.InputStream in = System.in;
+        ByteArrayOutputStream outBuf = new ByteArrayOutputStream();
+        ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outBuf, true, StandardCharsets.UTF_8));
+        System.setErr(new PrintStream(errBuf, true, StandardCharsets.UTF_8));
+        System.setIn(new java.io.ByteArrayInputStream(stdin.getBytes(StandardCharsets.UTF_8)));
+        try {
+            Main.main(args);
+        } finally {
+            System.setOut(out);
+            System.setErr(err);
+            System.setIn(in);
+        }
+        return new Run(0, outBuf.toString(StandardCharsets.UTF_8), errBuf.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test void showShellIsACommandLineOption() throws IOException {
+        Path f = Files.createTempFile("cli", ".tee");
+        Files.writeString(f, "r = SHELL(\"echo from-option\")\nPRINT(r.ok)\n");
+        try {
+            assertEquals(new Run(0, "true\n", ""), runMainStreams("", f.toString()));
+            assertEquals(new Run(0, "true\n", "from-option\n"), runMainStreams("", "--show-shell", f.toString()));
+            // after the script it is the script's argument, like any other
+            assertEquals(new Run(0, "true\n", ""), runMainStreams("", f.toString(), "--show-shell"));
+        } finally {
+            Files.deleteIfExists(f);
+        }
+        assertEquals(true, runMainStreams("", "--help").out().contains("--show-shell"));
+    }
+
+    @Test void showShellWorksInTheRepl() {
+        String input = "r = SHELL(\"echo from-repl\")\nr.ok\n";
+        assertEquals(new Run(0, "true\n", ""), runMainStreams(input));
+        assertEquals(new Run(0, "true\n", "from-repl\n"), runMainStreams(input, "--show-shell"));
+    }
 }

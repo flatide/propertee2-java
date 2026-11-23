@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.48.0
+
+**The CLI can show what `SHELL` commands print while they run: `--show-shell`** (CLI and
+`SimpleTaskRunner` only — no language or spec change, and nothing changes without the option).
+A command's output went only into the Result `SHELL` returns, so on a terminal nothing appeared
+until the command had ended and the script printed it.
+
+- **`propertee2 --show-shell script.tee`** (script mode and the REPL; not `--dap`) writes every
+  command's output — stdout and stderr, as the command's bytes — to stderr while the command
+  runs. What `SHELL` returns and what goes to stdout are the same with and without it, so
+  `> out.txt` and `--result-only` keep working; a script that prints the value shows it twice on
+  a terminal.
+- It goes out in whole lines: the lines of commands running at the same time in a `multi` block
+  follow one another instead of mixing (they are not marked with their command). A last line
+  without a line break gets one, and a line longer than 64 KiB goes out in pieces.
+- A program that collects its output before writing it to a pipe still shows it late — `python3`
+  needs `-u`, for one.
+- `new SimpleTaskRunner(OutputStream live)` gives an embedding host the same. A stream that
+  cannot be written to stops being written to for that command; the output is still captured.
+- TeeBox is not affected: it runs commands through its own runner, which records each task's
+  output and shows it on the run page.
+
+Tests: `ShellTest` (+6: output arriving while the command runs, the Result as it was, whole lines
+from three commands running together, a long line in pieces, the line break after a last line
+that went out in pieces, a stream that fails), `CliTest` (+4: stderr and stdout apart, with
+`--result-only`, the option on the command line, the REPL).
+
 ## 0.47.0
 
 **Function calls nest 64 deep, and a Java Error in a `multi` worker is that thread's error**

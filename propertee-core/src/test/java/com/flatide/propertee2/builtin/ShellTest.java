@@ -302,4 +302,166 @@ class ShellTest {
             runner.shutdown();
         }
     }
+
+    // ---- SimpleTaskRunner(live): a task's output is also written to a stream while it runs ----
+
+    private static String text(java.io.ByteArrayOutputStream bytes) {
+        return bytes.toString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** A command that waits, after {@code before}, until the returned file exists. */
+    private static java.nio.file.Path gate() throws java.io.IOException {
+        java.nio.file.Path gate = java.nio.file.Files.createTempFile("shell-gate", ".tmp");
+        java.nio.file.Files.delete(gate);
+        return gate;
+    }
+
+    private static String waitFor(java.nio.file.Path gate) {
+        return "while [ ! -e '" + gate + "' ]; do sleep 0.05; done";
+    }
+
+    private static void await(java.util.function.BooleanSupplier reached) throws InterruptedException {
+        long deadline = System.nanoTime() + 10_000_000_000L;
+        while (!reached.getAsBoolean() && System.nanoTime() < deadline) Thread.sleep(20);
+    }
+
+    @Test void liveOutputArrivesWhileTheCommandRuns() throws Exception {
+        java.io.ByteArrayOutputStream live = new java.io.ByteArrayOutputStream();
+        com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner(live);
+        java.nio.file.Path gate = gate();
+        try {
+            TaskRequest request = new TaskRequest();
+            request.command = "echo first; " + waitFor(gate) + "; echo second";
+            request.mergeErrorToStdout = true;
+            Task task = runner.execute(request);
+            await(() -> live.size() > 0);
+            assertEquals("first\n", text(live));
+            assertEquals(true, runner.getTask(task.taskId).alive, "the command has not ended yet");
+
+            java.nio.file.Files.createFile(gate);
+            runner.waitForCompletion(task.taskId, 0);
+            assertEquals("first\nsecond\n", text(live));
+            assertEquals("first\nsecond\n", runner.getStdout(task.taskId), "and it is captured as before");
+        } finally {
+            runner.shutdown();
+            java.nio.file.Files.deleteIfExists(gate);
+        }
+    }
+
+    @Test void liveOutputLeavesTheShellResultAsItWas() {
+        String script = """
+                r = SHELL("echo out; echo err 1>&2; printf 'no line break'")
+                PRINT(r.ok)
+                PRINT(r.value)
+                f = SHELL("echo before; exit 3")
+                PRINT(f.ok)
+                PRINT(f.value)
+                """;
+        String expected = "true\nout\nerr\nno line break\nfalse\nbefore\n";
+        com.flatide.propertee2.task.SimpleTaskRunner plain = new com.flatide.propertee2.task.SimpleTaskRunner();
+        java.io.ByteArrayOutputStream live = new java.io.ByteArrayOutputStream();
+        com.flatide.propertee2.task.SimpleTaskRunner shown = new com.flatide.propertee2.task.SimpleTaskRunner(live);
+        try {
+            assertEquals(expected, new Engine().setTaskRunner(plain).run(script));
+            assertEquals(expected, new Engine().setTaskRunner(shown).run(script));
+            // stderr is shown with stdout, and a last line without a line break gets one
+            assertEquals("out\nerr\nno line break\nbefore\n", text(live));
+        } finally {
+            plain.shutdown();
+            shown.shutdown();
+        }
+    }
+
+    @Test void liveOutputOfCommandsRunningTogetherStaysInWholeLines() {
+        java.io.ByteArrayOutputStream live = new java.io.ByteArrayOutputStream();
+        com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner(live);
+        try {
+            // each line is written in two parts, so the parts of different commands reach the runner mixed
+            new Engine().setTaskRunner(runner).run("""
+                    function job(name) do
+                        return SHELL("i=1; while [ $i -le 200 ]; do printf '%s-%s-' " + name + " $i; printf 'end\\n'; i=$((i+1)); done")
+                    end
+                    multi result do
+                        thread a: job("a")
+                        thread b: job("b")
+                        thread c: job("c")
+                    end
+                    """);
+            Map<String, Integer> next = new java.util.HashMap<>(Map.of("a", 1, "b", 1, "c", 1));
+            String[] lines = text(live).split("\n");
+            assertEquals(600, lines.length);
+            for (String line : lines) {
+                String[] parts = line.split("-");
+                assertEquals(3, parts.length, line);
+                assertEquals("end", parts[2], line);
+                assertEquals(next.get(parts[0]), Integer.valueOf(parts[1]), "each command's lines in its order: " + line);
+                next.put(parts[0], next.get(parts[0]) + 1);
+            }
+        } finally {
+            runner.shutdown();
+        }
+    }
+
+    @Test void aLongLineIsShownInPieces() throws Exception {
+        java.io.ByteArrayOutputStream live = new java.io.ByteArrayOutputStream();
+        com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner(live);
+        java.nio.file.Path gate = gate();
+        try {
+            TaskRequest request = new TaskRequest();
+            request.command = "head -c 100000 /dev/zero | tr '\\0' x; " + waitFor(gate) + "; echo; echo next";
+            request.mergeErrorToStdout = true;
+            Task task = runner.execute(request);
+            await(() -> live.size() >= 64 * 1024);
+            assertEquals(true, live.size() >= 64 * 1024, "the line does not wait for its end: " + live.size());
+            assertEquals(true, runner.getTask(task.taskId).alive);
+
+            java.nio.file.Files.createFile(gate);
+            runner.waitForCompletion(task.taskId, 0);
+            assertEquals("x".repeat(100000) + "\nnext\n", text(live));
+        } finally {
+            runner.shutdown();
+            java.nio.file.Files.deleteIfExists(gate);
+        }
+    }
+
+    @Test void aLastLineThatWentOutInPiecesStillGetsItsLineBreak() {
+        // 64 KiB without a line break: all of it has gone out as a piece when the output ends
+        java.io.ByteArrayOutputStream live = new java.io.ByteArrayOutputStream();
+        com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner(live);
+        try {
+            String out = new Engine().setTaskRunner(runner).run("""
+                    r = SHELL("head -c 65536 /dev/zero | tr '\\0' x")
+                    PRINT(LEN(r.value))
+                    """);
+            assertEquals("65536\n", out);
+            assertEquals("x".repeat(65536) + "\n", text(live));
+        } finally {
+            runner.shutdown();
+        }
+    }
+
+    @Test void aStreamThatCannotBeWrittenToDoesNotLoseTheOutput() {
+        AtomicInteger writes = new AtomicInteger();
+        java.io.OutputStream closed = new java.io.OutputStream() {
+            @Override public void write(int b) throws java.io.IOException {
+                throw new java.io.IOException("closed");
+            }
+            @Override public void write(byte[] b, int off, int len) throws java.io.IOException {
+                writes.incrementAndGet();
+                throw new java.io.IOException("closed");
+            }
+        };
+        com.flatide.propertee2.task.SimpleTaskRunner runner = new com.flatide.propertee2.task.SimpleTaskRunner(closed);
+        try {
+            String out = new Engine().setTaskRunner(runner).run("""
+                    r = SHELL("echo one; sleep 0.3; echo two; sleep 0.3; echo three")
+                    PRINT(r.ok)
+                    PRINT(r.value)
+                    """);
+            assertEquals("true\none\ntwo\nthree\n", out);
+            assertEquals(1, writes.get(), "the command's output is not passed on after the failure");
+        } finally {
+            runner.shutdown();
+        }
+    }
 }

@@ -21,7 +21,8 @@ import java.util.Map;
  * Reads the script, runs it through the {@link Engine}, and prints its stdout; with no script file
  * it starts the interactive {@link Repl} on stdin. Host-injected built-in properties are supplied
  * as a JSON object via {@code -p} (LANGUAGE.md §Built-in Properties). {@code --result-only} prints
- * the script's result as JSON in place of its output.
+ * the script's result as JSON in place of its output. {@code --show-shell} shows what {@code SHELL}
+ * commands print, on stderr, while they run.
  *
  * <p>Exit codes (spec v0.37.0): 0 = the run completed; 1 = it failed or was refused — a runtime error,
  * whether an {@code on error} handler ran or not, a syntax error, a refusal at load, a module error, or
@@ -36,6 +37,7 @@ public final class Main {
         String file = null;
         boolean interactive = false;
         boolean resultOnly = false;
+        boolean showShell = false;
         Path moduleRoot = null;
         java.util.List<String> scriptArgs = new java.util.ArrayList<>();
 
@@ -56,6 +58,7 @@ public final class Main {
                 }
                 case "-i", "--interactive" -> interactive = true;
                 case "--result-only" -> resultOnly = true;
+                case "--show-shell" -> showShell = true;
                 case "--module-root" -> {
                     if (i + 1 >= args.length) fail("missing directory after --module-root");
                     moduleRoot = Path.of(args[++i]);
@@ -92,7 +95,7 @@ public final class Main {
                 Repl.run(props, scriptArgs,
                         new java.io.BufferedReader(new java.io.InputStreamReader(System.in, StandardCharsets.UTF_8)),
                         System.out, System.err, System.console() != null, version(), file,
-                        resolvedModuleRoot);
+                        resolvedModuleRoot, showShell);
             } catch (ModuleResolutionException e) {
                 System.err.println("propertee2: " + e.getMessage());
                 System.exit(1);
@@ -102,8 +105,13 @@ public final class Main {
             }
             return;
         }
-        int code = run(file, props, scriptArgs, moduleRoot, resultOnly, System.out, System.err);
+        int code = run(file, props, scriptArgs, moduleRoot, resultOnly, showShell, System.out, System.err);
         if (code != 0) System.exit(code);
+    }
+
+    static int run(String file, Map<String, Object> props, java.util.List<String> scriptArgs,
+                   Path configuredModuleRoot, boolean resultOnly, PrintStream out, PrintStream err) {
+        return run(file, props, scriptArgs, configuredModuleRoot, resultOnly, false, out, err);
     }
 
     /**
@@ -113,10 +121,12 @@ public final class Main {
      * {@link Engine.Outcome#result()} as one line of JSON — while runtime diagnostics stay on
      * {@code err}; a runtime error then goes to {@code err} as well and exits 1. After a failure the
      * result is the value the script's {@code on error} handler returned, when one ran, and nothing
-     * otherwise.
+     * otherwise. With {@code showShell} the output of {@code SHELL} commands is also written to
+     * {@code err} while they run; {@code out} and what {@code SHELL} returns are the same either way.
      */
     static int run(String file, Map<String, Object> props, java.util.List<String> scriptArgs,
-                   Path configuredModuleRoot, boolean resultOnly, PrintStream out, PrintStream err) {
+                   Path configuredModuleRoot, boolean resultOnly, boolean showShell,
+                   PrintStream out, PrintStream err) {
 
         String source;
         try {
@@ -132,7 +142,7 @@ public final class Main {
         // SHELL works out of the box (0.19.0, like the v1 CLI): an in-process SimpleTaskRunner
         // executes commands via /bin/sh -c. The bare Engine keeps its UnsupportedTaskRunner
         // default — only the CLI wires this.
-        SimpleTaskRunner taskRunner = new SimpleTaskRunner();
+        SimpleTaskRunner taskRunner = new SimpleTaskRunner(showShell ? err : null);
         try {
             // Live sinks (like the v1 CLI): program output streams to stdout as it prints; runtime
             // diagnostics ([THREAD ERROR]/[MONITOR ERROR]/loop warnings) go to stderr, as in v1/js.
@@ -202,7 +212,7 @@ public final class Main {
 
     private static void usage(PrintStream out) {
         out.println("""
-                usage: propertee2 [-p <json-object>] [--module-root <dir>] [-i | --result-only] [script.tee] [args...]
+                usage: propertee2 [-p <json-object>] [--module-root <dir>] [--show-shell] [-i | --result-only] [script.tee] [args...]
 
                   With no script file, starts an interactive REPL on stdin. In the REPL
                   (and under -i) a `debug` statement pauses the run and opens a pdb-style
@@ -220,6 +230,9 @@ public final class Main {
                                        a runtime error, or a result JSON cannot hold (Infinity,
                                        NaN), goes to stderr with exit code 1; after a failure
                                        the result is what an `on error` handler returned
+                  --show-shell         show what SHELL commands print, on stderr, while they
+                                       run, line by line. SHELL returns the same output as
+                                       without it, and stdout is unchanged
 
                   Exit codes: 0 the run completed, 1 it failed or was refused, 2 bad usage.
                   --module-root <dir>  root used to resolve imported module paths (defaults

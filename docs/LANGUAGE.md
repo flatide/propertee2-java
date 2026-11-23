@@ -1785,6 +1785,10 @@ script that needs complete large output should redirect the command to a file (o
 host-provided streaming facility) and read it explicitly. The monitor's `shell.output` is only a
 one-line progress tail and is never a complete-output contract.
 
+(Runtime note, 0.48.0: started with `--show-shell`, the `propertee2` CLI also writes a command's output to
+stderr while the command runs, line by line; what `SHELL` returns is the same. TeeBox shows a
+task's output on the run page.)
+
 ### HTTP
 
 | Function | Description |

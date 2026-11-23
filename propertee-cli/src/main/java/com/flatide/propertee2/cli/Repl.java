@@ -72,8 +72,17 @@ final class Repl {
                     BufferedReader in, PrintStream out, PrintStream err,
                     boolean interactive, String version, String preload,
                     Path moduleRoot) throws IOException {
+        run(props, args, in, out, err, interactive, version, preload, moduleRoot, false);
+    }
+
+    /** {@code showShell}: the output of SHELL commands is also written to {@code err} while they run. */
+    static void run(Map<String, Object> props, java.util.List<String> args,
+                    BufferedReader in, PrintStream out, PrintStream err,
+                    boolean interactive, String version, String preload,
+                    Path moduleRoot, boolean showShell) throws IOException {
         // SHELL works in the REPL too (0.19.0): the same in-process SimpleTaskRunner as script mode.
-        com.flatide.propertee2.task.SimpleTaskRunner taskRunner = new com.flatide.propertee2.task.SimpleTaskRunner();
+        com.flatide.propertee2.task.SimpleTaskRunner taskRunner =
+                new com.flatide.propertee2.task.SimpleTaskRunner(showShell ? err : null);
         try {
             run(props, args, taskRunner, in, out, err, interactive, version, preload, moduleRoot);
         } finally {
