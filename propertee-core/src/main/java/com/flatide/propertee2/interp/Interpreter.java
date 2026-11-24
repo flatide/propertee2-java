@@ -1060,6 +1060,11 @@ public final class Interpreter {
             return nl >= 0 ? text.substring(0, nl).stripTrailing() + " …" : text;
         }
 
+        @Override public String sourceText() {
+            org.antlr.v4.runtime.CharStream source = at.getStart().getInputStream();
+            return source.getText(org.antlr.v4.runtime.misc.Interval.of(0, source.size() - 1));
+        }
+
         @Override public List<DebugCallSite> callStack() {
             return List.copyOf(ec().callStack);   // outermost first (callUser appends at the tail)
         }

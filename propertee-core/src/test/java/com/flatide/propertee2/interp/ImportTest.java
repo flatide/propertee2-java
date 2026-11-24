@@ -174,6 +174,18 @@ class ImportTest {
         assertEquals(List.of("module:worker:2:1"), breaks);
     }
 
+    @Test void sourceTextOfAStopInAnImportedFunctionIsTheModule() {
+        String module = "function run() do\n    debug\n    return 7\nend\n";
+        List<String> texts = new ArrayList<>();
+        Engine.Session session = new Engine().setModuleResolver(modules(Map.of("worker", module)))
+                .session(Map.of(), ignored -> {}, ignored -> {})
+                .setDebugHandler(frame -> texts.add(frame.sourceText()));
+
+        session.eval("import worker as w\nw::run()\n");
+
+        assertEquals(List.of(module), texts);
+    }
+
     @Test void rejectedSessionImportDoesNotPartiallyInstallEarlierAliases() {
         List<String> output = new ArrayList<>();
         Engine.Session session = new Engine().setModuleResolver(modules(Map.of(

@@ -351,6 +351,123 @@ class ReplTest {
         assertEquals("", r.err());
     }
 
+    // ---- :list at the debug> prompt ------------------------------------------------------------
+
+    @Test void listAtTheDebugPromptShowsTheLinesAroundThePausedOne() throws IOException {
+        StringBuilder source = new StringBuilder();
+        for (int i = 1; i <= 30; i++) {
+            source.append(i == 15 || i == 30 ? "debug" : "x" + i + " = " + i).append('\n');
+        }
+        String script = tempScript(source.toString());
+        Run r = repl(":run " + script + "\n:list\n:c\n:l\n:c\n");
+        assertEquals("""
+                debug at line 15:1
+                10   x10 = 10
+                11   x11 = 11
+                12   x12 = 12
+                13   x13 = 13
+                14   x14 = 14
+                15 > debug
+                16   x16 = 16
+                17   x17 = 17
+                18   x18 = 18
+                19   x19 = 19
+                20   x20 = 20
+                debug at line 30:1
+                25   x25 = 25
+                26   x26 = 26
+                27   x27 = 27
+                28   x28 = 28
+                29   x29 = 29
+                30 > debug
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void listAllAtTheDebugPromptShowsTheWholeSourceWithItsBreakpoints() throws IOException {
+        String script = tempScript(STEP_SCRIPT);
+        Run r = repl(":b 2\n:b 7\n:run " + script + "\n:c\n:list all\n:bd\n:c\n");
+        assertEquals("""
+                breakpoint added at line 2
+                breakpoint added at line 7
+                debug at line 6:1
+                breakpoint at line 7:1: b = inner(a)
+                 1   function inner(n) do
+                 2*      x = n * 2
+                 3       return x
+                 4   end
+                 5   a = 1
+                 6   debug
+                 7*> b = inner(a)
+                 8   PRINT(b)
+                all breakpoints deleted
+                2
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void listAtTheDebugPromptShowsTheInputAFunctionWasTypedIn() throws IOException {
+        // the pause is inside f, so the listing is the input that defined f, not the call
+        Run r = repl("""
+                function f(a) do
+                    b = a + 1
+                    debug
+                    return b
+                end
+                x = 1
+                f(x)
+                :l
+                :c
+                """);
+        assertEquals("""
+                debug at line 3:5
+                 1   function f(a) do
+                 2       b = a + 1
+                 3 >     debug
+                 4       return b
+                 5   end
+                2
+                """, r.out());
+        assertEquals("", r.err());
+    }
+
+    @Test void listAtTheDebugPromptInsideAnImportedFunctionShowsTheModule(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path root) throws IOException {
+        java.nio.file.Files.writeString(root.resolve("calc.tee"),
+                "function twice(n) do\n    debug\n    return n * 2\nend\n", StandardCharsets.UTF_8);
+        java.nio.file.Path script = root.resolve("main.tee");
+        java.nio.file.Files.writeString(script,
+                "import calc as c\nx = 1\nPRINT(c::twice(x))\n", StandardCharsets.UTF_8);
+        ByteArrayOutputStream outBuf = new ByteArrayOutputStream();
+        ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
+        // line 2 is a breakpoint of the script; the module's own line 2 is not one
+        Repl.run(Map.of(), java.util.List.of(),
+                new BufferedReader(new StringReader(":b 2\n:run " + script + "\n:l\n:c\n:l\n:c\n")),
+                new PrintStream(outBuf, true, StandardCharsets.UTF_8),
+                new PrintStream(errBuf, true, StandardCharsets.UTF_8),
+                false, "test", null, root);
+        assertEquals("""
+                breakpoint added at line 2
+                breakpoint at line 2:1: x = 1
+                 1   import calc as c
+                 2*> x = 1
+                 3   PRINT(c::twice(x))
+                debug at line 2:5
+                 1   function twice(n) do
+                 2 >     debug
+                 3       return n * 2
+                 4   end
+                2
+                """, outBuf.toString(StandardCharsets.UTF_8));
+        assertEquals("", errBuf.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test void listAtTheDebugPromptTakesOnlyAll() throws IOException {
+        Run r = repl("debug\n:list 3\n:c\n");
+        assertEquals("debug at line 1:1\n", r.out());
+        assertEquals("propertee2: usage: :list [all]\n", r.err());
+    }
+
     // ---- 0.34.0: :load only loads -------------------------------------------------------------
 
     @Test void loadOnlyLoadsAndRunRunsTheLoadedScript() throws IOException {

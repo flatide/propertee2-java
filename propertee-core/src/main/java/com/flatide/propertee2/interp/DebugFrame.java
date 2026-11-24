@@ -51,6 +51,13 @@ public interface DebugFrame {
     String statementText();
 
     /**
+     * The whole text of the source the paused statement is in — the entry script, an imported
+     * module, or the snippet a function was defined in — as it was when it was parsed, so its
+     * lines are the ones {@link #line()} counts. A file edited since then does not show here.
+     */
+    String sourceText();
+
+    /**
      * The paused run's user-function call stack, outermost call first; empty at top level. Only
      * calls made while a debug handler was attached are recorded (attach before the run).
      */

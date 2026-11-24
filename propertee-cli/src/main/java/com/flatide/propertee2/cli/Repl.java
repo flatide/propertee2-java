@@ -48,6 +48,11 @@ import java.util.Map;
  * default target of {@code :run}/{@code :debug}/{@code :list} — it does not run it, so the script
  * can be listed and given breakpoints before its first run. {@code -i script.tee} still runs the
  * script before the first prompt, like {@code python -i}.
+ *
+ * <p>Listing at a stop (0.49.0): at the {@code debug>} prompt {@code :list} (or {@code :l})
+ * shows the lines around the paused one and {@code :list all} the whole source, with {@code >} on
+ * the paused line. The source is the one the paused statement is in — the script, an imported
+ * module, or the input a function was typed in.
  */
 final class Repl {
     private Repl() {}
@@ -103,7 +108,7 @@ final class Repl {
                 .setFailureReporter(e -> out.println("Runtime error: " + e.positioned()))
                 .session(props, out::println, err::println);
         session.setDebugHandler(frame ->
-                debugSession(frame, session.debugBreakpoints(), in, out, err, interactive));
+                debugSession(frame, sourceId, session.debugBreakpoints(), in, out, err, interactive));
         if (interactive) {
             out.println("propertee2 " + version + " REPL — :help for commands, :exit or Ctrl-D to quit");
         }
@@ -217,15 +222,55 @@ final class Repl {
             err.println("propertee2: cannot read " + path + ": " + e.getMessage());
             return;
         }
+        String[] lines = lines(source);
+        printLines(lines, 1, lines.length, breakpoints, 0, out);
+    }
+
+    private static String[] lines(String source) {
         // A trailing newline should not render as a spurious final empty line.
         String body = source.endsWith("\n") ? source.substring(0, source.length() - 1) : source;
-        String[] lines = body.isEmpty() ? new String[0] : body.split("\n", -1);
+        return body.isEmpty() ? new String[0] : body.split("\n", -1);
+    }
+
+    /**
+     * Print lines {@code first..last} with their numbers and a {@code *} on breakpoint lines.
+     * With a paused line ({@code paused > 0}) there is one more column, holding {@code >} on it.
+     */
+    private static void printLines(String[] lines, int first, int last, java.util.Set<Integer> breakpoints,
+                                   int paused, PrintStream out) {
         int width = Math.max(2, Integer.toString(lines.length).length());
-        for (int i = 0; i < lines.length; i++) {
-            int lineNo = i + 1;
+        for (int lineNo = first; lineNo <= last; lineNo++) {
             String mark = breakpoints.contains(lineNo) ? "*" : " ";
-            out.println(String.format("%" + width + "d%s %s", lineNo, mark, lines[i]));
+            if (paused > 0) mark += lineNo == paused ? ">" : " ";
+            out.println(String.format("%" + width + "d%s %s", lineNo, mark, lines[lineNo - 1]));
         }
+    }
+
+    /** How many lines {@code :list} at the {@code debug>} prompt shows on each side of the paused one. */
+    private static final int LINES_AROUND = 5;
+
+    /**
+     * {@code :list [all]} (or {@code :l}) at the {@code debug>} prompt — the source the run is
+     * paused in, as it was when it was read: the lines around the paused one, or all of them.
+     * The breakpoints {@code :b} sets are lines of the session's own scripts and input, so they
+     * are marked only there, not in an imported module. Returns true when it consumed the input.
+     */
+    private static boolean listCommand(String trimmed, DebugFrame frame, String sessionSourceId,
+                                       java.util.Set<Integer> breakpoints, PrintStream out, PrintStream err) {
+        boolean longName = trimmed.equals(":list") || trimmed.startsWith(":list ");
+        if (!longName && !trimmed.equals(":l") && !trimmed.startsWith(":l ")) return false;
+        String arg = trimmed.substring(longName ? 5 : 2).trim();
+        if (!arg.isEmpty() && !arg.equals("all")) {
+            err.println("propertee2: usage: :list [all]");
+            return true;
+        }
+        String[] lines = lines(frame.sourceText());
+        int first = arg.isEmpty() ? Math.max(1, frame.line() - LINES_AROUND) : 1;
+        int last = arg.isEmpty() ? Math.min(lines.length, frame.line() + LINES_AROUND) : lines.length;
+        printLines(lines, first, last,
+                frame.sourceId().equals(sessionSourceId) ? breakpoints : java.util.Set.of(),
+                frame.line(), out);
+        return true;
     }
 
     /**
@@ -290,7 +335,8 @@ final class Repl {
      * is frozen while it reads. Bare input evaluates in the paused scope (same continuation rules
      * as the main loop); EOF continues the run, so piped input that ends mid-debug just resumes.
      */
-    private static void debugSession(DebugFrame frame, java.util.Set<Integer> breakpoints,
+    private static void debugSession(DebugFrame frame, String sessionSourceId,
+                                     java.util.Set<Integer> breakpoints,
                                      BufferedReader in, PrintStream out, PrintStream err,
                                      boolean interactive) {
         // the column from 1, as in the error report (spec v0.37.0); the frame counts it from 0
@@ -362,6 +408,7 @@ final class Repl {
                                   :s, :step      step into function calls
                                   :r, :return    run until the current function returns
                                   :w, :where     call stack and current position
+                                  :l, :list      the source around the paused line (:l all — all of it)
                                   :b [line]      list breakpoints / add one
                                   :bd [line]     delete one breakpoint / all of them
                                   :vars          the paused function's parameters and locals
@@ -372,6 +419,7 @@ final class Repl {
                     }
                     default -> {
                         if (breakpointCommand(trimmed, breakpoints, out, err)) continue;
+                        if (listCommand(trimmed, frame, sessionSourceId, breakpoints, out, err)) continue;
                     }
                 }
             }

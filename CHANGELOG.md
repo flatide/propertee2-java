@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.49.0
+
+**The debugger prompt can show the source: `:list` at `debug>`** (CLI and host API only — no
+language or spec change). `:list` worked only at the `pt>` prompt; at a stop it was read as script
+input and answered with a syntax error, so seeing the code around the stop meant leaving the
+debugger.
+
+- **`:list` (or `:l`) at `debug>`** shows the paused line with the five lines before and after
+  it, and **`:list all`** the whole source. `>` marks the paused line and `*` a breakpoint line.
+- The source is the one the paused statement is in — the script, an imported module, or the
+  input a function was typed in — as it was when it was read, so a file changed during the run
+  still lists with the line numbers the run uses. In a module no breakpoints are marked: `:b`
+  sets lines of the session's own scripts and input.
+- `:list` at `pt>` is unchanged (`:list [file]`, the whole file).
+- `DebugFrame.sourceText()` gives a host the same text. The interpreter's frame is the only
+  implementation here and in TeeBox; a host with its own `DebugFrame` must add the method.
+
+Tests: `ReplTest` (+5: the lines around the paused one in the middle and at the end of a script,
+the whole source with its breakpoints, the input a function was typed in, a module without the
+script's breakpoints, an argument other than `all`), `DebugHandlerTest` (+1) and `ImportTest`
+(+1: the source text of a stop in a snippet, in an earlier snippet's function, in a module).
+
 ## 0.48.0
 
 **The CLI can show what `SHELL` commands print while they run: `--show-shell`** (CLI and

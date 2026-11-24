@@ -493,6 +493,17 @@ class DebugHandlerTest {
         assertEquals("loop i in [1..2] do …", text[0]);
     }
 
+    /** The source text is the snippet the paused statement is in — not the one that called it. */
+    @Test void sourceTextIsTheSourceThePausedStatementIsIn() {
+        List<String> texts = new ArrayList<>();
+        Engine.Session s = session(new ArrayList<>(), frame -> texts.add(frame.sourceText()));
+        String defined = "// 두 배 😀\nfunction f() do\n    debug\n    return 1\nend\n";
+        String calling = "debug\nf()";
+        s.eval(defined);
+        s.eval(calling);
+        assertEquals(List.of(calling, defined), texts);
+    }
+
     /** A step armed when a run ends must not leak a break into the next snippet. */
     @Test void armedStepDoesNotLeakIntoTheNextRun() {
         List<String> out = new ArrayList<>();
