@@ -171,7 +171,7 @@ public final class TeeFormat {
         return null;
     }
 
-    private static String member(String key) {
+    public static String member(String key) {
         boolean plain = !key.isEmpty();
         for (int i = 0; i < key.length() && plain; i++) {
             char c = key.charAt(i);

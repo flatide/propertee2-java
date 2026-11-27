@@ -531,8 +531,14 @@ public final class Builtins {
             for (Object v : m.values()) out.add(Values.deepCopy(v));
             return out;
         });
-        b.register("HAS_KEY", Kind.PURE, args -> object("HAS_KEY", arg("HAS_KEY", args, 0))
-                .containsKey(string("HAS_KEY", arg("HAS_KEY", args, 1))));
+        // HAS_KEY and GET follow their keys into nested data (spec v0.38.0): one asks, one reads.
+        b.register("HAS_KEY", Kind.PURE, args -> follow("HAS_KEY", args).missing() == null);
+        b.register("GET", Kind.PURE, args -> {
+            Followed f = follow("GET", args);
+            return f.missing() == null
+                    ? Result.ok(Values.deepCopy(f.value()))
+                    : Result.error("GET() " + f.missing() + " does not exist");
+        });
         // ENTRIES -> [ {"key":k, "value":v}, ... ] in insertion order (82_map_extensions).
         b.register("ENTRIES", Kind.PURE, args -> {
             Map<String, Object> m = object("ENTRIES", arg("ENTRIES", args, 0));
@@ -1183,6 +1189,50 @@ public final class Builtins {
             case "ALIGN_RIGHT" -> " ".repeat(fill) + text;
             default -> " ".repeat(fill / 2) + text + " ".repeat(fill - fill / 2);
         };
+    }
+
+    /** Where the keys of HAS_KEY/GET led: the value reached, or the place of the first step not there. */
+    private record Followed(Object value, String missing) {}
+
+    /**
+     * Follows the keys {@code args[1..]} from {@code args[0]}, one step for each (spec v0.38.0). A
+     * string key names a member of an object; an integer key is a position in an array, from 1,
+     * and on an object the member of that number, as {@code obj.1} is. A step is not there when
+     * the member or the position is missing, a string key meets an array, or the value reached is
+     * neither an object nor an array — a string is not looked into.
+     *
+     * <p>The arguments are checked before the first step, so a wrong one is an error whatever the
+     * data holds. The place of a step not there is written as {@link TeeFormat#firstNonFinite}
+     * writes one: {@code b."unit price".2}.
+     */
+    private static Followed follow(String fn, List<Object> args) {
+        Object at = arg(fn, args, 0);
+        if (!(at instanceof Map) && !(at instanceof List)) {
+            throw new TeeError(fn + "() argument must be an object or an array");
+        }
+        arg(fn, args, 1);
+        for (int i = 1; i < args.size(); i++) {
+            Object key = args.get(i);
+            boolean integer = Values.isNumber(key) && Values.toDouble(key) == Math.floor(Values.toDouble(key))
+                    && !Double.isInfinite(Values.toDouble(key));
+            if (!(key instanceof String) && !integer) throw new TeeError(fn + "() keys must be strings or integers");
+        }
+        StringBuilder place = new StringBuilder();
+        for (int i = 1; i < args.size(); i++) {
+            Object key = args.get(i);
+            String name = key instanceof String s ? s : TeeFormat.display(key);
+            if (i > 1) place.append('.');
+            place.append(key instanceof String s ? TeeFormat.member(s) : name);
+            if (at instanceof Map<?, ?> object && object.containsKey(name)) {
+                at = object.get(name);
+            } else if (at instanceof List<?> array && !(key instanceof String)
+                    && Values.toDouble(key) >= 1 && Values.toDouble(key) <= array.size()) {
+                at = array.get((int) Values.toDouble(key) - 1);
+            } else {
+                return new Followed(null, place.toString());
+            }
+        }
+        return new Followed(at, null);
     }
 
     // ---- arg helpers -------------------------------------------------------

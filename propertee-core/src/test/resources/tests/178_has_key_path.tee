@@ -1,0 +1,50 @@
+// spec v0.38.0: HAS_KEY follows several keys into nested data, and answers false — not an error —
+// when a step is not there
+a = {"b": {"c": 1}, "users": [{"name": "Alice"}, {"name": "Bob", "tags": []}],
+     "n": null, "e": {}, "s": "text", "t": true, "1": "one", "unit price": {"2": "x"}}
+
+// objects
+PRINT(HAS_KEY(a, "b"), HAS_KEY(a, "b", "c"))
+PRINT(HAS_KEY(a, "b", "c", "d"))            // c holds a number
+PRINT(HAS_KEY(a, "b", "x", "d"))            // b has no x
+PRINT(HAS_KEY(a, "x", "y", "z"))            // nothing from the first step on
+
+// arrays: an integer key is a position, from 1
+PRINT(HAS_KEY(a, "users", 1), HAS_KEY(a, "users", 2, "name"))
+PRINT(HAS_KEY(a, "users", 3), HAS_KEY(a, "users", 0), HAS_KEY(a, "users", -1))
+PRINT(HAS_KEY(a, "users", "1"))             // a string key meets an array
+PRINT(HAS_KEY(a, "users", 2, "tags"), HAS_KEY(a, "users", 2, "tags", 1))
+PRINT(HAS_KEY(a.users, 1, "name"), HAS_KEY(a.users, 3, "name"), HAS_KEY([], 1))
+
+// an integer key on an object is the member of that number, as obj.1 is
+PRINT(HAS_KEY(a, 1), HAS_KEY(a, 2), HAS_KEY(a, "unit price", 2), HAS_KEY(a, 2 / 2))
+
+// a member holding null or {} is there; there is nothing inside it
+PRINT(HAS_KEY(a, "n"), HAS_KEY(a, "n", "k"), HAS_KEY(a, "e"), HAS_KEY(a, "e", "k"))
+
+// a string or a boolean is not looked into, though a.s.1 is a character
+PRINT(HAS_KEY(a, "s", 1), a.s.1, HAS_KEY(a, "t", "k"))
+
+// keys from variables, and the guard the check is for
+k = "users"
+i = 2
+if HAS_KEY(a, k, i, "name") and a.$k.$i.name == "Bob" then
+    PRINT("Bob is there")
+end
+if not HAS_KEY(a, k, i, "email") then
+    PRINT("no email")
+end
+
+// a Result is an object like any other
+r = OK({"x": 1})
+PRINT(HAS_KEY(r, "value", "x"), HAS_KEY(r, "value", "y"))
+
+// in a function and in a worker, on a global
+function has(first, second) do
+    return HAS_KEY(::a, first, second)
+end
+multi found do
+    thread yes: has("b", "c")
+    thread no: has("b", "z")
+end
+PRINT(has("users", 2), found.yes.value, found.no.value)

@@ -1,6 +1,6 @@
 # Conformance 테스트 목록 — v1 의미 동치 기준
 
-출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **172쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
+출처는 `propertee-java`(v1.0.0)의 84개 fixture이며 이후 스펙 배치마다 fixture를 추가했다. 현재 authoritative 목록은 `conformance/Fixtures.java`의 **175쌍**이다. v0.7.0 이후로는 "v1 의미 동치"가 아니라 "**현행 스펙 동치**"가 기준이다(의도적 divergence). 과거 배치별 상세는 아래 절을 따른다.
 
 ## 동치 정책
 
@@ -269,6 +269,16 @@ Java 쪽 문구와 위치는 `value/JsonParserTest`가 검사하고, 무작위�
 | `177_error_otherwise_set_in_call` | `otherwise` 블록은 변수를 직접(그 안의 `multi` setup 포함) 설정하고, 호출한 함수 안의 `::x` 할당은 해당하지 않음 |
 
 기존 fixture 59개는 두 가지만 바뀌었다: 에러 열이 1부터 세어지고(39개), 내장 함수 에러가 호출 위치를 갖는다(20개). 모든 변경을 줄 단위로 이 두 규칙으로만 설명되는지 확인했다. 호스트 쪽 — 핸들러 값(`TeeError.handler()`), 보고 순서, 실패 보고자, 세션, 모듈의 `_ERROR.source`, 로드 검사의 모서리 — 는 `interp/OnErrorTest`, 중지 시점은 `interpreter/FacadeTest`(에러 전의 중지는 `ProperTeeAborted`, 핸들러 중의 중지는 실패로 남음)가 검사한다. `interp/InterpreterTest`의 두 control-flow 누출 테스트는 이제 로드 시점 거부를 검사한다.
+
+## spec v0.38.0 없을 수도 있는 데이터: 키를 따라가는 `HAS_KEY`, `GET` (178-180)
+
+| fixture | 검증 내용 |
+|---|---|
+| `178_has_key_path` | 여러 키를 중첩된 데이터 안으로 따라감 — 객체 멤버, 배열 위치(1부터; 0·음수·범위 밖은 `false`), 문자열 키가 배열을 만남, 객체에서 정수 키는 그 숫자 이름의 멤버(`2 / 2`도 정수), `null`·`{}`를 담은 멤버는 있음, 숫자·문자열·불리언 안으로는 들어가지 않음(`a.s.1`은 문자인데도 `false`); `obj`가 배열, 변수 키, `and` 가드, Result 객체, 함수와 워커에서 전역 읽기 |
+| `179_get` | genuine Result(`status`·`ok`·`value`)로 모든 종류의 값 — 숫자·문자열·불리언·`null`·`{}`·객체·배열 — 을 돌려줌; 없을 때 메시지는 처음으로 없는 단계의 자리(`b.c.d`, `users.3`, `users."1"`, `"unit price"."3"`); `otherwise`의 값·`continue`·블록(`err.message`); 돌아온 객체·배열을 바꿔도 원본은 그대로; 함수와 워커; `UNWRAP(GET(...), message)`는 실행을 멈춤 |
+| `180_error_get_arguments` | 인자 에러는 데이터와 무관하게 런타임 에러 — 파싱하지 않은 JSON 텍스트·숫자·`null`이 `obj`, 불리언·소수·`null`·배열이 키(앞 키가 없어도), 키 없음 — thread 결과로 한꺼번에 |
+
+기존 fixture는 바뀌지 않았다(`48_has_key`는 키 하나짜리 호출만 쓴다).
 
 ## 카테고리별 목록 (v1 유래 84 fixtures)
 

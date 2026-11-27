@@ -1,0 +1,66 @@
+// spec v0.38.0: GET reads what HAS_KEY asks about and returns a Result — ok with what is there,
+// error naming the first step that is not
+a = {"b": {"c": 1, "list": [10, 20]}, "users": [{"name": "Alice"}, {"name": "Bob"}],
+     "n": null, "e": {}, "s": "text", "t": false, "1": "one", "unit price": {"2": "x"}}
+
+// what is there, of any kind: a number, a string, a boolean, null, an object, an array
+res = GET(a, "b", "c")
+PRINT(IS_RESULT(res), res.status, res.ok, res.value)
+PRINT(UNWRAP(GET(a, "s")), UNWRAP(GET(a, "t")), UNWRAP(GET(a, "n")), UNWRAP(GET(a, "e")))
+PRINT(UNWRAP(GET(a, "b")))
+PRINT(UNWRAP(GET(a, "b", "list")), UNWRAP(GET(a, "b", "list", 2)))
+PRINT(UNWRAP(GET(a, "users", 2)), UNWRAP(GET(a.users, 1, "name")))
+PRINT(UNWRAP(GET(a, 1)), UNWRAP(GET(a, "unit price", 2)), UNWRAP(GET(a, 2 / 2)))
+
+// not there: the message names the first such step
+function why(res) do
+    return TO_STRING(res.ok) + " " + res.value
+end
+PRINT(why(GET(a, "b", "c", "d")))
+PRINT(why(GET(a, "b", "x", "d")))
+PRINT(why(GET(a, "x")))
+PRINT(why(GET(a, "users", 3, "name")))
+PRINT(why(GET(a, "users", 0)))
+PRINT(why(GET(a, "users", "1")))
+PRINT(why(GET(a, "unit price", "3")))
+PRINT(why(GET(a, 2)))
+PRINT(why(GET(a, "n", "k")))
+PRINT(why(GET(a, "s", 1)))
+PRINT(why(GET([], 1)))
+
+// with otherwise: a value, the next item, a block
+c = GET(a, "b", "c") otherwise 0
+d = GET(a, "b", "c", "d") otherwise 0
+b = GET(a, "b") otherwise {}
+none = GET(a, "z") otherwise {}
+PRINT(c, d, b, none)
+loop user in a.users do
+    email = GET(user, "email") otherwise continue
+    PRINT("not reached", email)
+end
+port = GET(a, "http", "port") otherwise err do
+    PRINT("no port:", err.message)
+    port = 80
+end
+PRINT(port)
+
+// what comes back is a value of its own
+b.c = 99
+list = GET(a, "b", "list") otherwise []
+list.1 = 0
+PRINT(a.b.c, a.b.list)
+
+// in a function and in a worker, on a global
+function name(position) do
+    return GET(::a, "users", position, "name") otherwise "nobody"
+end
+multi names do
+    thread second: name(2)
+    thread third: name(3)
+end
+PRINT(name(1), names.second.value, names.third.value)
+
+// UNWRAP stops the run when the value must be there
+PRINT(UNWRAP(GET(a, "users", 1, "name")))
+PRINT(UNWRAP(GET(a, "users", 1, "email"), "user 1"))
+PRINT("not reached")

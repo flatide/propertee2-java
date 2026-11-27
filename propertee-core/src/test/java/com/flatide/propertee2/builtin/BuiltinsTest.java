@@ -151,6 +151,31 @@ class BuiltinsTest {
         assertEquals("{\"name\":\"Alice\",\"age\":30}", call("JSON_FORMAT", obj("name", "Alice", "age", 30)));
     }
 
+    @Test void hasKeyAndGetFollowKeys() {                 // spec v0.38.0: 178_has_key_path, 179_get
+        Map<String, Object> a = obj("b", obj("c", 1), "users", list(obj("name", "Alice")), "1", "one");
+        assertEquals(true, call("HAS_KEY", a, "b", "c"));
+        assertEquals(false, call("HAS_KEY", a, "b", "c", "d"));       // c holds a number
+        assertEquals(true, call("HAS_KEY", a, "users", 1, "name"));
+        assertEquals(false, call("HAS_KEY", a, "users", 2, "name"));
+        assertEquals(false, call("HAS_KEY", a, "users", "1"));        // a string key meets an array
+        assertEquals(true, call("HAS_KEY", a, 1.0));                  // a whole number is an integer
+        assertEquals(1, ((Map<?, ?>) call("GET", a, "b", "c")).get("value"));
+        assertEquals("GET() b.c.d does not exist", ((Map<?, ?>) call("GET", a, "b", "c", "d")).get("value"));
+        assertEquals("GET() users.2 does not exist", ((Map<?, ?>) call("GET", a, "users", 2, "name")).get("value"));
+        // what comes back is a copy: changing it leaves the object it was read from as it was
+        @SuppressWarnings("unchecked")
+        Map<String, Object> b = (Map<String, Object>) ((Map<?, ?>) call("GET", a, "b")).get("value");
+        b.put("c", 99);
+        assertEquals(1, ((Map<?, ?>) a.get("b")).get("c"));
+        // the arguments are checked before the first step
+        assertEquals("GET() argument must be an object or an array",
+                assertThrows(TeeError.class, () -> call("GET", "{}", "k")).getMessage());
+        assertEquals("HAS_KEY() keys must be strings or integers",
+                assertThrows(TeeError.class, () -> call("HAS_KEY", a, "missing", true)).getMessage());
+        assertEquals("GET() keys must be strings or integers",
+                assertThrows(TeeError.class, () -> call("GET", a, 1.5)).getMessage());
+    }
+
     @Test void jsonFormatRejectsNonFinite() {             // spec v0.32.0: 155_error_json_nonfinite
         double inf = Double.POSITIVE_INFINITY;
         assertEquals("JSON_FORMAT() value is Infinity, which JSON cannot represent",

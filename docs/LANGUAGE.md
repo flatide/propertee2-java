@@ -1,4 +1,4 @@
-# ProperTee Language Specification v0.37.0
+# ProperTee Language Specification v0.38.0
 
 ## Overview
 
@@ -374,7 +374,7 @@ person.$("na" + "me") // "Alice"
 
 `$::var` accesses a global variable as a key (equivalent to `$(::var)`).
 
-Accessing a property that doesn't exist is a runtime error.
+Accessing a property that doesn't exist is a runtime error. `HAS_KEY` asks first, and `GET` reads what may not be there — see [Data That May Not Be There](#data-that-may-not-be-there).
 
 ### Object Mutation
 
@@ -1496,12 +1496,66 @@ the letters `A` and `Z` on JavaScript.
 
 | Function | Description |
 |---|---|
-| `HAS_KEY(obj, key)` | Returns `true` if `obj` contains `key`, `false` otherwise. Both arguments required: `obj` must be an object, `key` must be a string. |
+| `HAS_KEY(obj, key, ...)` | Returns `true` if `obj` contains `key`, `false` otherwise. With more keys it follows them into nested data, one after another, and is `true` only when every one is there (spec v0.38.0). `obj` must be an object or an array; a key is a string or an integer. See [Data That May Not Be There](#data-that-may-not-be-there). |
+| `GET(obj, key, ...)` | Reads what `HAS_KEY` asks about (spec v0.38.0). Returns Result: `ok` with what is there — a number, a string, an object, an array, any value — `error` when it is not there. See [Data That May Not Be There](#data-that-may-not-be-there). |
 | `KEYS(obj)` | Returns an array of the object's keys in insertion order. `obj` must be an object. |
 | `VALUES(obj)` | Returns an array of the object's values in insertion order. |
 | `ENTRIES(obj)` | Returns array of `{"key": k, "value": v}` objects in insertion order. |
 | `MERGE(obj1, obj2)` | Returns new object with all entries from both. `obj2` values override `obj1` on key conflict. |
 | `REMOVE_KEY(obj, key)` | Returns new object without the specified key. No error if key absent. |
+
+#### Data That May Not Be There
+
+Reading a member that is not there is a runtime error, and so is reading a member of a number, a
+boolean or `null`. Data from outside — a JSON file, an HTTP response — often has a member in one
+record and not in the next, several levels down. `HAS_KEY` asks first, and `GET` reads and reports
+whether it could (spec v0.38.0):
+
+```
+a = {"b": {"c": 1}, "users": [{"name": "Alice"}]}
+
+HAS_KEY(a, "b", "c")                    // true
+HAS_KEY(a, "b", "c", "d")               // false: c holds a number, which has no members
+HAS_KEY(a, "b", "x", "d")               // false: b has no x
+HAS_KEY(a, "users", 1, "name")          // true
+HAS_KEY(a, "users", 2, "name")          // false: there is no second user
+
+c = GET(a, "b", "c") otherwise 0        // 1
+d = GET(a, "b", "c", "d") otherwise 0   // 0
+b = GET(a, "b") otherwise {}            // { "c": 1 }: an object or an array comes back whole
+```
+
+Both follow the keys from `obj`, one step for each key:
+
+- **A string key** names a member of an object.
+- **An integer key** is a position in an array, counted from 1. On an object it names the member
+  of that number, as `obj.1` does.
+- **A step is not there** when the object has no such member, the array has no such position, a
+  string key meets an array, or the value reached is not an object or an array. A string is not
+  looked into: `GET(a, "name", 1)` is not there, though `a.name.1` is a character.
+- **A member that holds `null` or `{}` is there.** The question is whether the member exists, not
+  what it holds.
+
+`HAS_KEY` is `true` when every step is there. `GET` returns a genuine Result: `ok` with what the
+last step reached, or `error` with a message naming the first step that is not there, written the
+way [`JSON_PARSE` writes a place](#numbers-and-json):
+
+```
+res = GET(a, "b", "c", "d")
+PRINT(res.ok, res.value)                    // false GET() b.c.d does not exist
+PRINT(GET(a, "users", 2, "name").value)     // GET() users.2 does not exist
+```
+
+What comes back is a value like any other: changing it does not change `a`. As a Result it takes
+a fallback from [`otherwise`](#otherwise) — a value, `continue`, a block — and `UNWRAP(GET(...))`
+reads a value that must be there.
+
+The arguments themselves are not data, and a wrong one is a runtime error, as with any built-in:
+
+- `obj` must be an object or an array: `GET() argument must be an object or an array`. A JSON
+  text that was not parsed is found this way on the first run.
+- A key must be a string or an integer: `GET() keys must be strings or integers`.
+- At least one key is required.
 
 ### Results and Error Escalation
 
@@ -1924,7 +1978,7 @@ The runtime makes an external call's Result: whatever the host function returns 
 
 Added in spec v0.10.0.
 
-**Genuine Results.** Result objects created by the runtime — Result-returning built-ins (`JSON_PARSE`, `SHELL`/`SHELL_CTX`, `HTTP`/`HTTP_GET`/`HTTP_POST`, the file-I/O group — all but `FILE_EXISTS`, which returns a plain boolean, and `FILE_LINES`, which returns a plain array), external function calls (sync and async, including timeout errors), and `multi` thread collection entries — and by the `OK`/`ERR` constructors are *genuine Results*: the runtime remembers their origin. A script object literal with the same three fields is a plain object, **not** a genuine Result. (Runtime note: the brand is `value/TeeResult`, a `LinkedHashMap` subclass — hosts embedding the engine can `instanceof`-check values they receive.)
+**Genuine Results.** Result objects created by the runtime — Result-returning built-ins (`JSON_PARSE`, `GET`, `SHELL`/`SHELL_CTX`, `HTTP`/`HTTP_GET`/`HTTP_POST`, the file-I/O group — all but `FILE_EXISTS`, which returns a plain boolean, and `FILE_LINES`, which returns a plain array), external function calls (sync and async, including timeout errors), and `multi` thread collection entries — and by the `OK`/`ERR` constructors are *genuine Results*: the runtime remembers their origin. A script object literal with the same three fields is a plain object, **not** a genuine Result. (Runtime note: the brand is `value/TeeResult`, a `LinkedHashMap` subclass — hosts embedding the engine can `instanceof`-check values they receive.)
 
 The distinction is invisible to `TYPE_OF` (still `"object"`), display, equality, and JSON serialization; it is observed only by `IS_RESULT`, `UNWRAP` and `otherwise` (spec v0.37.0). Copies of a genuine Result (assignment, argument passing, `PUSH`, deep copy) are genuine Results; field mutation does not remove the origin. The origin does not survive JSON: `JSON_FORMAT` renders a genuine Result as the plain three-field object, and nothing inside `JSON_PARSE`d data is a genuine Result (the wrapping Result returned by `JSON_PARSE` itself is genuine).
 
@@ -2101,6 +2155,8 @@ fallback        : K_CONTINUE                                 # FallbackContinue
 2. **Not try.** An error raised while the left side is computed — an argument, a member access,
    the body of a called function — stops the run as usual.
    `READ_JSON_FILE(f).enabled otherwise false` stops with `Property 'enabled' does not exist`.
+   A member that may not be there is read with `GET` (spec v0.38.0), which returns a Result:
+   `enabled = GET(config, "enabled") otherwise false`.
 3. **The fallback runs only on failure.** `otherwise defaultLines()` calls `defaultLines` only when
    the read failed. A value that came back normally — `false`, `0`, `""`, `[]`, `null` — is not a
    failure.
@@ -2397,6 +2453,8 @@ Common error conditions:
 | Too many arguments | Function 'foo' expects 2 argument(s), but 3 were provided |
 | Mixed type sort | SORT() requires all elements to be the same type (number or string) |
 | SORT_BY key missing | Property 'x' does not exist in array element at index N |
+| A `HAS_KEY`/`GET` first argument that is not an object or an array | GET() argument must be an object or an array |
+| A `HAS_KEY`/`GET` key that is not a string or an integer | GET() keys must be strings or integers |
 | Non-array sort | SORT() requires an array argument |
 | Range step not positive | Range step must be positive |
 | Range bounds not numbers | Range bounds must be numbers |
@@ -2434,6 +2492,37 @@ Common error conditions:
 ---
 
 ## Changelog
+
+### v0.38.0 — data that may not be there: `HAS_KEY` follows keys, and `GET`
+
+One new built-in and a wider `HAS_KEY`; no grammar change. Finding out whether `a.b.c.d` can be
+read took a check at every level — `HAS_KEY(a, "b") and TYPE_OF(a.b) == "object" and …` — because
+`HAS_KEY` looked at one object and failed on anything else, and reading a member that is not there
+is a runtime error, which `otherwise` does not take.
+
+- **`HAS_KEY(obj, key, ...)`** follows several keys into nested data and is `true` only when
+  every step is there. A step into a number, a string, a boolean or `null` gives `false`, not an
+  error.
+- **`GET(obj, key, ...)`** reads the same way and returns a Result: `ok` with what is there, an
+  object or an array included, or `error` naming the first step that is not there
+  (`GET() b.c.d does not exist`). With `otherwise` it reads with a fallback:
+  `timeout = GET(config, "http", "timeout") otherwise 30`.
+- An integer key is a position in an array, and `obj` may be an array.
+- The rules are in [Data That May Not Be There](#data-that-may-not-be-there).
+
+What changes for a `HAS_KEY` call that exists:
+
+- Arguments after the second were ignored, so `HAS_KEY(a, "b", "c")` answered for `"b"` alone.
+  They are now followed.
+- An array as `obj` and an integer as `key` were runtime errors; they now give an answer. The two
+  errors that remain read `HAS_KEY() argument must be an object or an array` (it was
+  `… must be an object`) and `HAS_KEY() keys must be strings or integers` (it was
+  `HAS_KEY() requires a string argument`).
+
+Not changed: reading a member that is not there is still a runtime error, and `otherwise` still
+looks only at a Result, so `a.b.c.d otherwise 0` stops at the access. A host external named `GET`
+replaces the new built-in, as with any catalog built-in ([Name Resolution](#name-resolution)). The
+active Java 25 and JavaScript runtimes implement this; the frozen Java 7/8 runtime does not.
 
 ### v0.37.0 — `on error`, `otherwise`, and the rules that come with them
 

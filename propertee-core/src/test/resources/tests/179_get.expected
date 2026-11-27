@@ -1,0 +1,24 @@
+true done true 1
+text false null {}
+{ "c": 1, "list": [ 10, 20 ] }
+[ 10, 20 ] 20
+{ "name": 'Bob' } Alice
+one x one
+false GET() b.c.d does not exist
+false GET() b.x does not exist
+false GET() x does not exist
+false GET() users.3 does not exist
+false GET() users.0 does not exist
+false GET() users."1" does not exist
+false GET() "unit price"."3" does not exist
+false GET() 2 does not exist
+false GET() n.k does not exist
+false GET() s.1 does not exist
+false GET() 1 does not exist
+1 0 { "c": 1, "list": [ 10, 20 ] } {}
+no port: GET() http does not exist
+80
+1 [ 10, 20 ]
+Alice Bob nobody
+Alice
+Runtime error: Runtime Error at line 65:7: user 1: GET() users.1.email does not exist

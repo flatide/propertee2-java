@@ -117,7 +117,9 @@ public final class Fixtures {
             "166_on_error_threads", "167_on_error_otherwise_block", "168_error_on_error_place",
             "169_error_on_error_twice", "170_error_on_error_name", "171_error_monitor_interval",
             "172_otherwise", "173_otherwise_threads", "174_error_otherwise",
-            "175_error_return_same_line", "176_error_continue_in_function", "177_error_otherwise_set_in_call");
+            "175_error_return_same_line", "176_error_continue_in_function", "177_error_otherwise_set_in_call",
+            // spec v0.38.0: HAS_KEY follows keys into nested data, and GET reads what may not be there
+            "178_has_key_path", "179_get", "180_error_get_arguments");
 
     /** Load a fixture's source ({@code <name>.tee}) from the test classpath. */
     public static String source(String name) {

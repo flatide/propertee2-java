@@ -1,0 +1,16 @@
+[THREAD ERROR] Runtime Error at line 4:12: GET() argument must be an object or an array
+[THREAD ERROR] Runtime Error at line 7:12: HAS_KEY() argument must be an object or an array
+[THREAD ERROR] Runtime Error at line 10:12: HAS_KEY() argument must be an object or an array
+[THREAD ERROR] Runtime Error at line 13:12: HAS_KEY() keys must be strings or integers
+[THREAD ERROR] Runtime Error at line 16:12: GET() keys must be strings or integers
+[THREAD ERROR] Runtime Error at line 19:12: GET() keys must be strings or integers
+[THREAD ERROR] Runtime Error at line 22:12: HAS_KEY() keys must be strings or integers
+[THREAD ERROR] Runtime Error at line 25:12: GET() missing argument 2
+textNotParsed false Runtime Error at line 4:12: GET() argument must be an object or an array
+numberAsObject false Runtime Error at line 7:12: HAS_KEY() argument must be an object or an array
+nullAsObject false Runtime Error at line 10:12: HAS_KEY() argument must be an object or an array
+booleanKey false Runtime Error at line 13:12: HAS_KEY() keys must be strings or integers
+fractionKey false Runtime Error at line 16:12: GET() keys must be strings or integers
+wrongKeyAfterAMissingOne false Runtime Error at line 19:12: GET() keys must be strings or integers
+arrayKey false Runtime Error at line 22:12: HAS_KEY() keys must be strings or integers
+noKey false Runtime Error at line 25:12: GET() missing argument 2

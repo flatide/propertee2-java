@@ -1,0 +1,39 @@
+// spec v0.38.0: what the arguments of HAS_KEY and GET are is not data. A wrong one is a runtime
+// error whatever the data holds — each caught here as its thread's error Result
+function textNotParsed() do
+    return GET("{\"enabled\": true}", "enabled") otherwise false
+end
+function numberAsObject() do
+    return HAS_KEY(5, "k")
+end
+function nullAsObject() do
+    return HAS_KEY(null, "k")
+end
+function booleanKey() do
+    return HAS_KEY({"true": 1}, true)
+end
+function fractionKey() do
+    return GET({"1.5": 1}, 1.5) otherwise 0
+end
+function wrongKeyAfterAMissingOne() do
+    return GET({}, "missing", null) otherwise 0
+end
+function arrayKey() do
+    return HAS_KEY({}, ["a", "b"])
+end
+function noKey() do
+    return GET({"a": 1}) otherwise 0
+end
+multi r do
+    thread textNotParsed: textNotParsed()
+    thread numberAsObject: numberAsObject()
+    thread nullAsObject: nullAsObject()
+    thread booleanKey: booleanKey()
+    thread fractionKey: fractionKey()
+    thread wrongKeyAfterAMissingOne: wrongKeyAfterAMissingOne()
+    thread arrayKey: arrayKey()
+    thread noKey: noKey()
+end
+loop k, e in r do
+    PRINT(k, e.ok, e.value)
+end

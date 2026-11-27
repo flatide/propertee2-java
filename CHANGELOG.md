@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.50.0
+
+**Spec v0.38.0 — data that may not be there: `HAS_KEY` follows keys, and `GET`.** One new built-in
+and a wider `HAS_KEY`; no grammar change. Finding out whether `a.b.c.d` can be read took a check
+at every level, because `HAS_KEY` looked at one object and failed on anything else, and reading a
+member that is not there is a runtime error, which `otherwise` does not take.
+
+- **`HAS_KEY(obj, key, ...)`** follows several keys into nested data and is `true` only when every
+  step is there. A step into a number, a string, a boolean or `null` gives `false`, not an error.
+- **`GET(obj, key, ...)`** reads the same way and returns a Result: `ok` with what is there — an
+  object or an array included, as a copy — or `error` naming the first step that is not there
+  (`GET() b.c.d does not exist`). `timeout = GET(config, "http", "timeout") otherwise 30`.
+- A string key names a member of an object; an integer key is a position in an array, from 1, and
+  on an object the member of that number. `obj` may be an array. A string is not looked into.
+- The arguments are checked before the first step, so a wrong one is an error whatever the data
+  holds: `GET() argument must be an object or an array`, `GET() keys must be strings or integers`.
+- **Changed for existing `HAS_KEY` calls:** arguments after the second were ignored
+  (`HAS_KEY(a, "b", "c")` answered for `"b"` alone) and are now followed; an array as `obj` and an
+  integer as `key` were runtime errors and now give an answer; the two remaining errors have new
+  text (they were `HAS_KEY() argument must be an object` and `HAS_KEY() requires a string
+  argument`).
+- `TeeFormat.member(key)` is public: how a key is written in a place (`b."unit price".2`).
+
+Fixtures 178–180 (175 in all, byte-identical with the JavaScript runtime): `178_has_key_path`,
+`179_get`, `180_error_get_arguments`. `BuiltinsTest` (+1).
+
 ## 0.49.0
 
 **The debugger prompt can show the source: `:list` at `debug>`** (CLI and host API only — no
